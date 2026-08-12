@@ -1,0 +1,29 @@
+{
+  "name": "multisports-store",
+  "private": true,
+  "version": "1.0.0",
+  "description": "MultiSports Store is a MERN stack multi-sports e-commerce application.",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix client\" \"npm run dev --prefix server\"",
+    "dev:client": "npm run dev --prefix client",
+    "dev:server": "npm run dev --prefix server",
+    "build": "npm run build --prefix client",
+    "lint": "npm run lint --prefix client"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muhammedZak/multisports-store.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/muhammedZak/multisports-store/issues"
+  },
+  "homepage": "https://github.com/muhammedZak/multisports-store#readme",
+  "devDependencies": {
+    "concurrently": "^10.0.4"
+  }
+}
