@@ -26,9 +26,26 @@ const clientOrigins = process.env.CLIENT_ORIGINS.split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+  throw new Error('SESSION_SECRET must contain at least 32 characters');
+}
+
+if (
+  !process.env.AUTH_CHALLENGE_SECRET ||
+  process.env.AUTH_CHALLENGE_SECRET.length < 32
+) {
+  throw new Error('AUTH_CHALLENGE_SECRET must contain at least 32 characters');
+}
+
 export const env = Object.freeze({
   nodeEnv,
   port,
   mongodbUri: process.env.MONGODB_URI,
   clientOrigins,
+
+  sessionSecret: process.env.SESSION_SECRET,
+  authChallengeSecret: process.env.AUTH_CHALLENGE_SECRET,
+
+  resendApiKey: process.env.RESEND_API_KEY || '',
+  resendFromEmail: process.env.RESEND_FROM_EMAIL || '',
 });
