@@ -13,11 +13,17 @@ export function errorHandler(err, req, res, next) {
       ? 'An unexpected server error occurred.'
       : err.message;
 
+  const error = {
+    code,
+    message,
+  };
+
+  if (err.fields) {
+    error.fields = err.fields;
+  }
+
   res.status(status).json({
     success: false,
-    error: {
-      code,
-      message,
-    },
+    error,
   });
 }

@@ -37,6 +37,14 @@ if (
   throw new Error('AUTH_CHALLENGE_SECRET must contain at least 32 characters');
 }
 
+if (!process.env.RESEND_API_KEY) {
+  throw new Error('RESEND_API_KEY is required');
+}
+
+if (!process.env.RESEND_FROM_EMAIL) {
+  throw new Error('RESEND_FROM_EMAIL is required');
+}
+
 export const env = Object.freeze({
   nodeEnv,
   port,
@@ -46,6 +54,6 @@ export const env = Object.freeze({
   sessionSecret: process.env.SESSION_SECRET,
   authChallengeSecret: process.env.AUTH_CHALLENGE_SECRET,
 
-  resendApiKey: process.env.RESEND_API_KEY || '',
-  resendFromEmail: process.env.RESEND_FROM_EMAIL || '',
+  resendApiKey: process.env.RESEND_API_KEY,
+  resendFromEmail: process.env.RESEND_FROM_EMAIL,
 });

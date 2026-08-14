@@ -10,4 +10,26 @@ export const authConfig = Object.freeze({
     resendCooldownMs: 60 * 1000,
     maxAttempts: 5,
   }),
+
+  rateLimits: Object.freeze({
+    registration: Object.freeze({
+      windowMs: 15 * 60 * 1000,
+      limit: 5,
+    }),
+
+    verification: Object.freeze({
+      windowMs: 10 * 60 * 1000,
+      limit: 20,
+    }),
+
+    resend: Object.freeze({
+      windowMs: 15 * 60 * 1000,
+      limit: 10,
+    }),
+
+    login: Object.freeze({
+      windowMs: 15 * 60 * 1000,
+      limit: 10,
+    }),
+  }),
 });

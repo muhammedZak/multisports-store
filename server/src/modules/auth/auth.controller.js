@@ -1,6 +1,25 @@
 import { getOrCreateCsrfToken } from '../../middleware/csrf.middleware.js';
 import { getSessionUser } from './auth.service.js';
 
+import {
+  validateEmailVerificationInput,
+  validateRegistrationInput,
+  validateVerificationResendInput,
+  validateLoginInput,
+} from './auth.validation.js';
+
+import {
+  registerCustomer,
+  resendEmailVerification,
+  verifyCustomerEmail,
+  authenticatePassword,
+} from './auth.service.js';
+
+import {
+  createAnonymousSession,
+  createAuthenticatedSession,
+} from './auth.session.js';
+
 export function getCsrfToken(req, res) {
   const csrfToken = getOrCreateCsrfToken(req);
 
@@ -42,6 +61,67 @@ export async function getSession(req, res) {
     data: {
       authenticated: true,
       user,
+    },
+  });
+}
+
+export async function register(req, res) {
+  const input = validateRegistrationInput(req.body);
+
+  const result = await registerCustomer(input);
+
+  res.status(201).json({
+    success: true,
+    data: result,
+  });
+}
+
+export async function verifyEmail(req, res) {
+  const input = validateEmailVerificationInput(req.body);
+
+  const result = await verifyCustomerEmail(input);
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+export async function resendVerificationEmail(req, res) {
+  const input = validateVerificationResendInput(req.body);
+
+  const result = await resendEmailVerification(input);
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+export async function login(req, res) {
+  const input = validateLoginInput(req.body);
+
+  const user = await authenticatePassword(input);
+
+  const csrfToken = await createAuthenticatedSession(req, user.id);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      user,
+      csrfToken,
+    },
+  });
+}
+
+export async function logout(req, res) {
+  const csrfToken = await createAnonymousSession(req);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      authenticated: false,
+      csrfToken,
     },
   });
 }
