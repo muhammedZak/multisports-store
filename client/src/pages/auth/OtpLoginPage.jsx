@@ -17,7 +17,9 @@ function OtpLoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { actionStatus, error } = useSelector((state) => state.auth);
+  const { actionStatus, error, googleLinkPending } = useSelector(
+    (state) => state.auth,
+  );
   const [step, setStep] = useState('request');
 
   const [email, setEmail] = useState(location.state?.email || '');
@@ -141,6 +143,15 @@ function OtpLoginPage() {
       <p className='mt-3 text-sm leading-6 text-neutral-600'>
         Enter your account email and we'll send you a one-time login code.
       </p>
+
+      {googleLinkPending && (
+        <div
+          role='status'
+          className='mt-6 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900'>
+          After verifying your login code, you will finish linking your Google
+          account.
+        </div>
+      )}
 
       {step === 'request' && (
         <form onSubmit={handleRequestOtp} className='mt-8 space-y-5'>

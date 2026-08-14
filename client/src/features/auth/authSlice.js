@@ -7,6 +7,7 @@ import {
   logoutCustomer,
   requestLoginOtp,
   verifyLoginOtp,
+  authenticateGoogle,
 } from '../../api/authApi.js';
 
 import { setCsrfToken } from '../../api/csrf.js';
@@ -21,6 +22,8 @@ const initialState = {
 
   actionStatus: 'idle',
   error: null,
+
+  googleLinkPending: false,
 };
 
 export const bootstrapAuth = createAsyncThunk(
@@ -58,6 +61,26 @@ export const login = createAsyncThunk(
       return result.user;
     } catch (error) {
       return rejectWithValue(normalizeApiError(error, 'Unable to log in.'));
+    }
+  },
+);
+
+export const signInWithGoogle = createAsyncThunk(
+  'auth/signInWithGoogle',
+
+  async ({ credential }, { rejectWithValue }) => {
+    try {
+      const result = await authenticateGoogle({
+        credential,
+      });
+
+      setCsrfToken(result.csrfToken);
+
+      return result.user;
+    } catch (error) {
+      return rejectWithValue(
+        normalizeApiError(error, 'Unable to continue with Google.'),
+      );
     }
   },
 );
@@ -116,6 +139,14 @@ const authSlice = createSlice({
     clearAuthError(state) {
       state.error = null;
     },
+
+    clearGoogleLinkPending(state) {
+      state.googleLinkPending = false;
+
+      if (state.error?.code === 'ACCOUNT_LINK_REQUIRED') {
+        state.error = null;
+      }
+    },
   },
 
   extraReducers: (builder) => {
@@ -157,6 +188,31 @@ const authSlice = createSlice({
         state.error = action.payload;
       })
 
+      .addCase(signInWithGoogle.pending, (state) => {
+        state.actionStatus = 'loading';
+        state.error = null;
+      })
+
+      .addCase(signInWithGoogle.fulfilled, (state, action) => {
+        state.actionStatus = 'idle';
+
+        state.user = action.payload;
+
+        state.googleLinkPending = false;
+
+        state.error = null;
+      })
+
+      .addCase(signInWithGoogle.rejected, (state, action) => {
+        state.actionStatus = 'idle';
+
+        state.error = action.payload;
+
+        if (action.payload?.code === 'ACCOUNT_LINK_REQUIRED') {
+          state.googleLinkPending = true;
+        }
+      })
+
       .addCase(requestOtpLogin.pending, (state) => {
         state.actionStatus = 'loading';
         state.error = null;
@@ -196,6 +252,7 @@ const authSlice = createSlice({
       .addCase(logout.fulfilled, (state) => {
         state.actionStatus = 'idle';
         state.user = null;
+        state.googleLinkPending = false;
         state.error = null;
       })
 
@@ -206,6 +263,6 @@ const authSlice = createSlice({
   },
 });
 
-export const { clearAuthError } = authSlice.actions;
+export const { clearAuthError, clearGoogleLinkPending } = authSlice.actions;
 
 export default authSlice.reducer;

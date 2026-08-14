@@ -4,14 +4,22 @@ import { Link, useLocation, useNavigate } from 'react-router';
 
 import { useDispatch, useSelector } from 'react-redux';
 
-import { clearAuthError, login } from '../../features/auth/authSlice.js';
+import {
+  clearAuthError,
+  login,
+  signInWithGoogle,
+} from '../../features/auth/authSlice.js';
+
+import GoogleSignInButton from '../../features/auth/GoogleSignInButton.jsx';
 
 function LoginPage() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { actionStatus, error } = useSelector((state) => state.auth);
+  const { actionStatus, error, googleLinkPending } = useSelector(
+    (state) => state.auth,
+  );
 
   const [form, setForm] = useState({
     email: location.state?.email || '',
@@ -56,6 +64,22 @@ function LoginPage() {
     }
   }
 
+  async function handleGoogleCredential(credential) {
+    const result = await dispatch(
+      signInWithGoogle({
+        credential,
+      }),
+    );
+
+    if (signInWithGoogle.fulfilled.match(result)) {
+      const destination = location.state?.from || '/account';
+
+      navigate(destination, {
+        replace: true,
+      });
+    }
+  }
+
   return (
     <div>
       <p className='text-sm font-medium uppercase tracking-[0.2em] text-neutral-500'>
@@ -76,7 +100,45 @@ function LoginPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className='mt-8 space-y-5'>
+      <div className='mt-8'>
+        <GoogleSignInButton
+          disabled={loading}
+          onCredential={handleGoogleCredential}
+        />
+      </div>
+
+      <div className='my-6 flex items-center gap-4'>
+        <div className='h-px flex-1 bg-neutral-200' />
+
+        <span className='text-sm text-neutral-500'>or</span>
+
+        <div className='h-px flex-1 bg-neutral-200' />
+      </div>
+
+      {googleLinkPending && (
+        <div
+          role='status'
+          className='mb-6 border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900'>
+          <p className='font-medium'>
+            This email already has a MultiSports Store account.
+          </p>
+
+          <p className='mt-2 leading-6'>
+            Sign in with your password or email login code to prove that you own
+            the existing account. After login, you can finish linking Google.
+          </p>
+
+          <button
+            type='button'
+            disabled={loading}
+            onClick={() => dispatch(clearGoogleLinkPending())}
+            className='mt-3 font-medium underline underline-offset-4 disabled:opacity-50'>
+            Cancel Google linking
+          </button>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className='space-y-5'>
         <div>
           <label htmlFor='email' className='mb-2 block text-sm font-medium'>
             Email
@@ -123,7 +185,7 @@ function LoginPage() {
           )}
         </div>
 
-        {error && (
+        {error && error.code !== 'ACCOUNT_LINK_REQUIRED' && (
           <div
             role='alert'
             className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>

@@ -42,6 +42,12 @@ export async function loginCustomer(payload) {
   return response.data.data;
 }
 
+export async function authenticateGoogle(payload) {
+  const response = await apiClient.post('/auth/google', payload);
+
+  return response.data.data;
+}
+
 export async function requestLoginOtp(payload) {
   const response = await apiClient.post('/auth/otp/request', payload);
 
