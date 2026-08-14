@@ -177,3 +177,56 @@ export function validateLoginInput(body) {
     password,
   };
 }
+
+export function validateOtpRequestInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, ['email']);
+
+  const email = normalizeEmail(body.email);
+
+  if (!EMAIL_REGEX.test(email)) {
+    throwValidationError({
+      email: 'Enter a valid email address.',
+    });
+  }
+
+  return {
+    email,
+  };
+}
+
+export function validateOtpLoginVerificationInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, ['email', 'otp']);
+
+  const email = normalizeEmail(body.email);
+
+  const otp = typeof body.otp === 'string' ? body.otp.trim() : '';
+
+  const fields = {};
+
+  if (!EMAIL_REGEX.test(email)) {
+    fields.email = 'Enter a valid email address.';
+  }
+
+  const otpPattern = new RegExp(
+    `^\\d{${authConfig.emailVerification.otpLength}}$`,
+  );
+
+  if (!otpPattern.test(otp)) {
+    fields.otp =
+      `Login code must contain ` +
+      `${authConfig.emailVerification.otpLength} digits.`;
+  }
+
+  if (Object.keys(fields).length > 0) {
+    throwValidationError(fields);
+  }
+
+  return {
+    email,
+    otp,
+  };
+}

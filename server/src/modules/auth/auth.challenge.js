@@ -4,6 +4,7 @@ import { env } from '../../config/env.js';
 import { authConfig } from './auth.config.js';
 
 export const EMAIL_VERIFICATION_PURPOSE = 'email_verification';
+export const OTP_LOGIN_PURPOSE = 'otp_login';
 
 export function generateVerificationOtp() {
   const maxValue = 10 ** authConfig.emailVerification.otpLength;

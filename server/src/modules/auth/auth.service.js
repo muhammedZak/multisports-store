@@ -1,7 +1,10 @@
 import * as argon2 from 'argon2';
 
 import { AppError } from '../../utils/AppError.js';
-import { sendVerificationOtpEmail } from '../../integrations/resend.js';
+import {
+  sendVerificationOtpEmail,
+  sendLoginOtpEmail,
+} from '../../integrations/resend.js';
 
 import { User } from '../users/user.model.js';
 import { AuthChallenge } from './authChallenge.model.js';
@@ -10,6 +13,7 @@ import { authConfig } from './auth.config.js';
 
 import {
   EMAIL_VERIFICATION_PURPOSE,
+  OTP_LOGIN_PURPOSE,
   generateVerificationOtp,
   hashAuthChallenge,
   verifyAuthChallengeHash,
@@ -321,6 +325,191 @@ export async function authenticatePassword({ email, password }) {
       403,
       'EMAIL_NOT_VERIFIED',
       'Please verify your email before logging in.',
+    );
+  }
+
+  return toSafeUser(user);
+}
+
+export async function requestLoginOtp({ email }) {
+  const genericResult = {
+    message: 'If an eligible account exists, a login code will be sent.',
+  };
+
+  const user = await User.findOne({
+    email,
+  });
+
+  if (!user) {
+    return genericResult;
+  }
+
+  if (user.role !== 'customer') {
+    return genericResult;
+  }
+
+  if (!user.emailVerified) {
+    return genericResult;
+  }
+
+  const existingChallenge = await AuthChallenge.findOne({
+    userId: user._id,
+    purpose: OTP_LOGIN_PURPOSE,
+  }).select('lastSentAt');
+
+  if (existingChallenge?.lastSentAt) {
+    const elapsedMs = Date.now() - existingChallenge.lastSentAt.getTime();
+
+    if (elapsedMs < authConfig.emailVerification.resendCooldownMs) {
+      return genericResult;
+    }
+  }
+
+  const otp = generateVerificationOtp();
+
+  const now = new Date();
+
+  const expiresAt = new Date(
+    now.getTime() + authConfig.emailVerification.otpTtlMs,
+  );
+
+  const challengeHash = hashAuthChallenge({
+    userId: user._id,
+    email: user.email,
+    purpose: OTP_LOGIN_PURPOSE,
+    otp,
+  });
+
+  await AuthChallenge.findOneAndUpdate(
+    {
+      userId: user._id,
+      purpose: OTP_LOGIN_PURPOSE,
+    },
+    {
+      $set: {
+        targetEmail: user.email,
+        challengeHash,
+        expiresAt,
+        usedAt: null,
+        attemptCount: 0,
+        lastSentAt: now,
+      },
+    },
+    {
+      upsert: true,
+      new: true,
+      setDefaultsOnInsert: true,
+    },
+  );
+
+  try {
+    await sendLoginOtpEmail({
+      to: user.email,
+      otp,
+    });
+  } catch (error) {
+    await AuthChallenge.updateOne(
+      {
+        userId: user._id,
+        purpose: OTP_LOGIN_PURPOSE,
+        challengeHash,
+      },
+      {
+        $set: {
+          lastSentAt: null,
+        },
+      },
+    );
+
+    throw error;
+  }
+
+  return genericResult;
+}
+
+export async function verifyLoginOtp({ email, otp }) {
+  const user = await User.findOne({
+    email,
+  });
+
+  if (!user || user.role !== 'customer' || !user.emailVerified) {
+    throw new AppError(422, 'OTP_INVALID', 'The login code is invalid.');
+  }
+
+  const challenge = await AuthChallenge.findOne({
+    userId: user._id,
+    targetEmail: email,
+    purpose: OTP_LOGIN_PURPOSE,
+  }).select('+challengeHash');
+
+  if (!challenge) {
+    throw new AppError(422, 'OTP_INVALID', 'The login code is invalid.');
+  }
+
+  if (challenge.usedAt) {
+    throw new AppError(
+      409,
+      'OTP_ALREADY_USED',
+      'This login code has already been used.',
+    );
+  }
+
+  if (challenge.expiresAt <= new Date()) {
+    throw new AppError(422, 'OTP_EXPIRED', 'The login code has expired.');
+  }
+
+  if (challenge.attemptCount >= authConfig.emailVerification.maxAttempts) {
+    throw new AppError(
+      429,
+      'RATE_LIMITED',
+      'Too many verification attempts. Request a new login code.',
+    );
+  }
+
+  const otpMatches = verifyAuthChallengeHash({
+    userId: user._id,
+    email,
+    purpose: OTP_LOGIN_PURPOSE,
+    otp,
+    challengeHash: challenge.challengeHash,
+  });
+
+  if (!otpMatches) {
+    await AuthChallenge.updateOne(
+      {
+        _id: challenge._id,
+        usedAt: null,
+      },
+      {
+        $inc: {
+          attemptCount: 1,
+        },
+      },
+    );
+
+    throw new AppError(422, 'OTP_INVALID', 'The login code is invalid.');
+  }
+
+  const consumedChallenge = await AuthChallenge.findOneAndUpdate(
+    {
+      _id: challenge._id,
+      usedAt: null,
+    },
+    {
+      $set: {
+        usedAt: new Date(),
+      },
+    },
+    {
+      new: true,
+    },
+  );
+
+  if (!consumedChallenge) {
+    throw new AppError(
+      409,
+      'OTP_ALREADY_USED',
+      'This login code has already been used.',
     );
   }
 

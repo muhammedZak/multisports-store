@@ -10,6 +10,8 @@ import {
   verifyEmail,
   login,
   logout,
+  requestOtpLogin,
+  verifyOtpLogin,
 } from './auth.controller.js';
 
 import {
@@ -41,6 +43,10 @@ router.post(
 router.use(requireCsrf);
 
 router.post('/login', loginRateLimiter, login);
+
+router.post('/otp/request', loginRateLimiter, requestOtpLogin);
+
+router.post('/otp/verify', verificationRateLimiter, verifyOtpLogin);
 
 router.post('/logout', requireAuth, logout);
 

@@ -6,6 +6,7 @@ import {
   validateRegistrationInput,
   validateVerificationResendInput,
   validateLoginInput,
+  validateOtpRequestInput,validateOtpLoginVerificationInput
 } from './auth.validation.js';
 
 import {
@@ -13,6 +14,7 @@ import {
   resendEmailVerification,
   verifyCustomerEmail,
   authenticatePassword,
+  requestLoginOtp,verifyLoginOtp
 } from './auth.service.js';
 
 import {
@@ -102,6 +104,33 @@ export async function login(req, res) {
   const input = validateLoginInput(req.body);
 
   const user = await authenticatePassword(input);
+
+  const csrfToken = await createAuthenticatedSession(req, user.id);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      user,
+      csrfToken,
+    },
+  });
+}
+
+export async function requestOtpLogin(req, res) {
+  const input = validateOtpRequestInput(req.body);
+
+  const result = await requestLoginOtp(input);
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+export async function verifyOtpLogin(req, res) {
+  const input = validateOtpLoginVerificationInput(req.body);
+
+  const user = await verifyLoginOtp(input);
 
   const csrfToken = await createAuthenticatedSession(req, user.id);
 
