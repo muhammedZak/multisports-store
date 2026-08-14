@@ -45,6 +45,10 @@ if (!process.env.RESEND_FROM_EMAIL) {
   throw new Error('RESEND_FROM_EMAIL is required');
 }
 
+if (!process.env.GOOGLE_CLIENT_ID) {
+  throw new Error('GOOGLE_CLIENT_ID is required');
+}
+
 export const env = Object.freeze({
   nodeEnv,
   port,
@@ -56,4 +60,6 @@ export const env = Object.freeze({
 
   resendApiKey: process.env.RESEND_API_KEY,
   resendFromEmail: process.env.RESEND_FROM_EMAIL,
+
+  googleClientId: process.env.GOOGLE_CLIENT_ID,
 });

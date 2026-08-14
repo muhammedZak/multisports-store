@@ -230,3 +230,22 @@ export function validateOtpLoginVerificationInput(body) {
     otp,
   };
 }
+
+export function validateGoogleAuthenticationInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, ['credential']);
+
+  const credential =
+    typeof body.credential === 'string' ? body.credential.trim() : '';
+
+  if (!credential) {
+    throwValidationError({
+      credential: 'Google credential is required.',
+    });
+  }
+
+  return {
+    credential,
+  };
+}

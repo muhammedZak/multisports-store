@@ -1,10 +1,12 @@
 import * as argon2 from 'argon2';
 
 import { AppError } from '../../utils/AppError.js';
+
 import {
   sendVerificationOtpEmail,
   sendLoginOtpEmail,
 } from '../../integrations/resend.js';
+import { verifyGoogleCredential } from '../../integrations/google.js';
 
 import { User } from '../users/user.model.js';
 import { AuthChallenge } from './authChallenge.model.js';
@@ -305,6 +307,26 @@ function invalidCredentialsError() {
   return new AppError(401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
 }
 
+function accountLinkRequiredError() {
+  return new AppError(
+    409,
+    'ACCOUNT_LINK_REQUIRED',
+    'An account with this email already exists. Sign in first to link Google.',
+  );
+}
+
+function googleIdentityConflictError() {
+  return new AppError(
+    409,
+    'GOOGLE_IDENTITY_CONFLICT',
+    'This Google identity cannot be used with this account.',
+  );
+}
+
+function isSameUser(user, userId) {
+  return user._id.toString() === userId?.toString();
+}
+
 export async function authenticatePassword({ email, password }) {
   const user = await User.findOne({
     email,
@@ -329,6 +351,192 @@ export async function authenticatePassword({ email, password }) {
   }
 
   return toSafeUser(user);
+}
+
+export async function authenticateGoogle({ credential, currentUserId = null }) {
+  const googleIdentity = await verifyGoogleCredential(credential);
+
+  // 1. Google identity is already linked.
+  const linkedUser = await User.findOne({
+    googleSub: googleIdentity.sub,
+  });
+
+  if (linkedUser) {
+    if (linkedUser.role !== 'customer') {
+      throw googleIdentityConflictError();
+    }
+
+    /*
+     * Guest:
+     * normal returning Google login.
+     *
+     * Authenticated Customer:
+     * only allow this identity if it belongs to the same
+     * application User. Never switch an authenticated session
+     * to another Customer while attempting account linking.
+     */
+    if (currentUserId && !isSameUser(linkedUser, currentUserId)) {
+      throw googleIdentityConflictError();
+    }
+
+    return toSafeUser(linkedUser);
+  }
+
+  // 2. Google sub is not linked.
+  // Check whether its verified email already belongs to our application.
+  const existingEmailUser = await User.findOne({
+    email: googleIdentity.email,
+  }).select('+googleSub');
+
+  if (existingEmailUser) {
+    // Google must never become an Admin authentication/linking path.
+    if (existingEmailUser.role !== 'customer') {
+      throw googleIdentityConflictError();
+    }
+
+    /*
+     * The email already owns another Google identity.
+     * Since the incoming sub was not found above, this must
+     * be a different Google account.
+     */
+    if (existingEmailUser.googleSub) {
+      throw googleIdentityConflictError();
+    }
+
+    // Guest has not proved ownership of this existing account.
+    if (!currentUserId) {
+      throw accountLinkRequiredError();
+    }
+
+    /*
+     * A trusted application session exists, but it must belong
+     * to the exact User that owns the Google email.
+     */
+    if (!isSameUser(existingEmailUser, currentUserId)) {
+      throw googleIdentityConflictError();
+    }
+
+    // 3. Safe same-email linking.
+    try {
+      const linkedCustomer = await User.findOneAndUpdate(
+        {
+          _id: existingEmailUser._id,
+          role: 'customer',
+          email: googleIdentity.email,
+          $or: [
+            {
+              googleSub: {
+                $exists: false,
+              },
+            },
+            {
+              googleSub: null,
+            },
+          ],
+        },
+        {
+          $set: {
+            googleSub: googleIdentity.sub,
+          },
+        },
+        {
+          new: true,
+          runValidators: true,
+        },
+      );
+
+      if (linkedCustomer) {
+        return toSafeUser(linkedCustomer);
+      }
+
+      /*
+       * Another request may have completed the same link
+       * between our read and update.
+       */
+      const currentState = await User.findById(existingEmailUser._id).select(
+        '+googleSub',
+      );
+
+      if (
+        currentState &&
+        currentState.role === 'customer' &&
+        currentState.googleSub === googleIdentity.sub
+      ) {
+        return toSafeUser(currentState);
+      }
+
+      throw googleIdentityConflictError();
+    } catch (error) {
+      /*
+       * The unique googleSub database index is the final
+       * race-safe protection if another User obtained this
+       * Google identity concurrently.
+       */
+      if (error?.code === 11000) {
+        throw googleIdentityConflictError();
+      }
+
+      throw error;
+    }
+  }
+
+  /*
+   * If somebody is already authenticated, reaching here means
+   * the Google email does NOT equal their current application email.
+   *
+   * /auth/google while authenticated exists only to finish safe
+   * same-email linking, so do not create another Customer here.
+   */
+  if (currentUserId) {
+    throw googleIdentityConflictError();
+  }
+
+  // 4. Guest + completely new Google identity:
+  // preserve Step 3.2.2 new-Customer behavior.
+  try {
+    const user = await User.create({
+      name: googleIdentity.name || 'Customer',
+      email: googleIdentity.email,
+      role: 'customer',
+      googleSub: googleIdentity.sub,
+      emailVerified: true,
+    });
+
+    return toSafeUser(user);
+  } catch (error) {
+    if (error?.code !== 11000) {
+      throw error;
+    }
+
+    /*
+     * Handle concurrent registration safely.
+     */
+    const userByGoogleSub = await User.findOne({
+      googleSub: googleIdentity.sub,
+    });
+
+    if (userByGoogleSub) {
+      if (userByGoogleSub.role !== 'customer') {
+        throw googleIdentityConflictError();
+      }
+
+      return toSafeUser(userByGoogleSub);
+    }
+
+    const userByEmail = await User.findOne({
+      email: googleIdentity.email,
+    }).select('+googleSub');
+
+    if (userByEmail) {
+      if (userByEmail.role !== 'customer' || userByEmail.googleSub) {
+        throw googleIdentityConflictError();
+      }
+
+      throw accountLinkRequiredError();
+    }
+
+    throw googleIdentityConflictError();
+  }
 }
 
 export async function requestLoginOtp({ email }) {

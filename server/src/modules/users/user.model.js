@@ -18,6 +18,11 @@ const userSchema = new mongoose.Schema(
       match: [EMAIL_REGEX, 'Please provide a valid email address'],
     },
 
+    googleSub: {
+      type: String,
+      select: false,
+    },
+
     role: {
       type: String,
       enum: ['customer', 'admin'],
@@ -45,6 +50,18 @@ userSchema.index(
   { email: 1 },
   {
     unique: true,
+  },
+);
+
+userSchema.index(
+  { googleSub: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      googleSub: {
+        $type: 'string',
+      },
+    },
   },
 );
 

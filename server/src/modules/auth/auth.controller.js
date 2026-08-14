@@ -6,7 +6,9 @@ import {
   validateRegistrationInput,
   validateVerificationResendInput,
   validateLoginInput,
-  validateOtpRequestInput,validateOtpLoginVerificationInput
+  validateOtpRequestInput,
+  validateOtpLoginVerificationInput,
+  validateGoogleAuthenticationInput,
 } from './auth.validation.js';
 
 import {
@@ -14,7 +16,9 @@ import {
   resendEmailVerification,
   verifyCustomerEmail,
   authenticatePassword,
-  requestLoginOtp,verifyLoginOtp
+  requestLoginOtp,
+  verifyLoginOtp,
+  authenticateGoogle,
 } from './auth.service.js';
 
 import {
@@ -131,6 +135,25 @@ export async function verifyOtpLogin(req, res) {
   const input = validateOtpLoginVerificationInput(req.body);
 
   const user = await verifyLoginOtp(input);
+
+  const csrfToken = await createAuthenticatedSession(req, user.id);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      user,
+      csrfToken,
+    },
+  });
+}
+
+export async function googleAuth(req, res) {
+  const input = validateGoogleAuthenticationInput(req.body);
+
+  const user = await authenticateGoogle({
+    credential: input.credential,
+    currentUserId: req.session.userId || null,
+  });
 
   const csrfToken = await createAuthenticatedSession(req, user.id);
 

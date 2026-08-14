@@ -12,6 +12,7 @@ import {
   logout,
   requestOtpLogin,
   verifyOtpLogin,
+  googleAuth,
 } from './auth.controller.js';
 
 import {
@@ -43,6 +44,8 @@ router.post(
 router.use(requireCsrf);
 
 router.post('/login', loginRateLimiter, login);
+
+router.post('/google', loginRateLimiter, googleAuth);
 
 router.post('/otp/request', loginRateLimiter, requestOtpLogin);
 
