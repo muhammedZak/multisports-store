@@ -5,6 +5,7 @@ import AuthLayout from '../../layouts/AuthLayout.jsx';
 import LoginPage from '../../pages/auth/LoginPage.jsx';
 import RegisterPage from '../../pages/auth/RegisterPage.jsx';
 import VerifyEmailPage from '../../pages/auth/VerifyEmailPage.jsx';
+import OtpLoginPage from '../../pages/auth/OtpLoginPage.jsx';
 
 import AuthSessionPage from '../../pages/account/AuthSessionPage.jsx';
 
@@ -17,6 +18,8 @@ function AppRouter() {
       <Route element={<AuthLayout />}>
         <Route element={<RequireGuest />}>
           <Route path='/auth/login' element={<LoginPage />} />
+
+          <Route path='/auth/login-otp' element={<OtpLoginPage />} />
 
           <Route path='/auth/register' element={<RegisterPage />} />
 

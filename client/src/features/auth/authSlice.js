@@ -5,6 +5,8 @@ import {
   fetchSession,
   loginCustomer,
   logoutCustomer,
+  requestLoginOtp,
+  verifyLoginOtp,
 } from '../../api/authApi.js';
 
 import { setCsrfToken } from '../../api/csrf.js';
@@ -56,6 +58,36 @@ export const login = createAsyncThunk(
       return result.user;
     } catch (error) {
       return rejectWithValue(normalizeApiError(error, 'Unable to log in.'));
+    }
+  },
+);
+
+export const requestOtpLogin = createAsyncThunk(
+  'auth/requestOtpLogin',
+  async (payload, { rejectWithValue }) => {
+    try {
+      return await requestLoginOtp(payload);
+    } catch (error) {
+      return rejectWithValue(
+        normalizeApiError(error, 'Unable to request a login code.'),
+      );
+    }
+  },
+);
+
+export const verifyOtpLogin = createAsyncThunk(
+  'auth/verifyOtpLogin',
+  async (payload, { rejectWithValue }) => {
+    try {
+      const result = await verifyLoginOtp(payload);
+
+      setCsrfToken(result.csrfToken);
+
+      return result.user;
+    } catch (error) {
+      return rejectWithValue(
+        normalizeApiError(error, 'Unable to verify the login code.'),
+      );
     }
   },
 );
@@ -121,6 +153,37 @@ const authSlice = createSlice({
       })
 
       .addCase(login.rejected, (state, action) => {
+        state.actionStatus = 'idle';
+        state.error = action.payload;
+      })
+
+      .addCase(requestOtpLogin.pending, (state) => {
+        state.actionStatus = 'loading';
+        state.error = null;
+      })
+
+      .addCase(requestOtpLogin.fulfilled, (state) => {
+        state.actionStatus = 'idle';
+        state.error = null;
+      })
+
+      .addCase(requestOtpLogin.rejected, (state, action) => {
+        state.actionStatus = 'idle';
+        state.error = action.payload;
+      })
+
+      .addCase(verifyOtpLogin.pending, (state) => {
+        state.actionStatus = 'loading';
+        state.error = null;
+      })
+
+      .addCase(verifyOtpLogin.fulfilled, (state, action) => {
+        state.actionStatus = 'idle';
+        state.user = action.payload;
+        state.error = null;
+      })
+
+      .addCase(verifyOtpLogin.rejected, (state, action) => {
         state.actionStatus = 'idle';
         state.error = action.payload;
       })

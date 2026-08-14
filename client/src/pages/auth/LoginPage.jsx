@@ -137,6 +137,18 @@ function LoginPage() {
           className='w-full bg-black px-4 py-3 font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
           {loading ? 'Logging in...' : 'Login'}
         </button>
+
+        <div className='text-center'>
+          <Link
+            to='/auth/login-otp'
+            state={{
+              email: form.email,
+              from: location.state?.from,
+            }}
+            className='text-sm font-medium text-black underline underline-offset-4'>
+            Login with email code
+          </Link>
+        </div>
       </form>
 
       <div className='mt-8 border-t border-neutral-200 pt-6 text-center'>

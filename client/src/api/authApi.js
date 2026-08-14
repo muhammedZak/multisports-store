@@ -42,6 +42,18 @@ export async function loginCustomer(payload) {
   return response.data.data;
 }
 
+export async function requestLoginOtp(payload) {
+  const response = await apiClient.post('/auth/otp/request', payload);
+
+  return response.data.data;
+}
+
+export async function verifyLoginOtp(payload) {
+  const response = await apiClient.post('/auth/otp/verify', payload);
+
+  return response.data.data;
+}
+
 export async function logoutCustomer() {
   const response = await apiClient.post('/auth/logout');
 
