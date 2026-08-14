@@ -10,26 +10,41 @@ import {
   verifyOtpLogin,
 } from '../../features/auth/authSlice.js';
 
+const OTP_RESEND_COOLDOWN_SECONDS = 60;
+
 function OtpLoginPage() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
 
   const { actionStatus, error } = useSelector((state) => state.auth);
-
   const [step, setStep] = useState('request');
 
   const [email, setEmail] = useState(location.state?.email || '');
 
   const [otp, setOtp] = useState('');
-
   const [message, setMessage] = useState('');
-
+  const [resendSeconds, setResendSeconds] = useState(0);
+  const [resending, setResending] = useState(false);
   const loading = actionStatus === 'loading';
 
   useEffect(() => {
     dispatch(clearAuthError());
   }, [dispatch]);
+
+  useEffect(() => {
+    if (resendSeconds <= 0) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setResendSeconds((current) => Math.max(current - 1, 0));
+    }, 1000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [resendSeconds]);
 
   function handleEmailChange(event) {
     setEmail(event.target.value);
@@ -58,6 +73,7 @@ function OtpLoginPage() {
 
     if (requestOtpLogin.fulfilled.match(result)) {
       setMessage(result.payload.message);
+      setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
       setStep('verify');
     }
   }
@@ -81,10 +97,36 @@ function OtpLoginPage() {
     }
   }
 
+  async function handleResendOtp() {
+    if (loading || resendSeconds > 0) {
+      return;
+    }
+
+    dispatch(clearAuthError());
+    setResending(true);
+
+    try {
+      const result = await dispatch(
+        requestOtpLogin({
+          email,
+        }),
+      );
+
+      if (requestOtpLogin.fulfilled.match(result)) {
+        setMessage(result.payload.message);
+        setOtp('');
+        setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
+      }
+    } finally {
+      setResending(false);
+    }
+  }
+
   function handleChangeEmail() {
     setStep('request');
     setOtp('');
     setMessage('');
+    setResendSeconds(0);
     dispatch(clearAuthError());
   }
 
@@ -189,6 +231,22 @@ function OtpLoginPage() {
             {error?.fields?.otp && (
               <p className='mt-2 text-sm text-red-600'>{error.fields.otp}</p>
             )}
+
+            <div className='text-sm'>
+              {resendSeconds > 0 ? (
+                <p className='text-neutral-500'>
+                  Didn't receive the code? Resend in {resendSeconds}s
+                </p>
+              ) : (
+                <button
+                  type='button'
+                  disabled={loading}
+                  onClick={handleResendOtp}
+                  className='font-medium text-black underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-50'>
+                  {resending ? 'Sending...' : 'Resend code'}
+                </button>
+              )}
+            </div>
           </div>
 
           {error && (
@@ -203,7 +261,7 @@ function OtpLoginPage() {
             type='submit'
             disabled={loading}
             className='w-full bg-black px-4 py-3 font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
-            {loading ? 'Verifying...' : 'Verify and login'}
+            {loading && !resending ? 'Verifying...' : 'Verify and login'}
           </button>
         </form>
       )}
