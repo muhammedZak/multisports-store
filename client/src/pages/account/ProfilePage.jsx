@@ -162,6 +162,40 @@ function ProfilePage() {
         <section className='mt-8 border border-neutral-200'>
           <div className='border-b border-neutral-200 p-5'>
             <p className='text-xs font-medium uppercase tracking-wide text-neutral-500'>
+              Profile photo
+            </p>
+
+            <div className='mt-4 flex items-center gap-4'>
+              {profile.profilePhoto?.url ? (
+                <img
+                  src={profile.profilePhoto.url}
+                  alt={`${profile.name} profile`}
+                  className='h-20 w-20 rounded-full border border-neutral-200 object-cover'
+                />
+              ) : (
+                <div
+                  aria-hidden='true'
+                  className='flex h-20 w-20 items-center justify-center rounded-full bg-neutral-100 text-2xl font-semibold text-neutral-500'>
+                  {profile.name?.trim()?.charAt(0)?.toUpperCase() || '?'}
+                </div>
+              )}
+
+              <div>
+                <p className='text-sm font-medium'>
+                  {profile.profilePhoto?.url
+                    ? 'Profile photo added'
+                    : 'No profile photo'}
+                </p>
+
+                <p className='mt-1 text-xs leading-5 text-neutral-500'>
+                  Use Edit profile to upload, replace, or remove your photo.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className='border-b border-neutral-200 p-5'>
+            <p className='text-xs font-medium uppercase tracking-wide text-neutral-500'>
               Name
             </p>
 

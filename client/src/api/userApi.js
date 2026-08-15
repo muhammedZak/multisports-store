@@ -12,3 +12,16 @@ export async function updateMyProfile(payload) {
   return response.data.data.user;
 }
 
+export async function uploadMyProfilePhoto(imageFile) {
+  const formData = new FormData();
+
+  formData.append('image', imageFile);
+
+  const response = await apiClient.put('/users/me/profile-photo', formData);
+
+  return response.data.data.user;
+}
+
+export async function removeMyProfilePhoto() {
+  await apiClient.delete('/users/me/profile-photo');
+}
