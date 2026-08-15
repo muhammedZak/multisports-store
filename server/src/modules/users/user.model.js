@@ -20,6 +20,25 @@ function isValidPhone(value) {
   );
 }
 
+const profilePhotoSchema = new mongoose.Schema(
+  {
+    publicId: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    url: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+  },
+  {
+    _id: false,
+  },
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -66,6 +85,11 @@ const userSchema = new mongoose.Schema(
         validator: isValidPhone,
         message: 'Please provide a valid phone number',
       },
+    },
+
+    profilePhoto: {
+      type: profilePhotoSchema,
+      default: undefined,
     },
   },
   {

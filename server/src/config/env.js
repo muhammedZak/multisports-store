@@ -49,6 +49,18 @@ if (!process.env.GOOGLE_CLIENT_ID) {
   throw new Error('GOOGLE_CLIENT_ID is required');
 }
 
+if (!process.env.CLOUDINARY_CLOUD_NAME) {
+  throw new Error('CLOUDINARY_CLOUD_NAME is required');
+}
+
+if (!process.env.CLOUDINARY_API_KEY) {
+  throw new Error('CLOUDINARY_API_KEY is required');
+}
+
+if (!process.env.CLOUDINARY_API_SECRET) {
+  throw new Error('CLOUDINARY_API_SECRET is required');
+}
+
 export const env = Object.freeze({
   nodeEnv,
   port,
@@ -62,4 +74,8 @@ export const env = Object.freeze({
   resendFromEmail: process.env.RESEND_FROM_EMAIL,
 
   googleClientId: process.env.GOOGLE_CLIENT_ID,
+
+  cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME,
+  cloudinaryApiKey: process.env.CLOUDINARY_API_KEY,
+  cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET,
 });

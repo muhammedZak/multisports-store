@@ -33,6 +33,11 @@ function toSafeUser(user) {
     role: user.role,
     emailVerified: user.emailVerified,
     phone: user.phone ?? null,
+    profilePhoto: user.profilePhoto?.url
+      ? {
+          url: user.profilePhoto.url,
+        }
+      : null,
   };
 }
 
@@ -42,7 +47,7 @@ export async function getSessionUser(userId) {
   }
 
   const user = await User.findById(userId)
-    .select('name email role emailVerified phone')
+    .select('name email role emailVerified phone profilePhoto')
     .lean();
 
   if (!user) {
