@@ -163,9 +163,29 @@ function LoginPage() {
         </div>
 
         <div>
-          <label htmlFor='password' className='mb-2 block text-sm font-medium'>
-            Password
-          </label>
+          <div className='mb-2 flex items-center justify-between'>
+            <label htmlFor='password' className='block text-sm font-medium'>
+              Password
+            </label>
+
+            <Link
+              to='/auth/forgot-password'
+              state={{
+                email: form.email,
+              }}
+              className='text-sm font-medium underline underline-offset-4'>
+              Forgot password?
+            </Link>
+          </div>
+
+          {location.state?.passwordReset && (
+            <div
+              role='status'
+              className='mt-6 border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'>
+              Your password has been reset successfully. You can now log in with
+              your new password.
+            </div>
+          )}
 
           <input
             id='password'

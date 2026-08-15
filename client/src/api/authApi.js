@@ -65,3 +65,24 @@ export async function logoutCustomer() {
 
   return response.data.data;
 }
+
+export async function requestPasswordRecovery(payload) {
+  const response = await apiClient.post('/auth/password/forgot', payload);
+
+  return response.data.data;
+}
+
+export async function verifyPasswordRecovery(payload) {
+  const response = await apiClient.post(
+    '/auth/password/forgot/verify',
+    payload,
+  );
+
+  return response.data.data;
+}
+
+export async function resetPassword(payload) {
+  const response = await apiClient.post('/auth/password/reset', payload);
+
+  return response.data.data;
+}

@@ -6,6 +6,8 @@ import LoginPage from '../../pages/auth/LoginPage.jsx';
 import RegisterPage from '../../pages/auth/RegisterPage.jsx';
 import VerifyEmailPage from '../../pages/auth/VerifyEmailPage.jsx';
 import OtpLoginPage from '../../pages/auth/OtpLoginPage.jsx';
+import ForgotPasswordPage from '../../pages/auth/ForgotPasswordPage.jsx';
+import ResetPasswordPage from '../../pages/auth/ResetPasswordPage.jsx';
 
 import AuthSessionPage from '../../pages/account/AuthSessionPage.jsx';
 
@@ -20,6 +22,13 @@ function AppRouter() {
           <Route path='/auth/login' element={<LoginPage />} />
 
           <Route path='/auth/login-otp' element={<OtpLoginPage />} />
+
+          <Route
+            path='/auth/forgot-password'
+            element={<ForgotPasswordPage />}
+          />
+
+          <Route path='/auth/reset-password' element={<ResetPasswordPage />} />
 
           <Route path='/auth/register' element={<RegisterPage />} />
 
