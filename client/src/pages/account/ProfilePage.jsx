@@ -247,6 +247,20 @@ function ProfilePage() {
       )}
 
       <section className='mt-8 border border-neutral-200 p-5'>
+        <h2 className='font-semibold'>Saved addresses</h2>
+
+        <p className='mt-2 text-sm leading-6 text-neutral-600'>
+          Add and manage shipping addresses for future checkout use.
+        </p>
+
+        <Link
+          to='/account/addresses'
+          className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
+          Manage addresses
+        </Link>
+      </section>
+
+      <section className='mt-8 border border-neutral-200 p-5'>
         <h2 className='font-semibold'>Account security</h2>
 
         <p className='mt-2 text-sm leading-6 text-neutral-600'>

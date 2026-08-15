@@ -13,6 +13,8 @@ import ProfilePage from '../../pages/account/ProfilePage.jsx';
 import EditProfilePage from '../../pages/account/EditProfilePage.jsx';
 import SecurityPage from '../../pages/account/SecurityPage.jsx';
 import ChangeEmailPage from '../../pages/account/ChangeEmailPage.jsx';
+import AddressesPage from '../../pages/account/AddressesPage.jsx';
+import AddressFormPage from '../../pages/account/AddressFormPage.jsx';
 
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
 import RequireGuest from '../../features/auth/RequireGuest.jsx';
@@ -47,6 +49,15 @@ function AppRouter() {
         <Route path='/account/security' element={<SecurityPage />} />
 
         <Route path='/account/security/email' element={<ChangeEmailPage />} />
+
+        <Route path='/account/addresses' element={<AddressesPage />} />
+
+        <Route path='/account/addresses/new' element={<AddressFormPage />} />
+
+        <Route
+          path='/account/addresses/:addressId/edit'
+          element={<AddressFormPage />}
+        />
       </Route>
 
       <Route path='/' element={<Navigate to='/auth/login' replace />} />
