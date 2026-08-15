@@ -9,6 +9,7 @@ import {
   logout,
   signInWithGoogle,
 } from '../../features/auth/authSlice.js';
+import { Link } from 'react-router';
 
 function AuthSessionPage() {
   const dispatch = useDispatch();
@@ -72,6 +73,12 @@ function AuthSessionPage() {
           {googleMessage}
         </div>
       )}
+
+      <Link
+        to='/account/security'
+        className='mt-6 inline-block font-medium underline underline-offset-4'>
+        Security
+      </Link>
 
       <div className='mt-8 border p-6'>
         <p>

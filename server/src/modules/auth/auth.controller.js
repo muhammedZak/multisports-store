@@ -1,5 +1,4 @@
 import { getOrCreateCsrfToken } from '../../middleware/csrf.middleware.js';
-import { getSessionUser, resetCustomerPassword } from './auth.service.js';
 
 import {
   validateEmailVerificationInput,
@@ -12,9 +11,11 @@ import {
   validatePasswordRecoveryRequestInput,
   validatePasswordRecoveryVerificationInput,
   validatePasswordResetInput,
+  validateChangePasswordInput,
 } from './auth.validation.js';
 
 import {
+  getSessionUser,
   registerCustomer,
   resendEmailVerification,
   verifyCustomerEmail,
@@ -24,6 +25,8 @@ import {
   authenticateGoogle,
   requestPasswordReset,
   verifyPasswordResetOtp,
+  resetCustomerPassword,
+  changeAuthenticatedPassword,
 } from './auth.service.js';
 
 import {
@@ -223,6 +226,21 @@ export async function resetPassword(req, res) {
   });
 
   await consumePasswordResetAuthorization(req);
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+export async function changePassword(req, res) {
+  const input = validateChangePasswordInput(req.body);
+
+  const result = await changeAuthenticatedPassword({
+    userId: req.session.userId,
+    currentPassword: input.currentPassword,
+    newPassword: input.newPassword,
+  });
 
   res.status(200).json({
     success: true,

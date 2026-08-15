@@ -86,3 +86,9 @@ export async function resetPassword(payload) {
 
   return response.data.data;
 }
+
+export async function changePassword(payload) {
+  const response = await apiClient.patch('/auth/password', payload);
+
+  return response.data.data;
+}

@@ -35,5 +35,10 @@ export const authConfig = Object.freeze({
       windowMs: 15 * 60 * 1000,
       limit: 10,
     }),
+
+    passwordChange: Object.freeze({
+      windowMs: 15 * 60 * 1000,
+      limit: 5,
+    }),
   }),
 });

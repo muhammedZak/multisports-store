@@ -16,6 +16,7 @@ import {
   forgotPassword,
   verifyForgotPasswordOtp,
   resetPassword,
+  changePassword,
 } from './auth.controller.js';
 
 import {
@@ -23,6 +24,7 @@ import {
   resendVerificationRateLimiter,
   verificationRateLimiter,
   loginRateLimiter,
+  passwordChangeRateLimiter,
 } from './auth.rateLimit.js';
 
 import { requireAuth } from '../../middleware/auth.middleware.js';
@@ -63,6 +65,13 @@ router.post(
 );
 
 router.post('/password/reset', loginRateLimiter, resetPassword);
+
+router.patch(
+  '/password',
+  requireAuth,
+  passwordChangeRateLimiter,
+  changePassword,
+);
 
 router.post('/logout', requireAuth, logout);
 

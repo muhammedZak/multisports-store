@@ -37,3 +37,7 @@ export const resendVerificationRateLimiter = createAuthRateLimiter(
 export const loginRateLimiter = createAuthRateLimiter(
   authConfig.rateLimits.login,
 );
+
+export const passwordChangeRateLimiter = createAuthRateLimiter(
+  authConfig.rateLimits.passwordChange,
+);

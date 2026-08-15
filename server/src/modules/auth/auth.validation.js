@@ -343,3 +343,58 @@ export function validatePasswordResetInput(body) {
     newPassword,
   };
 }
+
+export function validateChangePasswordInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, [
+    'currentPassword',
+    'newPassword',
+    'confirmPassword',
+  ]);
+
+  const currentPassword =
+    typeof body.currentPassword === 'string' ? body.currentPassword : '';
+
+  const newPassword =
+    typeof body.newPassword === 'string' ? body.newPassword : '';
+
+  const confirmPassword =
+    typeof body.confirmPassword === 'string' ? body.confirmPassword : '';
+
+  const fields = {};
+
+  if (!currentPassword) {
+    fields.currentPassword = 'Current password is required.';
+  } else if (currentPassword.length > authConfig.password.maxLength) {
+    fields.currentPassword = 'Current password is too long.';
+  }
+
+  if (
+    newPassword.length < authConfig.password.minLength ||
+    newPassword.length > authConfig.password.maxLength
+  ) {
+    fields.newPassword =
+      `Password must be between ${authConfig.password.minLength} and ` +
+      `${authConfig.password.maxLength} characters.`;
+  } else if (
+    !LETTER_REGEX.test(newPassword) ||
+    !NUMBER_REGEX.test(newPassword)
+  ) {
+    fields.newPassword =
+      'Password must contain at least one letter and one number.';
+  }
+
+  if (confirmPassword !== newPassword) {
+    fields.confirmPassword = 'Passwords do not match.';
+  }
+
+  if (Object.keys(fields).length > 0) {
+    throwValidationError(fields);
+  }
+
+  return {
+    currentPassword,
+    newPassword,
+  };
+}

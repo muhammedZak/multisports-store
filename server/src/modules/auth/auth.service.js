@@ -970,3 +970,63 @@ export async function resetCustomerPassword({ userId, newPassword }) {
     passwordReset: true,
   };
 }
+
+export async function changeAuthenticatedPassword({
+  userId,
+  currentPassword,
+  newPassword,
+}) {
+  const user = await User.findById(userId).select('+passwordHash');
+
+  if (!user) {
+    throw new AppError(401, 'AUTH_REQUIRED', 'Authentication is required.');
+  }
+
+  if (!user.passwordHash) {
+    throw new AppError(
+      409,
+      'PASSWORD_NOT_SET',
+      'This account does not have a password.',
+    );
+  }
+
+  const currentPasswordMatches = await argon2.verify(
+    user.passwordHash,
+    currentPassword,
+  );
+
+  if (!currentPasswordMatches) {
+    throw new AppError(
+      401,
+      'CURRENT_PASSWORD_INVALID',
+      'Current password is incorrect.',
+    );
+  }
+
+  if (currentPassword === newPassword) {
+    throw new AppError(
+      409,
+      'PASSWORD_REUSE_NOT_ALLOWED',
+      'New password must be different from your current password.',
+    );
+  }
+
+  const passwordHash = await argon2.hash(newPassword, {
+    type: argon2.argon2id,
+  });
+
+  await User.updateOne(
+    {
+      _id: user._id,
+    },
+    {
+      $set: {
+        passwordHash,
+      },
+    },
+  );
+
+  return {
+    passwordChanged: true,
+  };
+}

@@ -13,6 +13,7 @@ import AuthSessionPage from '../../pages/account/AuthSessionPage.jsx';
 
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
 import RequireGuest from '../../features/auth/RequireGuest.jsx';
+import SecurityPage from '../../pages/account/SecurityPage.jsx';
 
 function AppRouter() {
   return (
@@ -38,6 +39,7 @@ function AppRouter() {
 
       <Route element={<RequireCustomer />}>
         <Route path='/account' element={<AuthSessionPage />} />
+        <Route path='/account/security' element={<SecurityPage />} />
       </Route>
 
       <Route path='/' element={<Navigate to='/auth/login' replace />} />
