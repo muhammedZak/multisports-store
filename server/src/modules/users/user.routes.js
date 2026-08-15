@@ -16,6 +16,14 @@ import {
   deleteMyProfilePhoto,
 } from './user.controller.js';
 
+import {
+  getMyAddresses,
+  createMyAddress,
+  updateMyAddress,
+  deleteMyAddress,
+  setMyDefaultAddress,
+} from './address.controller.js';
+
 const router = Router();
 
 router.get('/me', requireAuth, requireCustomer, getMyProfile);
@@ -37,6 +45,40 @@ router.delete(
   requireCustomer,
   requireCsrf,
   deleteMyProfilePhoto,
+);
+
+router.get('/me/addresses', requireAuth, requireCustomer, getMyAddresses);
+
+router.post(
+  '/me/addresses',
+  requireAuth,
+  requireCustomer,
+  requireCsrf,
+  createMyAddress,
+);
+
+router.patch(
+  '/me/addresses/:addressId',
+  requireAuth,
+  requireCustomer,
+  requireCsrf,
+  updateMyAddress,
+);
+
+router.delete(
+  '/me/addresses/:addressId',
+  requireAuth,
+  requireCustomer,
+  requireCsrf,
+  deleteMyAddress,
+);
+
+router.patch(
+  '/me/addresses/:addressId/default',
+  requireAuth,
+  requireCustomer,
+  requireCsrf,
+  setMyDefaultAddress,
 );
 
 export default router;

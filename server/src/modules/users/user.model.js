@@ -39,6 +39,66 @@ const profilePhotoSchema = new mongoose.Schema(
   },
 );
 
+const addressSchema = new mongoose.Schema({
+  fullName: {
+    type: String,
+    required: [true, 'Full name is required'],
+    trim: true,
+    maxlength: [100, 'Full name is too long'],
+  },
+
+  phone: {
+    type: String,
+    required: [true, 'Phone number is required'],
+    trim: true,
+    validate: {
+      validator: isValidPhone,
+      message: 'Please provide a valid phone number',
+    },
+  },
+
+  address: {
+    type: String,
+    required: [true, 'Address is required'],
+    trim: true,
+    maxlength: [300, 'Address is too long'],
+  },
+
+  city: {
+    type: String,
+    required: [true, 'City is required'],
+    trim: true,
+    maxlength: [100, 'City is too long'],
+  },
+
+  state: {
+    type: String,
+    required: [true, 'State is required'],
+    trim: true,
+    maxlength: [100, 'State is too long'],
+  },
+
+  postalCode: {
+    type: String,
+    required: [true, 'Postal code is required'],
+    trim: true,
+    maxlength: [20, 'Postal code is too long'],
+  },
+
+  country: {
+    type: String,
+    required: [true, 'Country is required'],
+    trim: true,
+    maxlength: [100, 'Country is too long'],
+  },
+
+  isDefault: {
+    type: Boolean,
+    default: false,
+    required: true,
+  },
+});
+
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -90,6 +150,11 @@ const userSchema = new mongoose.Schema(
     profilePhoto: {
       type: profilePhotoSchema,
       default: undefined,
+    },
+
+    addresses: {
+      type: [addressSchema],
+      default: [],
     },
   },
   {
