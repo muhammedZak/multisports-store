@@ -393,13 +393,36 @@ function ChangeEmailPage() {
             )}
           </div>
 
-          {error && Object.keys(error.fields || {}).length === 0 && (
+          {error?.code === 'REAUTH_REQUIRED' && (
             <div
               role='alert'
-              className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-              {error.message}
+              className='border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900'>
+              <p className='font-medium'>Please sign in again</p>
+
+              <p className='mt-2 leading-6'>
+                Your recent authentication has expired. Sign in again before
+                requesting another verification code.
+              </p>
+
+              <button
+                type='button'
+                disabled={loading || resending}
+                onClick={handleReauthenticate}
+                className='mt-4 font-medium underline underline-offset-4 disabled:opacity-50'>
+                Sign in again
+              </button>
             </div>
           )}
+
+          {error &&
+            error.code !== 'REAUTH_REQUIRED' &&
+            Object.keys(error.fields || {}).length === 0 && (
+              <div
+                role='alert'
+                className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
+                {error.message}
+              </div>
+            )}
 
           <button
             type='submit'
