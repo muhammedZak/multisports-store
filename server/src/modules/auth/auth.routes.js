@@ -13,6 +13,9 @@ import {
   requestOtpLogin,
   verifyOtpLogin,
   googleAuth,
+  forgotPassword,
+  verifyForgotPasswordOtp,
+  resetPassword,
 } from './auth.controller.js';
 
 import {
@@ -50,6 +53,16 @@ router.post('/google', loginRateLimiter, googleAuth);
 router.post('/otp/request', loginRateLimiter, requestOtpLogin);
 
 router.post('/otp/verify', verificationRateLimiter, verifyOtpLogin);
+
+router.post('/password/forgot', loginRateLimiter, forgotPassword);
+
+router.post(
+  '/password/forgot/verify',
+  verificationRateLimiter,
+  verifyForgotPasswordOtp,
+);
+
+router.post('/password/reset', loginRateLimiter, resetPassword);
 
 router.post('/logout', requireAuth, logout);
 

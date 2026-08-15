@@ -1,5 +1,5 @@
 import { getOrCreateCsrfToken } from '../../middleware/csrf.middleware.js';
-import { getSessionUser } from './auth.service.js';
+import { getSessionUser, resetCustomerPassword } from './auth.service.js';
 
 import {
   validateEmailVerificationInput,
@@ -9,6 +9,9 @@ import {
   validateOtpRequestInput,
   validateOtpLoginVerificationInput,
   validateGoogleAuthenticationInput,
+  validatePasswordRecoveryRequestInput,
+  validatePasswordRecoveryVerificationInput,
+  validatePasswordResetInput,
 } from './auth.validation.js';
 
 import {
@@ -19,11 +22,16 @@ import {
   requestLoginOtp,
   verifyLoginOtp,
   authenticateGoogle,
+  requestPasswordReset,
+  verifyPasswordResetOtp,
 } from './auth.service.js';
 
 import {
+  consumePasswordResetAuthorization,
   createAnonymousSession,
   createAuthenticatedSession,
+  createPasswordResetAuthorization,
+  getPasswordResetAuthorization,
 } from './auth.session.js';
 
 export function getCsrfToken(req, res) {
@@ -175,5 +183,49 @@ export async function logout(req, res) {
       authenticated: false,
       csrfToken,
     },
+  });
+}
+
+export async function forgotPassword(req, res) {
+  const input = validatePasswordRecoveryRequestInput(req.body);
+
+  const result = await requestPasswordReset(input);
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+export async function verifyForgotPasswordOtp(req, res) {
+  const input = validatePasswordRecoveryVerificationInput(req.body);
+
+  const result = await verifyPasswordResetOtp(input);
+
+  await createPasswordResetAuthorization(req, result.userId);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      resetAuthorized: true,
+    },
+  });
+}
+
+export async function resetPassword(req, res) {
+  const input = validatePasswordResetInput(req.body);
+
+  const authorization = await getPasswordResetAuthorization(req);
+
+  const result = await resetCustomerPassword({
+    userId: authorization.userId,
+    newPassword: input.newPassword,
+  });
+
+  await consumePasswordResetAuthorization(req);
+
+  res.status(200).json({
+    success: true,
+    data: result,
   });
 }

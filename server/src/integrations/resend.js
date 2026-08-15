@@ -71,3 +71,36 @@ export async function sendLoginOtpEmail({ to, otp }) {
     );
   }
 }
+
+export async function sendPasswordResetOtpEmail({ to, otp }) {
+  try {
+    const { error } = await resend.emails.send({
+      from: env.resendFromEmail,
+      to,
+      subject: 'Reset your MultiSports Store password',
+      text:
+        `Your MultiSports Store password reset code is ${otp}. ` +
+        `It expires in ${
+          authConfig.emailVerification.otpTtlMs / (60 * 1000)
+        } minutes.`,
+    });
+
+    if (error) {
+      throw new AppError(
+        502,
+        'EXTERNAL_SERVICE_ERROR',
+        'Password reset email could not be sent. Please try again.',
+      );
+    }
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    throw new AppError(
+      502,
+      'EXTERNAL_SERVICE_ERROR',
+      'Password reset email could not be sent. Please try again.',
+    );
+  }
+}

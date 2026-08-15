@@ -249,3 +249,97 @@ export function validateGoogleAuthenticationInput(body) {
     credential,
   };
 }
+
+export function validatePasswordRecoveryRequestInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, ['email']);
+
+  const email = normalizeEmail(body.email);
+
+  if (!EMAIL_REGEX.test(email)) {
+    throwValidationError({
+      email: 'Enter a valid email address.',
+    });
+  }
+
+  return {
+    email,
+  };
+}
+
+export function validatePasswordRecoveryVerificationInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, ['email', 'otp']);
+
+  const email = normalizeEmail(body.email);
+
+  const otp = typeof body.otp === 'string' ? body.otp.trim() : '';
+
+  const fields = {};
+
+  if (!EMAIL_REGEX.test(email)) {
+    fields.email = 'Enter a valid email address.';
+  }
+
+  const otpPattern = new RegExp(
+    `^\\d{${authConfig.emailVerification.otpLength}}$`,
+  );
+
+  if (!otpPattern.test(otp)) {
+    fields.otp =
+      `Recovery code must contain ` +
+      `${authConfig.emailVerification.otpLength} digits.`;
+  }
+
+  if (Object.keys(fields).length > 0) {
+    throwValidationError(fields);
+  }
+
+  return {
+    email,
+    otp,
+  };
+}
+
+export function validatePasswordResetInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, ['newPassword', 'confirmPassword']);
+
+  const newPassword =
+    typeof body.newPassword === 'string' ? body.newPassword : '';
+
+  const confirmPassword =
+    typeof body.confirmPassword === 'string' ? body.confirmPassword : '';
+
+  const fields = {};
+
+  if (
+    newPassword.length < authConfig.password.minLength ||
+    newPassword.length > authConfig.password.maxLength
+  ) {
+    fields.newPassword =
+      `Password must be between ${authConfig.password.minLength} and ` +
+      `${authConfig.password.maxLength} characters.`;
+  } else if (
+    !LETTER_REGEX.test(newPassword) ||
+    !NUMBER_REGEX.test(newPassword)
+  ) {
+    fields.newPassword =
+      'Password must contain at least one letter and one number.';
+  }
+
+  if (confirmPassword !== newPassword) {
+    fields.confirmPassword = 'Passwords do not match.';
+  }
+
+  if (Object.keys(fields).length > 0) {
+    throwValidationError(fields);
+  }
+
+  return {
+    newPassword,
+  };
+}

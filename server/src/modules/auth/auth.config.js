@@ -11,6 +11,10 @@ export const authConfig = Object.freeze({
     maxAttempts: 5,
   }),
 
+  passwordRecovery: Object.freeze({
+    resetAuthorizationTtlMs: 10 * 60 * 1000,
+  }),
+
   rateLimits: Object.freeze({
     registration: Object.freeze({
       windowMs: 15 * 60 * 1000,

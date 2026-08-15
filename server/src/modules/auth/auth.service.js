@@ -5,6 +5,7 @@ import { AppError } from '../../utils/AppError.js';
 import {
   sendVerificationOtpEmail,
   sendLoginOtpEmail,
+  sendPasswordResetOtpEmail,
 } from '../../integrations/resend.js';
 import { verifyGoogleCredential } from '../../integrations/google.js';
 
@@ -19,6 +20,7 @@ import {
   generateVerificationOtp,
   hashAuthChallenge,
   verifyAuthChallengeHash,
+  PASSWORD_RESET_PURPOSE,
 } from './auth.challenge.js';
 
 function toSafeUser(user) {
@@ -722,4 +724,249 @@ export async function verifyLoginOtp({ email, otp }) {
   }
 
   return toSafeUser(user);
+}
+
+export async function requestPasswordReset({ email }) {
+  const genericResult = {
+    message:
+      'If an eligible account exists, a password reset code will be sent.',
+  };
+
+  const user = await User.findOne({
+    email,
+  }).select('+passwordHash');
+
+  if (!user) {
+    return genericResult;
+  }
+
+  if (user.role !== 'customer') {
+    return genericResult;
+  }
+
+  if (!user.passwordHash) {
+    return genericResult;
+  }
+
+  if (!user.emailVerified) {
+    return genericResult;
+  }
+
+  const existingChallenge = await AuthChallenge.findOne({
+    userId: user._id,
+    purpose: PASSWORD_RESET_PURPOSE,
+  }).select('lastSentAt');
+
+  if (existingChallenge?.lastSentAt) {
+    const elapsedMs = Date.now() - existingChallenge.lastSentAt.getTime();
+
+    if (elapsedMs < authConfig.emailVerification.resendCooldownMs) {
+      return genericResult;
+    }
+  }
+
+  const otp = generateVerificationOtp();
+
+  const now = new Date();
+
+  const expiresAt = new Date(
+    now.getTime() + authConfig.emailVerification.otpTtlMs,
+  );
+
+  const challengeHash = hashAuthChallenge({
+    userId: user._id,
+    email: user.email,
+    purpose: PASSWORD_RESET_PURPOSE,
+    otp,
+  });
+
+  await AuthChallenge.findOneAndUpdate(
+    {
+      userId: user._id,
+      purpose: PASSWORD_RESET_PURPOSE,
+    },
+    {
+      $set: {
+        targetEmail: user.email,
+        challengeHash,
+        expiresAt,
+        usedAt: null,
+        attemptCount: 0,
+        lastSentAt: now,
+      },
+    },
+    {
+      upsert: true,
+      new: true,
+      setDefaultsOnInsert: true,
+    },
+  );
+
+  try {
+    await sendPasswordResetOtpEmail({
+      to: user.email,
+      otp,
+    });
+  } catch (error) {
+    await AuthChallenge.updateOne(
+      {
+        userId: user._id,
+        purpose: PASSWORD_RESET_PURPOSE,
+        challengeHash,
+      },
+      {
+        $set: {
+          lastSentAt: null,
+        },
+      },
+    );
+
+    throw error;
+  }
+
+  return genericResult;
+}
+
+export async function verifyPasswordResetOtp({ email, otp }) {
+  const user = await User.findOne({
+    email,
+  }).select('+passwordHash');
+
+  if (
+    !user ||
+    user.role !== 'customer' ||
+    !user.emailVerified ||
+    !user.passwordHash
+  ) {
+    throw new AppError(422, 'OTP_INVALID', 'The recovery code is invalid.');
+  }
+
+  const challenge = await AuthChallenge.findOne({
+    userId: user._id,
+    targetEmail: email,
+    purpose: PASSWORD_RESET_PURPOSE,
+  }).select('+challengeHash');
+
+  if (!challenge) {
+    throw new AppError(422, 'OTP_INVALID', 'The recovery code is invalid.');
+  }
+
+  if (challenge.usedAt) {
+    throw new AppError(
+      409,
+      'OTP_ALREADY_USED',
+      'This recovery code has already been used.',
+    );
+  }
+
+  if (challenge.expiresAt <= new Date()) {
+    throw new AppError(422, 'OTP_EXPIRED', 'The recovery code has expired.');
+  }
+
+  if (challenge.attemptCount >= authConfig.emailVerification.maxAttempts) {
+    throw new AppError(
+      429,
+      'RATE_LIMITED',
+      'Too many verification attempts. Request a new recovery code.',
+    );
+  }
+
+  const otpMatches = verifyAuthChallengeHash({
+    userId: user._id,
+    email,
+    purpose: PASSWORD_RESET_PURPOSE,
+    otp,
+    challengeHash: challenge.challengeHash,
+  });
+
+  if (!otpMatches) {
+    await AuthChallenge.updateOne(
+      {
+        _id: challenge._id,
+        usedAt: null,
+      },
+      {
+        $inc: {
+          attemptCount: 1,
+        },
+      },
+    );
+
+    throw new AppError(422, 'OTP_INVALID', 'The recovery code is invalid.');
+  }
+
+  const consumedChallenge = await AuthChallenge.findOneAndUpdate(
+    {
+      _id: challenge._id,
+      usedAt: null,
+    },
+    {
+      $set: {
+        usedAt: new Date(),
+      },
+    },
+    {
+      new: true,
+    },
+  );
+
+  if (!consumedChallenge) {
+    throw new AppError(
+      409,
+      'OTP_ALREADY_USED',
+      'This recovery code has already been used.',
+    );
+  }
+
+  return {
+    userId: user._id.toString(),
+  };
+}
+
+export async function resetCustomerPassword({ userId, newPassword }) {
+  const user = await User.findOne({
+    _id: userId,
+    role: 'customer',
+  }).select('+passwordHash');
+
+  if (!user || !user.passwordHash) {
+    throw new AppError(
+      403,
+      'RECOVERY_NOT_AUTHORIZED',
+      'Password reset is not authorized.',
+    );
+  }
+
+  const passwordHash = await argon2.hash(newPassword, {
+    type: argon2.argon2id,
+  });
+
+  const result = await User.updateOne(
+    {
+      _id: user._id,
+      role: 'customer',
+    },
+    {
+      $set: {
+        passwordHash,
+      },
+    },
+  );
+
+  if (result.matchedCount !== 1) {
+    throw new AppError(
+      403,
+      'RECOVERY_NOT_AUTHORIZED',
+      'Password reset is not authorized.',
+    );
+  }
+
+  await AuthChallenge.deleteOne({
+    userId: user._id,
+    purpose: PASSWORD_RESET_PURPOSE,
+  });
+
+  return {
+    passwordReset: true,
+  };
 }
