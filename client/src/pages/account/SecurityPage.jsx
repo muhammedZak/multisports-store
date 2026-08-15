@@ -109,6 +109,21 @@ function SecurityPage() {
           Account security
         </p>
 
+        <section className='mt-6 border border-neutral-200 p-5'>
+          <h2 className='font-semibold'>Authentication email</h2>
+
+          <p className='mt-2 text-sm leading-6 text-neutral-600'>
+            Change the email address you use to sign in. Your new address must
+            be verified before the change is completed.
+          </p>
+
+          <Link
+            to='/account/security/email'
+            className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
+            Change authentication email
+          </Link>
+        </section>
+
         <h1 className='mt-3 text-3xl font-semibold'>Change password</h1>
 
         <p className='mt-3 text-sm leading-6 text-neutral-600'>

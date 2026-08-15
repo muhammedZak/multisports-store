@@ -14,6 +14,7 @@ import AuthSessionPage from '../../pages/account/AuthSessionPage.jsx';
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
 import RequireGuest from '../../features/auth/RequireGuest.jsx';
 import SecurityPage from '../../pages/account/SecurityPage.jsx';
+import ChangeEmailPage from '../../pages/account/ChangeEmailPage.jsx';
 
 function AppRouter() {
   return (
@@ -40,6 +41,7 @@ function AppRouter() {
       <Route element={<RequireCustomer />}>
         <Route path='/account' element={<AuthSessionPage />} />
         <Route path='/account/security' element={<SecurityPage />} />
+        <Route path='/account/security/email' element={<ChangeEmailPage />} />
       </Route>
 
       <Route path='/' element={<Navigate to='/auth/login' replace />} />

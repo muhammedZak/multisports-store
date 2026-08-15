@@ -92,6 +92,14 @@ function LoginPage() {
         Sign in to your MultiSports Store account.
       </p>
 
+      {location.state?.reauthRequired && (
+        <div
+          role='status'
+          className='mt-6 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900'>
+          Sign in again to continue changing your authentication email.
+        </div>
+      )}
+
       {location.state?.verified && (
         <div
           role='status'

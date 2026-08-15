@@ -92,3 +92,15 @@ export async function changePassword(payload) {
 
   return response.data.data;
 }
+
+export async function requestEmailChange(payload) {
+  const response = await apiClient.post('/auth/email-change/request', payload);
+
+  return response.data.data;
+}
+
+export async function verifyEmailChange(payload) {
+  const response = await apiClient.post('/auth/email-change/verify', payload);
+
+  return response.data.data;
+}
