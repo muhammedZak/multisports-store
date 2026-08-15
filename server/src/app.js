@@ -10,6 +10,7 @@ import { errorHandler } from './middleware/error.middleware.js';
 
 import { sessionMiddleware } from './config/session.js';
 import authRouter from './modules/auth/auth.routes.js';
+import userRouter from './modules/users/user.routes.js';
 
 const app = express();
 
@@ -36,6 +37,7 @@ app.get('/api/v1/health', (req, res) => {
 });
 
 app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/users', userRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

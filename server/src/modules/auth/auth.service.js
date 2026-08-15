@@ -32,6 +32,7 @@ function toSafeUser(user) {
     email: user.email,
     role: user.role,
     emailVerified: user.emailVerified,
+    phone: user.phone ?? null,
   };
 }
 
@@ -41,7 +42,7 @@ export async function getSessionUser(userId) {
   }
 
   const user = await User.findById(userId)
-    .select('name email role emailVerified')
+    .select('name email role emailVerified phone')
     .lean();
 
   if (!user) {

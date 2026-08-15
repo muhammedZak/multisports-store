@@ -9,12 +9,13 @@ import OtpLoginPage from '../../pages/auth/OtpLoginPage.jsx';
 import ForgotPasswordPage from '../../pages/auth/ForgotPasswordPage.jsx';
 import ResetPasswordPage from '../../pages/auth/ResetPasswordPage.jsx';
 
-import AuthSessionPage from '../../pages/account/AuthSessionPage.jsx';
+import ProfilePage from '../../pages/account/ProfilePage.jsx';
+import EditProfilePage from '../../pages/account/EditProfilePage.jsx';
+import SecurityPage from '../../pages/account/SecurityPage.jsx';
+import ChangeEmailPage from '../../pages/account/ChangeEmailPage.jsx';
 
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
 import RequireGuest from '../../features/auth/RequireGuest.jsx';
-import SecurityPage from '../../pages/account/SecurityPage.jsx';
-import ChangeEmailPage from '../../pages/account/ChangeEmailPage.jsx';
 
 function AppRouter() {
   return (
@@ -39,8 +40,12 @@ function AppRouter() {
       </Route>
 
       <Route element={<RequireCustomer />}>
-        <Route path='/account' element={<AuthSessionPage />} />
+        <Route path='/account' element={<ProfilePage />} />
+
+        <Route path='/account/profile/edit' element={<EditProfilePage />} />
+
         <Route path='/account/security' element={<SecurityPage />} />
+
         <Route path='/account/security/email' element={<ChangeEmailPage />} />
       </Route>
 

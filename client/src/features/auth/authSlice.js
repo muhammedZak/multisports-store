@@ -156,6 +156,15 @@ const authSlice = createSlice({
       state.user.email = action.payload.email;
       state.user.emailVerified = true;
     },
+
+    updateAuthenticatedUserProfile(state, action) {
+      if (!state.user) {
+        return;
+      }
+
+      state.user.name = action.payload.name;
+      state.user.phone = action.payload.phone;
+    },
   },
 
   extraReducers: (builder) => {
@@ -276,6 +285,7 @@ export const {
   clearAuthError,
   clearGoogleLinkPending,
   updateAuthenticatedUserEmail,
+  updateAuthenticatedUserProfile,
 } = authSlice.actions;
 
 export default authSlice.reducer;

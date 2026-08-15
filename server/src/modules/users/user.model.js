@@ -1,6 +1,24 @@
 import mongoose from 'mongoose';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_ALLOWED_REGEX = /^\+?[0-9\s()-]+$/;
+
+function isValidPhone(value) {
+  if (value === undefined || value === null) {
+    return true;
+  }
+
+  const phone = value.trim();
+
+  const digitCount = phone.replace(/\D/g, '').length;
+
+  return (
+    phone.length <= 25 &&
+    PHONE_ALLOWED_REGEX.test(phone) &&
+    digitCount >= 7 &&
+    digitCount <= 15
+  );
+}
 
 const userSchema = new mongoose.Schema(
   {
@@ -39,6 +57,15 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
       required: true,
+    },
+
+    phone: {
+      type: String,
+      trim: true,
+      validate: {
+        validator: isValidPhone,
+        message: 'Please provide a valid phone number',
+      },
     },
   },
   {
