@@ -17,6 +17,8 @@ import {
   verifyForgotPasswordOtp,
   resetPassword,
   changePassword,
+  requestEmailChange,
+  verifyEmailChange,
 } from './auth.controller.js';
 
 import {
@@ -25,9 +27,14 @@ import {
   verificationRateLimiter,
   loginRateLimiter,
   passwordChangeRateLimiter,
+  emailChangeRateLimiter,
 } from './auth.rateLimit.js';
 
-import { requireAuth } from '../../middleware/auth.middleware.js';
+import {
+  requireAuth,
+  requireCustomer,
+  requireRecentAuthentication,
+} from '../../middleware/auth.middleware.js';
 
 const router = Router();
 
@@ -71,6 +78,23 @@ router.patch(
   requireAuth,
   passwordChangeRateLimiter,
   changePassword,
+);
+
+router.post(
+  '/email-change/request',
+  requireAuth,
+  requireCustomer,
+  requireRecentAuthentication,
+  emailChangeRateLimiter,
+  requestEmailChange,
+);
+
+router.post(
+  '/email-change/verify',
+  requireAuth,
+  requireCustomer,
+  verificationRateLimiter,
+  verifyEmailChange,
 );
 
 router.post('/logout', requireAuth, logout);

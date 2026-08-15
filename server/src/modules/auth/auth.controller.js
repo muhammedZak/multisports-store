@@ -12,6 +12,8 @@ import {
   validatePasswordRecoveryVerificationInput,
   validatePasswordResetInput,
   validateChangePasswordInput,
+  validateEmailChangeRequestInput,
+  validateEmailChangeVerificationInput,
 } from './auth.validation.js';
 
 import {
@@ -27,6 +29,8 @@ import {
   verifyPasswordResetOtp,
   resetCustomerPassword,
   changeAuthenticatedPassword,
+  requestAuthenticationEmailChange,
+  verifyAuthenticationEmailChange,
 } from './auth.service.js';
 
 import {
@@ -240,6 +244,34 @@ export async function changePassword(req, res) {
     userId: req.session.userId,
     currentPassword: input.currentPassword,
     newPassword: input.newPassword,
+  });
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+export async function requestEmailChange(req, res) {
+  const input = validateEmailChangeRequestInput(req.body);
+
+  const result = await requestAuthenticationEmailChange({
+    userId: req.session.userId,
+    newEmail: input.newEmail,
+  });
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+}
+
+export async function verifyEmailChange(req, res) {
+  const input = validateEmailChangeVerificationInput(req.body);
+
+  const result = await verifyAuthenticationEmailChange({
+    userId: req.session.userId,
+    otp: input.otp,
   });
 
   res.status(200).json({

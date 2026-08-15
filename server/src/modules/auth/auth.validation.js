@@ -398,3 +398,45 @@ export function validateChangePasswordInput(body) {
     newPassword,
   };
 }
+
+export function validateEmailChangeRequestInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, ['newEmail']);
+
+  const newEmail = normalizeEmail(body.newEmail);
+
+  if (!EMAIL_REGEX.test(newEmail)) {
+    throwValidationError({
+      newEmail: 'Enter a valid email address.',
+    });
+  }
+
+  return {
+    newEmail,
+  };
+}
+
+export function validateEmailChangeVerificationInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, ['otp']);
+
+  const otp = typeof body.otp === 'string' ? body.otp.trim() : '';
+
+  const otpPattern = new RegExp(
+    `^\\d{${authConfig.emailVerification.otpLength}}$`,
+  );
+
+  if (!otpPattern.test(otp)) {
+    throwValidationError({
+      otp:
+        `Verification code must contain ` +
+        `${authConfig.emailVerification.otpLength} digits.`,
+    });
+  }
+
+  return {
+    otp,
+  };
+}

@@ -15,6 +15,10 @@ export const authConfig = Object.freeze({
     resetAuthorizationTtlMs: 10 * 60 * 1000,
   }),
 
+  emailChange: Object.freeze({
+    recentAuthenticationMaxAgeMs: 10 * 60 * 1000,
+  }),
+
   rateLimits: Object.freeze({
     registration: Object.freeze({
       windowMs: 15 * 60 * 1000,
@@ -37,6 +41,11 @@ export const authConfig = Object.freeze({
     }),
 
     passwordChange: Object.freeze({
+      windowMs: 15 * 60 * 1000,
+      limit: 5,
+    }),
+
+    emailChange: Object.freeze({
       windowMs: 15 * 60 * 1000,
       limit: 5,
     }),

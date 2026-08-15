@@ -32,6 +32,7 @@ export async function createAuthenticatedSession(req, userId) {
   await regenerateSession(req);
 
   req.session.userId = userId;
+  req.session.authenticatedAt = Date.now();
 
   const csrfToken = getOrCreateCsrfToken(req);
 

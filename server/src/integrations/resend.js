@@ -104,3 +104,36 @@ export async function sendPasswordResetOtpEmail({ to, otp }) {
     );
   }
 }
+
+export async function sendEmailChangeOtpEmail({ to, otp }) {
+  try {
+    const { error } = await resend.emails.send({
+      from: env.resendFromEmail,
+      to,
+      subject: 'Verify your new MultiSports Store email',
+      text:
+        `Your code to change your MultiSports Store email is ${otp}. ` +
+        `It expires in ${
+          authConfig.emailVerification.otpTtlMs / (60 * 1000)
+        } minutes.`,
+    });
+
+    if (error) {
+      throw new AppError(
+        502,
+        'EXTERNAL_SERVICE_ERROR',
+        'Email change verification code could not be sent. Please try again.',
+      );
+    }
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    throw new AppError(
+      502,
+      'EXTERNAL_SERVICE_ERROR',
+      'Email change verification code could not be sent. Please try again.',
+    );
+  }
+}

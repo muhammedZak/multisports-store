@@ -6,6 +6,7 @@ import {
   sendVerificationOtpEmail,
   sendLoginOtpEmail,
   sendPasswordResetOtpEmail,
+  sendEmailChangeOtpEmail,
 } from '../../integrations/resend.js';
 import { verifyGoogleCredential } from '../../integrations/google.js';
 
@@ -17,10 +18,11 @@ import { authConfig } from './auth.config.js';
 import {
   EMAIL_VERIFICATION_PURPOSE,
   OTP_LOGIN_PURPOSE,
+  PASSWORD_RESET_PURPOSE,
+  EMAIL_CHANGE_PURPOSE,
   generateVerificationOtp,
   hashAuthChallenge,
   verifyAuthChallengeHash,
-  PASSWORD_RESET_PURPOSE,
 } from './auth.challenge.js';
 
 function toSafeUser(user) {
@@ -1028,5 +1030,286 @@ export async function changeAuthenticatedPassword({
 
   return {
     passwordChanged: true,
+  };
+}
+
+export async function requestAuthenticationEmailChange({ userId, newEmail }) {
+  const user = await User.findOne({
+    _id: userId,
+    role: 'customer',
+  });
+
+  if (!user) {
+    throw new AppError(403, 'FORBIDDEN', 'Customer access is required.');
+  }
+
+  if (user.email === newEmail) {
+    throw new AppError(
+      409,
+      'EMAIL_UNCHANGED',
+      'New email must be different from your current email.',
+    );
+  }
+
+  const emailOwner = await User.exists({
+    email: newEmail,
+    _id: {
+      $ne: user._id,
+    },
+  });
+
+  if (emailOwner) {
+    throw new AppError(
+      409,
+      'EMAIL_ALREADY_IN_USE',
+      'This email address is already in use.',
+    );
+  }
+
+  const existingChallenge = await AuthChallenge.findOne({
+    userId: user._id,
+    purpose: EMAIL_CHANGE_PURPOSE,
+  }).select('lastSentAt');
+
+  if (existingChallenge?.lastSentAt) {
+    const elapsedMs = Date.now() - existingChallenge.lastSentAt.getTime();
+
+    if (elapsedMs < authConfig.emailVerification.resendCooldownMs) {
+      throw new AppError(
+        429,
+        'RATE_LIMITED',
+        'Please wait before requesting another email change code.',
+      );
+    }
+  }
+
+  const otp = generateVerificationOtp();
+
+  const now = new Date();
+
+  const expiresAt = new Date(
+    now.getTime() + authConfig.emailVerification.otpTtlMs,
+  );
+
+  const challengeHash = hashAuthChallenge({
+    userId: user._id,
+    email: newEmail,
+    purpose: EMAIL_CHANGE_PURPOSE,
+    otp,
+  });
+
+  await AuthChallenge.findOneAndUpdate(
+    {
+      userId: user._id,
+      purpose: EMAIL_CHANGE_PURPOSE,
+    },
+    {
+      $set: {
+        targetEmail: newEmail,
+        challengeHash,
+        expiresAt,
+        usedAt: null,
+        attemptCount: 0,
+        lastSentAt: now,
+      },
+    },
+    {
+      upsert: true,
+      new: true,
+      setDefaultsOnInsert: true,
+    },
+  );
+
+  try {
+    await sendEmailChangeOtpEmail({
+      to: newEmail,
+      otp,
+    });
+  } catch (error) {
+    await AuthChallenge.updateOne(
+      {
+        userId: user._id,
+        purpose: EMAIL_CHANGE_PURPOSE,
+        challengeHash,
+      },
+      {
+        $set: {
+          lastSentAt: null,
+        },
+      },
+    );
+
+    throw error;
+  }
+
+  return {
+    verificationRequired: true,
+    newEmail,
+  };
+}
+
+export async function verifyAuthenticationEmailChange({ userId, otp }) {
+  const user = await User.findOne({
+    _id: userId,
+    role: 'customer',
+  });
+
+  if (!user) {
+    throw new AppError(403, 'FORBIDDEN', 'Customer access is required.');
+  }
+
+  const challenge = await AuthChallenge.findOne({
+    userId: user._id,
+    purpose: EMAIL_CHANGE_PURPOSE,
+  }).select('+challengeHash');
+
+  if (!challenge) {
+    throw new AppError(
+      422,
+      'OTP_INVALID',
+      'The email verification code is invalid.',
+    );
+  }
+
+  if (challenge.usedAt) {
+    throw new AppError(
+      409,
+      'OTP_ALREADY_USED',
+      'This email verification code has already been used.',
+    );
+  }
+
+  if (challenge.expiresAt <= new Date()) {
+    throw new AppError(
+      422,
+      'OTP_EXPIRED',
+      'The email verification code has expired.',
+    );
+  }
+
+  if (challenge.attemptCount >= authConfig.emailVerification.maxAttempts) {
+    throw new AppError(
+      429,
+      'RATE_LIMITED',
+      'Too many verification attempts. Request a new code.',
+    );
+  }
+
+  const targetEmail = challenge.targetEmail;
+
+  const otpMatches = verifyAuthChallengeHash({
+    userId: user._id,
+    email: targetEmail,
+    purpose: EMAIL_CHANGE_PURPOSE,
+    otp,
+    challengeHash: challenge.challengeHash,
+  });
+
+  if (!otpMatches) {
+    await AuthChallenge.updateOne(
+      {
+        _id: challenge._id,
+        usedAt: null,
+      },
+      {
+        $inc: {
+          attemptCount: 1,
+        },
+      },
+    );
+
+    throw new AppError(
+      422,
+      'OTP_INVALID',
+      'The email verification code is invalid.',
+    );
+  }
+
+  /*
+   * Recheck uniqueness immediately before changing User.email.
+   *
+   * Another Customer could theoretically claim this email
+   * after the OTP was requested but before it was verified.
+   */
+  const existingEmailOwner = await User.exists({
+    email: targetEmail,
+    _id: {
+      $ne: user._id,
+    },
+  });
+
+  if (existingEmailOwner) {
+    throw new AppError(
+      409,
+      'EMAIL_ALREADY_IN_USE',
+      'This email address is already in use.',
+    );
+  }
+
+  let updatedUser;
+
+  try {
+    updatedUser = await User.findOneAndUpdate(
+      {
+        _id: user._id,
+        role: 'customer',
+      },
+      {
+        $set: {
+          email: targetEmail,
+          emailVerified: true,
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      },
+    );
+  } catch (error) {
+    /*
+     * The unique User.email database index is the final
+     * race-safe protection.
+     */
+    if (error?.code === 11000) {
+      throw new AppError(
+        409,
+        'EMAIL_ALREADY_IN_USE',
+        'This email address is already in use.',
+      );
+    }
+
+    throw error;
+  }
+
+  if (!updatedUser) {
+    throw new AppError(403, 'FORBIDDEN', 'Customer access is required.');
+  }
+
+  const consumedChallenge = await AuthChallenge.findOneAndUpdate(
+    {
+      _id: challenge._id,
+      usedAt: null,
+    },
+    {
+      $set: {
+        usedAt: new Date(),
+      },
+    },
+    {
+      new: true,
+    },
+  );
+
+  if (!consumedChallenge) {
+    throw new AppError(
+      409,
+      'OTP_ALREADY_USED',
+      'This email verification code has already been used.',
+    );
+  }
+
+  return {
+    emailChanged: true,
+    email: updatedUser.email,
   };
 }

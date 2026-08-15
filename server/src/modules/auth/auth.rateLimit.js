@@ -41,3 +41,7 @@ export const loginRateLimiter = createAuthRateLimiter(
 export const passwordChangeRateLimiter = createAuthRateLimiter(
   authConfig.rateLimits.passwordChange,
 );
+
+export const emailChangeRateLimiter = createAuthRateLimiter(
+  authConfig.rateLimits.emailChange,
+);
