@@ -9,8 +9,11 @@ import { notFoundHandler } from './middleware/notFound.middleware.js';
 import { errorHandler } from './middleware/error.middleware.js';
 
 import { sessionMiddleware } from './config/session.js';
+
 import authRouter from './modules/auth/auth.routes.js';
 import userRouter from './modules/users/user.routes.js';
+import categoryRouter from './modules/catalog/category.routes.js';
+import adminCategoryRouter from './modules/catalog/adminCategory.routes.js';
 
 const app = express();
 
@@ -38,6 +41,8 @@ app.get('/api/v1/health', (req, res) => {
 
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', userRouter);
+app.use('/api/v1', categoryRouter);
+app.use('/api/v1/admin/categories', adminCategoryRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
