@@ -243,6 +243,69 @@ function AdminProductDetailsPage() {
         </div>
       </section>
 
+      <section className='mt-6 border border-neutral-200 p-5'>
+        <div className='flex items-center justify-between gap-4'>
+          <div>
+            <h2 className='text-lg font-semibold'>Variants</h2>
+
+            <p className='mt-1 text-sm text-neutral-600'>
+              Product option combinations configured for this Product.
+            </p>
+          </div>
+
+          <span className='text-sm text-neutral-500'>
+            {(product.variants ?? []).length}{' '}
+            {(product.variants ?? []).length === 1 ? 'Variant' : 'Variants'}
+          </span>
+        </div>
+
+        {(product.variants ?? []).length === 0 ? (
+          <p className='mt-4 text-sm text-neutral-500'>
+            No Variants configured.
+          </p>
+        ) : (
+          <div className='mt-4 grid gap-4 lg:grid-cols-2'>
+            {product.variants.map((variant) => (
+              <article
+                key={variant.id}
+                className='border border-neutral-200 p-4'>
+                <div className='flex items-center justify-between gap-3'>
+                  <p className='text-sm font-medium'>Variant</p>
+
+                  <span
+                    className={[
+                      'px-2.5 py-1 text-xs font-medium',
+                      variant.isActive
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-neutral-200 text-neutral-700',
+                    ].join(' ')}>
+                    {variant.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+
+                <dl className='mt-3 divide-y divide-neutral-200 border border-neutral-200'>
+                  {Object.entries(variant.options ?? {}).map(
+                    ([name, value]) => (
+                      <div
+                        key={name}
+                        className='grid grid-cols-2 gap-3 p-3 text-sm'>
+                        <dt className='font-medium'>{name}</dt>
+
+                        <dd className='text-neutral-600'>{String(value)}</dd>
+                      </div>
+                    ),
+                  )}
+                </dl>
+
+                <p className='mt-3 break-all text-xs text-neutral-400'>
+                  ID: {variant.id}
+                </p>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className='mt-6 grid gap-6 border border-neutral-200 p-5 lg:grid-cols-2'>
         <div>
           <h2 className='text-lg font-semibold'>Catalog information</h2>

@@ -11,6 +11,7 @@ import {
 import { fetchAdminCategories, fetchSports } from '../../api/categoryApi.js';
 
 import AdminProductImageManager from './components/AdminProductImageManager.jsx';
+import AdminProductVariantManager from './components/AdminProductVariantManager.jsx';
 
 import { normalizeApiError } from '../../api/errors.js';
 
@@ -241,6 +242,8 @@ function AdminProductFormPage() {
 
   const [imageManagerBusy, setImageManagerBusy] = useState(false);
 
+  const [variantManagerBusy, setVariantManagerBusy] = useState(false);
+
   useEffect(() => {
     async function loadReferences() {
       setReferencesLoading(true);
@@ -453,7 +456,7 @@ function AdminProductFormPage() {
 
         <p className='mt-3 text-sm text-neutral-600'>
           {editMode
-            ? 'Update catalog-owned product information and manage its images. Status is managed separately.'
+            ? 'Update catalog-owned product information, images and variants. Product status is managed separately.'
             : 'Create the catalog product and upload its initial images.'}
         </p>
       </div>
@@ -783,12 +786,21 @@ function AdminProductFormPage() {
             )}
           </section>
         ) : (
-          <AdminProductImageManager
-            product={product}
-            onProductChange={setProduct}
-            disabled={saving}
-            onBusyChange={setImageManagerBusy}
-          />
+          <>
+            <AdminProductImageManager
+              product={product}
+              onProductChange={setProduct}
+              disabled={saving || variantManagerBusy}
+              onBusyChange={setImageManagerBusy}
+            />
+
+            <AdminProductVariantManager
+              product={product}
+              onProductChange={setProduct}
+              disabled={saving || imageManagerBusy}
+              onBusyChange={setVariantManagerBusy}
+            />
+          </>
         )}
 
         {formError?.fields?.request && (
@@ -805,6 +817,7 @@ function AdminProductFormPage() {
             disabled={
               saving ||
               imageManagerBusy ||
+              variantManagerBusy ||
               referencesLoading ||
               Boolean(referencesError)
             }

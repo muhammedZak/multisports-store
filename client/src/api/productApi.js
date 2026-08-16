@@ -100,3 +100,36 @@ export async function updateAdminProductImage(productId, imageId, payload) {
 export async function deleteAdminProductImage(productId, imageId) {
   await apiClient.delete(`/admin/products/${productId}/images/${imageId}`);
 }
+
+export async function addAdminProductVariant(productId, payload) {
+  const response = await apiClient.post(
+    `/admin/products/${productId}/variants`,
+    payload,
+  );
+
+  return response.data.data.product;
+}
+
+export async function updateAdminProductVariant(productId, variantId, payload) {
+  const response = await apiClient.patch(
+    `/admin/products/${productId}/variants/${variantId}`,
+    payload,
+  );
+
+  return response.data.data.product;
+}
+
+export async function updateAdminProductVariantStatus(
+  productId,
+  variantId,
+  isActive,
+) {
+  const response = await apiClient.patch(
+    `/admin/products/${productId}/variants/${variantId}/status`,
+    {
+      isActive,
+    },
+  );
+
+  return response.data.data.product;
+}
