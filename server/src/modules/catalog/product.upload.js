@@ -4,7 +4,7 @@ import { AppError } from '../../utils/AppError.js';
 
 const PRODUCT_IMAGE_MAX_SIZE = 5 * 1024 * 1024;
 
-const MAX_IMAGES_PER_CREATE_REQUEST = 5;
+const MAX_IMAGES_PER_REQUEST = 5;
 
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -13,7 +13,7 @@ const upload = multer({
 
   limits: {
     fileSize: PRODUCT_IMAGE_MAX_SIZE,
-    files: MAX_IMAGES_PER_CREATE_REQUEST,
+    files: MAX_IMAGES_PER_REQUEST,
   },
 
   fileFilter(req, file, callback) {
@@ -31,8 +31,8 @@ const upload = multer({
   },
 });
 
-export function uploadInitialProductImages(req, res, next) {
-  upload.array('images', MAX_IMAGES_PER_CREATE_REQUEST)(req, res, (error) => {
+function handleProductImageUpload(req, res, next) {
+  upload.array('images', MAX_IMAGES_PER_REQUEST)(req, res, (error) => {
     if (!error) {
       return next();
     }
@@ -68,4 +68,12 @@ export function uploadInitialProductImages(req, res, next) {
 
     next(error);
   });
+}
+
+export function uploadInitialProductImages(req, res, next) {
+  handleProductImageUpload(req, res, next);
+}
+
+export function uploadAdditionalProductImages(req, res, next) {
+  handleProductImageUpload(req, res, next);
 }

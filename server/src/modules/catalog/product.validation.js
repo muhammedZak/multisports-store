@@ -53,6 +53,8 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
+const UPDATE_PRODUCT_IMAGE_FIELDS = ['altText', 'isPrimary', 'sortOrder'];
+
 function throwValidationError(fields) {
   throw new AppError(
     422,
@@ -513,6 +515,52 @@ export function validateProductStatusInput(body) {
   return {
     isActive: body.isActive,
   };
+}
+
+export function validateProductImageUpdateInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, UPDATE_PRODUCT_IMAGE_FIELDS);
+
+  if (Object.keys(body).length === 0) {
+    throwValidationError({
+      request: 'Provide at least one image field to update.',
+    });
+  }
+
+  const fields = {};
+  const input = {};
+
+  if (Object.prototype.hasOwnProperty.call(body, 'altText')) {
+    if (typeof body.altText !== 'string' || !body.altText.trim()) {
+      fields.altText = 'Image alt text is required.';
+    } else {
+      input.altText = body.altText.trim();
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'isPrimary')) {
+    if (body.isPrimary !== true) {
+      fields.isPrimary =
+        'To change the primary image, set another image as primary.';
+    } else {
+      input.isPrimary = true;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'sortOrder')) {
+    if (!Number.isSafeInteger(body.sortOrder) || body.sortOrder < 0) {
+      fields.sortOrder = 'Image sort order must be a non-negative integer.';
+    } else {
+      input.sortOrder = body.sortOrder;
+    }
+  }
+
+  if (Object.keys(fields).length > 0) {
+    throwValidationError(fields);
+  }
+
+  return input;
 }
 
 export function validateProductCreateMultipartInput(body) {

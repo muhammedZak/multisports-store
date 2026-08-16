@@ -215,6 +215,132 @@ async function uploadProductImages(files, productName) {
   }
 }
 
+function throwProductImageNotFound() {
+  throw new AppError(
+    404,
+    'PRODUCT_IMAGE_NOT_FOUND',
+    'Product image not found.',
+  );
+}
+
+function throwInvalidProductImageUpload() {
+  throw new AppError(
+    422,
+    'INVALID_IMAGE',
+    'Upload at least one product image.',
+  );
+}
+
+function getProductImageOrThrow(product, imageId) {
+  if (!mongoose.isValidObjectId(imageId)) {
+    throwProductImageNotFound();
+  }
+
+  const image = product.images.id(imageId);
+
+  if (!image) {
+    throwProductImageNotFound();
+  }
+
+  return image;
+}
+
+function normalizeProductImageOrder(images) {
+  const orderedImages = getSortedImages(images);
+
+  orderedImages.forEach((image, index) => {
+    image.sortOrder = index;
+  });
+
+  return orderedImages;
+}
+
+function ensureProductHasPrimaryImage(images) {
+  if (images.length === 0) {
+    return;
+  }
+
+  const hasPrimary = images.some((image) => image.isPrimary);
+
+  if (hasPrimary) {
+    return;
+  }
+
+  const [firstImage] = getSortedImages(images);
+
+  firstImage.isPrimary = true;
+}
+
+function moveProductImageToSortOrder(images, image, targetSortOrder) {
+  const orderedImages = getSortedImages(images);
+
+  const maximumSortOrder = orderedImages.length - 1;
+
+  if (targetSortOrder > maximumSortOrder) {
+    throw new AppError(
+      422,
+      'VALIDATION_ERROR',
+      'Please correct the invalid fields.',
+      {
+        sortOrder: `Image sort order must be between 0 and ${maximumSortOrder}.`,
+      },
+    );
+  }
+
+  const currentIndex = orderedImages.findIndex((item) =>
+    item._id.equals(image._id),
+  );
+
+  orderedImages.splice(currentIndex, 1);
+
+  orderedImages.splice(targetSortOrder, 0, image);
+
+  orderedImages.forEach((item, index) => {
+    item.sortOrder = index;
+  });
+}
+
+async function uploadAdditionalProductImageAssets(
+  files,
+  productName,
+  startingSortOrder,
+) {
+  if (!Array.isArray(files) || files.length === 0) {
+    throwInvalidProductImageUpload();
+  }
+
+  const uploadedImages = [];
+
+  try {
+    for (let index = 0; index < files.length; index += 1) {
+      const asset = await uploadProductImageAsset(files[index].buffer);
+
+      uploadedImages.push({
+        publicId: asset.publicId,
+        url: asset.url,
+        altText: productName,
+        isPrimary: false,
+        sortOrder: startingSortOrder + index,
+      });
+    }
+
+    return uploadedImages;
+  } catch (error) {
+    await cleanupProductImages(
+      uploadedImages.map((image) => image.publicId),
+      'partial additional product image upload failure',
+    );
+
+    throw error;
+  }
+}
+
+async function getPopulatedAdminProductResource(product) {
+  await product.populate('categoryId', 'name sport isActive');
+
+  return toAdminProductResource(product);
+}
+
 async function ensureFilterCategoryIntegrity({ categoryId, sport }) {
   if (!categoryId) {
     return;
@@ -496,4 +622,99 @@ export async function updateProductStatus(productId, isActive) {
   await product.save();
 
   return toAdminProductResource(product, category);
+}
+
+export async function addProductImages(productId, imageFiles) {
+  const product = await getProductOrThrow(productId);
+
+  normalizeProductImageOrder(product.images);
+
+  const startingSortOrder = product.images.length;
+
+  const uploadedImages = await uploadAdditionalProductImageAssets(
+    imageFiles,
+    product.name,
+    startingSortOrder,
+  );
+
+  for (const uploadedImage of uploadedImages) {
+    product.images.push(uploadedImage);
+  }
+
+  ensureProductHasPrimaryImage(product.images);
+
+  try {
+    await product.save();
+  } catch (error) {
+    await cleanupProductImages(
+      uploadedImages.map((image) => image.publicId),
+      'additional product image database save failure',
+    );
+
+    throw error;
+  }
+
+  return getPopulatedAdminProductResource(product);
+}
+
+export async function updateProductImage(productId, imageId, changes) {
+  const product = await getProductOrThrow(productId);
+
+  const image = getProductImageOrThrow(product, imageId);
+
+  if (Object.prototype.hasOwnProperty.call(changes, 'altText')) {
+    image.altText = changes.altText;
+  }
+
+  if (changes.isPrimary === true) {
+    for (const productImage of product.images) {
+      productImage.isPrimary = productImage._id.equals(image._id);
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(changes, 'sortOrder')) {
+    moveProductImageToSortOrder(product.images, image, changes.sortOrder);
+  }
+
+  await product.save();
+
+  return getPopulatedAdminProductResource(product);
+}
+
+export async function deleteProductImage(productId, imageId) {
+  const product = await getProductOrThrow(productId);
+
+  const image = getProductImageOrThrow(product, imageId);
+
+  if (product.images.length === 1) {
+    throwProductImageRequired(409);
+  }
+
+  const publicId = image.publicId;
+  const wasPrimary = image.isPrimary;
+
+  product.images.pull(image._id);
+
+  const orderedImages = normalizeProductImageOrder(product.images);
+
+  if (wasPrimary) {
+    for (const remainingImage of orderedImages) {
+      remainingImage.isPrimary = false;
+    }
+
+    orderedImages[0].isPrimary = true;
+  } else {
+    ensureProductHasPrimaryImage(product.images);
+  }
+
+  await product.save();
+
+  try {
+    await deleteProductImageAsset(publicId);
+  } catch (error) {
+    console.error(
+      'Product image Cloudinary cleanup failed after database deletion:',
+      error,
+    );
+  }
 }

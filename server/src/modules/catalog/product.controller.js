@@ -3,6 +3,7 @@ import {
   validateProductCreateMultipartInput,
   validateProductUpdateInput,
   validateProductStatusInput,
+  validateProductImageUpdateInput,
 } from './product.validation.js';
 
 import {
@@ -11,6 +12,9 @@ import {
   createProduct,
   updateProduct,
   updateProductStatus,
+  addProductImages,
+  updateProductImage,
+  deleteProductImage,
 } from './product.service.js';
 
 export async function getProductsForAdmin(req, res) {
@@ -84,4 +88,40 @@ export async function updateProductStatusForAdmin(req, res) {
       product,
     },
   });
+}
+
+export async function addProductImagesForAdmin(req, res) {
+  const product = await addProductImages(req.params.productId, req.files);
+
+  res.status(201).json({
+    success: true,
+
+    data: {
+      product,
+    },
+  });
+}
+
+export async function updateProductImageForAdmin(req, res) {
+  const input = validateProductImageUpdateInput(req.body);
+
+  const product = await updateProductImage(
+    req.params.productId,
+    req.params.imageId,
+    input,
+  );
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      product,
+    },
+  });
+}
+
+export async function deleteProductImageForAdmin(req, res) {
+  await deleteProductImage(req.params.productId, req.params.imageId);
+
+  res.status(204).send();
 }
