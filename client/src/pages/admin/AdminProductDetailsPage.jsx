@@ -230,8 +230,13 @@ function AdminProductDetailsPage() {
                 className='aspect-square w-full object-cover'
               />
 
-              <p className='mt-2 text-xs text-neutral-500'>
-                {image.isPrimary ? 'Primary image' : `Order ${image.sortOrder}`}
+              <p className='mt-2 text-xs font-medium text-neutral-600'>
+                {image.isPrimary ? 'Primary image · ' : ''}
+                Order {image.sortOrder}
+              </p>
+
+              <p className='mt-1 text-xs text-neutral-500'>
+                Alt: {image.altText || '—'}
               </p>
             </div>
           ))}

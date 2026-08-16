@@ -10,6 +10,8 @@ import {
 
 import { fetchAdminCategories, fetchSports } from '../../api/categoryApi.js';
 
+import AdminProductImageManager from './components/AdminProductImageManager.jsx';
+
 import { normalizeApiError } from '../../api/errors.js';
 
 import { paiseToRupeesInput, parseRupeesToPaise } from '../../utils/money.js';
@@ -237,6 +239,8 @@ function AdminProductFormPage() {
 
   const [formError, setFormError] = useState(null);
 
+  const [imageManagerBusy, setImageManagerBusy] = useState(false);
+
   useEffect(() => {
     async function loadReferences() {
       setReferencesLoading(true);
@@ -449,7 +453,7 @@ function AdminProductFormPage() {
 
         <p className='mt-3 text-sm text-neutral-600'>
           {editMode
-            ? 'Update catalog-owned product information. Images and status are managed separately.'
+            ? 'Update catalog-owned product information and manage its images. Status is managed separately.'
             : 'Create the catalog product and upload its initial images.'}
         </p>
       </div>
@@ -779,25 +783,12 @@ function AdminProductFormPage() {
             )}
           </section>
         ) : (
-          <section className='border border-neutral-200 p-5'>
-            <h2 className='text-lg font-semibold'>Product images</h2>
-
-            <p className='mt-1 text-sm text-neutral-600'>
-              Images are read-only during Task 4.2. Full upload, delete, reorder
-              and primary-image management belongs to Task 4.3.
-            </p>
-
-            <div className='mt-4 flex flex-wrap gap-3'>
-              {product?.images?.map((image) => (
-                <img
-                  key={image.id}
-                  src={image.url}
-                  alt={image.altText || product.name}
-                  className='h-24 w-24 object-cover'
-                />
-              ))}
-            </div>
-          </section>
+          <AdminProductImageManager
+            product={product}
+            onProductChange={setProduct}
+            disabled={saving}
+            onBusyChange={setImageManagerBusy}
+          />
         )}
 
         {formError?.fields?.request && (
@@ -811,7 +802,12 @@ function AdminProductFormPage() {
         <div className='flex flex-wrap gap-3'>
           <button
             type='submit'
-            disabled={saving || referencesLoading || Boolean(referencesError)}
+            disabled={
+              saving ||
+              imageManagerBusy ||
+              referencesLoading ||
+              Boolean(referencesError)
+            }
             className='bg-black px-5 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50'>
             {saving
               ? 'Saving...'

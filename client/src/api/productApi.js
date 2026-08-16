@@ -72,3 +72,31 @@ export async function updateAdminProductStatus(productId, isActive) {
 
   return response.data.data.product;
 }
+
+export async function addAdminProductImages(productId, images) {
+  const formData = new FormData();
+
+  for (const image of images) {
+    formData.append('images', image);
+  }
+
+  const response = await apiClient.post(
+    `/admin/products/${productId}/images`,
+    formData,
+  );
+
+  return response.data.data.product;
+}
+
+export async function updateAdminProductImage(productId, imageId, payload) {
+  const response = await apiClient.patch(
+    `/admin/products/${productId}/images/${imageId}`,
+    payload,
+  );
+
+  return response.data.data.product;
+}
+
+export async function deleteAdminProductImage(productId, imageId) {
+  await apiClient.delete(`/admin/products/${productId}/images/${imageId}`);
+}
