@@ -51,7 +51,20 @@ function AdminLayout() {
             Management
           </p>
 
-          <nav>
+          <nav className='space-y-1'>
+            <NavLink
+              to='/admin/products'
+              className={({ isActive }) =>
+                [
+                  'block px-3 py-2 text-sm font-medium transition',
+                  isActive
+                    ? 'bg-black text-white'
+                    : 'text-neutral-700 hover:bg-neutral-100',
+                ].join(' ')
+              }>
+              Products
+            </NavLink>
+
             <NavLink
               to='/admin/categories'
               className={({ isActive }) =>

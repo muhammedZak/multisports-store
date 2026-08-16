@@ -16,7 +16,11 @@ import SecurityPage from '../../pages/account/SecurityPage.jsx';
 import ChangeEmailPage from '../../pages/account/ChangeEmailPage.jsx';
 import AddressesPage from '../../pages/account/AddressesPage.jsx';
 import AddressFormPage from '../../pages/account/AddressFormPage.jsx';
+
 import AdminCategoriesPage from '../../pages/admin/AdminCategoriesPage.jsx';
+import AdminProductsPage from '../../pages/admin/AdminProductsPage.jsx';
+import AdminProductDetailsPage from '../../pages/admin/AdminProductDetailsPage.jsx';
+import AdminProductFormPage from '../../pages/admin/AdminProductFormPage.jsx';
 
 import RequireAdmin from '../../features/auth/RequireAdmin.jsx';
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
@@ -67,7 +71,24 @@ function AppRouter() {
         <Route element={<AdminLayout />}>
           <Route
             path='/admin'
-            element={<Navigate to='/admin/categories' replace />}
+            element={<Navigate to='/admin/products' replace />}
+          />
+
+          <Route path='/admin/products' element={<AdminProductsPage />} />
+
+          <Route
+            path='/admin/products/new'
+            element={<AdminProductFormPage />}
+          />
+
+          <Route
+            path='/admin/products/:productId'
+            element={<AdminProductDetailsPage />}
+          />
+
+          <Route
+            path='/admin/products/:productId/edit'
+            element={<AdminProductFormPage />}
           />
 
           <Route path='/admin/categories' element={<AdminCategoriesPage />} />
