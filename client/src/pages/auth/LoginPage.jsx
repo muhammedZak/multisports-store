@@ -56,7 +56,10 @@ function LoginPage() {
     );
 
     if (login.fulfilled.match(result)) {
-      const destination = location.state?.from || '/account';
+      const defaultDestination =
+        result.payload.role === 'admin' ? '/admin/categories' : '/account';
+      console.log(defaultDestination);
+      const destination = location.state?.from || defaultDestination;
 
       navigate(destination, {
         replace: true,

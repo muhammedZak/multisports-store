@@ -14,7 +14,10 @@ function RequireGuest() {
   }
 
   if (user) {
-    return <Navigate to='/account' replace />;
+    const destination =
+      user.role === 'admin' ? '/admin/categories' : '/account';
+
+    return <Navigate to={destination} replace />;
   }
 
   return <Outlet />;

@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router';
 
 import AuthLayout from '../../layouts/AuthLayout.jsx';
+import AdminLayout from '../../layouts/AdminLayout.jsx';
 
 import LoginPage from '../../pages/auth/LoginPage.jsx';
 import RegisterPage from '../../pages/auth/RegisterPage.jsx';
@@ -15,7 +16,9 @@ import SecurityPage from '../../pages/account/SecurityPage.jsx';
 import ChangeEmailPage from '../../pages/account/ChangeEmailPage.jsx';
 import AddressesPage from '../../pages/account/AddressesPage.jsx';
 import AddressFormPage from '../../pages/account/AddressFormPage.jsx';
+import AdminCategoriesPage from '../../pages/admin/AdminCategoriesPage.jsx';
 
+import RequireAdmin from '../../features/auth/RequireAdmin.jsx';
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
 import RequireGuest from '../../features/auth/RequireGuest.jsx';
 
@@ -58,6 +61,17 @@ function AppRouter() {
           path='/account/addresses/:addressId/edit'
           element={<AddressFormPage />}
         />
+      </Route>
+
+      <Route element={<RequireAdmin />}>
+        <Route element={<AdminLayout />}>
+          <Route
+            path='/admin'
+            element={<Navigate to='/admin/categories' replace />}
+          />
+
+          <Route path='/admin/categories' element={<AdminCategoriesPage />} />
+        </Route>
       </Route>
 
       <Route path='/' element={<Navigate to='/auth/login' replace />} />
