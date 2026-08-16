@@ -31,6 +31,28 @@ const UPDATE_PRODUCT_FIELDS = [
 
 const UPDATE_STATUS_FIELDS = ['isActive'];
 
+const PRODUCT_CREATE_MULTIPART_FIELDS = ['data'];
+
+const ADMIN_PRODUCT_QUERY_FIELDS = [
+  'page',
+  'limit',
+  'q',
+  'sport',
+  'categoryId',
+  'brand',
+  'status',
+  'sort',
+  'order',
+];
+
+const ADMIN_PRODUCT_SORT_VALUES = ['createdAt', 'name', 'basePrice'];
+
+const ADMIN_PRODUCT_ORDER_VALUES = ['asc', 'desc'];
+
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+
 function throwValidationError(fields) {
   throw new AppError(
     422,
@@ -257,6 +279,39 @@ function getOptionalSpecifications(value) {
   return getSpecifications(value);
 }
 
+function getPositiveIntegerQuery(
+  value,
+  fieldName,
+  defaultValue,
+  maximum = null,
+) {
+  if (value === undefined) {
+    return defaultValue;
+  }
+
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+    throwValidationError({
+      [fieldName]: `${fieldName} must be a positive integer.`,
+    });
+  }
+
+  const parsedValue = Number(value);
+
+  if (!Number.isSafeInteger(parsedValue) || parsedValue <= 0) {
+    throwValidationError({
+      [fieldName]: `${fieldName} must be a positive integer.`,
+    });
+  }
+
+  if (maximum !== null && parsedValue > maximum) {
+    throwValidationError({
+      [fieldName]: `${fieldName} cannot exceed ${maximum}.`,
+    });
+  }
+
+  return parsedValue;
+}
+
 export function validateProductDiscountState({
   basePrice,
   discountType,
@@ -458,4 +513,122 @@ export function validateProductStatusInput(body) {
   return {
     isActive: body.isActive,
   };
+}
+
+export function validateProductCreateMultipartInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, PRODUCT_CREATE_MULTIPART_FIELDS);
+
+  if (typeof body.data !== 'string' || !body.data.trim()) {
+    throwValidationError({
+      data: 'Product data is required.',
+    });
+  }
+
+  let parsedData;
+
+  try {
+    parsedData = JSON.parse(body.data);
+  } catch {
+    throwValidationError({
+      data: 'Product data must contain valid JSON.',
+    });
+  }
+
+  return validateProductCreateInput(parsedData);
+}
+
+export function validateAdminProductQuery(query) {
+  validateObject(query);
+
+  rejectUnexpectedFields(query, ADMIN_PRODUCT_QUERY_FIELDS);
+
+  const input = {
+    page: getPositiveIntegerQuery(query.page, 'page', DEFAULT_PAGE),
+
+    limit: getPositiveIntegerQuery(
+      query.limit,
+      'limit',
+      DEFAULT_LIMIT,
+      MAX_LIMIT,
+    ),
+
+    sport: getOptionalSport(query.sport),
+
+    categoryId: getOptionalCategoryId(query.categoryId),
+
+    sort: 'createdAt',
+
+    order: 'desc',
+  };
+
+  if (query.q !== undefined) {
+    if (typeof query.q !== 'string') {
+      throwValidationError({
+        q: 'Search value must be text.',
+      });
+    }
+
+    const q = query.q.trim();
+
+    if (q) {
+      input.q = q;
+    }
+  }
+
+  if (query.brand !== undefined) {
+    if (typeof query.brand !== 'string') {
+      throwValidationError({
+        brand: 'Brand must be text.',
+      });
+    }
+
+    const brand = normalizeSingleLineText(query.brand);
+
+    if (brand) {
+      input.brand = brand;
+    }
+  }
+
+  if (query.status !== undefined) {
+    if (
+      typeof query.status !== 'string' ||
+      !['active', 'inactive'].includes(query.status)
+    ) {
+      throwValidationError({
+        status: 'Status must be active or inactive.',
+      });
+    }
+
+    input.status = query.status;
+  }
+
+  if (query.sort !== undefined) {
+    if (
+      typeof query.sort !== 'string' ||
+      !ADMIN_PRODUCT_SORT_VALUES.includes(query.sort)
+    ) {
+      throwValidationError({
+        sort: 'Sort must be createdAt, name, or basePrice.',
+      });
+    }
+
+    input.sort = query.sort;
+  }
+
+  if (query.order !== undefined) {
+    if (
+      typeof query.order !== 'string' ||
+      !ADMIN_PRODUCT_ORDER_VALUES.includes(query.order)
+    ) {
+      throwValidationError({
+        order: 'Order must be asc or desc.',
+      });
+    }
+
+    input.order = query.order;
+  }
+
+  return input;
 }

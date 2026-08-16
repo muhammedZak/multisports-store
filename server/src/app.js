@@ -14,6 +14,7 @@ import authRouter from './modules/auth/auth.routes.js';
 import userRouter from './modules/users/user.routes.js';
 import categoryRouter from './modules/catalog/category.routes.js';
 import adminCategoryRouter from './modules/catalog/adminCategory.routes.js';
+import adminProductRouter from './modules/catalog/adminProduct.routes.js';
 
 const app = express();
 
@@ -43,6 +44,7 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', userRouter);
 app.use('/api/v1', categoryRouter);
 app.use('/api/v1/admin/categories', adminCategoryRouter);
+app.use('/api/v1/admin/products', adminProductRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
