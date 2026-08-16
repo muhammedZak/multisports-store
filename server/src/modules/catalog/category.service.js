@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { AppError } from '../../utils/AppError.js';
 
 import { Category } from './category.model.js';
+import { Product } from './product.model.js';
 
 function throwCategoryNotFound() {
   throw new AppError(404, 'CATEGORY_NOT_FOUND', 'Category not found.');
@@ -14,6 +15,31 @@ function throwDuplicateCategory() {
     'DUPLICATE_CATEGORY',
     'A category with this name already exists for this sport.',
   );
+}
+
+function throwCategoryInUse() {
+  throw new AppError(
+    409,
+    'CATEGORY_IN_USE',
+    'This category is still used by active products.',
+  );
+}
+
+function throwCategorySportChangeConflict() {
+  throw new AppError(
+    409,
+    'CATEGORY_SPORT_CHANGE_CONFLICT',
+    'The category sport cannot be changed while active products use this category.',
+  );
+}
+
+async function hasActiveProducts(categoryId) {
+  const productExists = await Product.exists({
+    categoryId,
+    isActive: true,
+  });
+
+  return Boolean(productExists);
 }
 
 function normalizeCategoryName(name) {
@@ -163,6 +189,16 @@ export async function updateCategory(categoryId, changes) {
 
   const nextNameKey = createNameKey(nextName);
 
+  const sportIsChanging = nextSport !== category.sport;
+
+  if (sportIsChanging) {
+    const categoryHasActiveProducts = await hasActiveProducts(category._id);
+
+    if (categoryHasActiveProducts) {
+      throwCategorySportChangeConflict();
+    }
+  }
+
   await ensureCategoryIsUnique({
     sport: nextSport,
     nameKey: nextNameKey,
@@ -188,6 +224,16 @@ export async function updateCategory(categoryId, changes) {
 
 export async function updateCategoryStatus(categoryId, isActive) {
   const category = await getCategoryOrThrow(categoryId);
+
+  const isBeingDeactivated = category.isActive === true && isActive === false;
+
+  if (isBeingDeactivated) {
+    const categoryHasActiveProducts = await hasActiveProducts(category._id);
+
+    if (categoryHasActiveProducts) {
+      throwCategoryInUse();
+    }
+  }
 
   category.isActive = isActive;
 
