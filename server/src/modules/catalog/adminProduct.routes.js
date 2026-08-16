@@ -18,6 +18,9 @@ import {
   addProductImagesForAdmin,
   updateProductImageForAdmin,
   deleteProductImageForAdmin,
+  addProductVariantForAdmin,
+  updateProductVariantForAdmin,
+  updateProductVariantStatusForAdmin,
 } from './product.controller.js';
 
 const router = Router();
@@ -52,6 +55,20 @@ router.delete(
   '/:productId/images/:imageId',
   requireCsrf,
   deleteProductImageForAdmin,
+);
+
+router.post('/:productId/variants', requireCsrf, addProductVariantForAdmin);
+
+router.patch(
+  '/:productId/variants/:variantId/status',
+  requireCsrf,
+  updateProductVariantStatusForAdmin,
+);
+
+router.patch(
+  '/:productId/variants/:variantId',
+  requireCsrf,
+  updateProductVariantForAdmin,
 );
 
 router.patch('/:productId/status', requireCsrf, updateProductStatusForAdmin);

@@ -39,6 +39,42 @@ const productImageSchema = new mongoose.Schema({
   },
 });
 
+function hasSimpleVariantOptions(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const entries = Object.entries(value);
+
+  if (entries.length === 0) {
+    return false;
+  }
+
+  return entries.every(([optionName, optionValue]) => {
+    return (
+      optionName.trim().length > 0 &&
+      typeof optionValue === 'string' &&
+      optionValue.trim().length > 0
+    );
+  });
+}
+
+const productVariantSchema = new mongoose.Schema({
+  options: {
+    type: mongoose.Schema.Types.Mixed,
+    required: true,
+    validate: {
+      validator: hasSimpleVariantOptions,
+      message: 'Variant options must contain non-empty text values.',
+    },
+  },
+
+  isActive: {
+    type: Boolean,
+    required: true,
+  },
+});
+
 function hasSimpleSpecifications(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return false;
@@ -108,6 +144,11 @@ const productSchema = new mongoose.Schema(
           message: 'Only one product image may be primary.',
         },
       ],
+    },
+
+    variants: {
+      type: [productVariantSchema],
+      default: () => [],
     },
 
     basePrice: {

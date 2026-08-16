@@ -55,6 +55,12 @@ const MAX_LIMIT = 100;
 
 const UPDATE_PRODUCT_IMAGE_FIELDS = ['altText', 'isPrimary', 'sortOrder'];
 
+const CREATE_PRODUCT_VARIANT_FIELDS = ['options', 'isActive'];
+
+const UPDATE_PRODUCT_VARIANT_FIELDS = ['options'];
+
+const UPDATE_PRODUCT_VARIANT_STATUS_FIELDS = ['isActive'];
+
 function throwValidationError(fields) {
   throw new AppError(
     422,
@@ -238,6 +244,61 @@ function getOptionalDiscountValue(value) {
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getVariantOptions(value) {
+  if (!isPlainObject(value) || Object.keys(value).length === 0) {
+    throwValidationError({
+      options: 'Variant options must be a non-empty object.',
+    });
+  }
+
+  const normalizedEntries = [];
+  const optionNameKeys = new Set();
+
+  for (const [rawOptionName, rawOptionValue] of Object.entries(value)) {
+    const optionName = normalizeSingleLineText(rawOptionName);
+
+    if (!optionName) {
+      throwValidationError({
+        options: 'Every variant option must have a name.',
+      });
+    }
+
+    if (optionName.startsWith('$') || optionName.includes('.')) {
+      throwValidationError({
+        options: 'Variant option names cannot start with $ or contain dots.',
+      });
+    }
+
+    if (typeof rawOptionValue !== 'string') {
+      throwValidationError({
+        options: 'Variant option values must be text.',
+      });
+    }
+
+    const optionValue = normalizeSingleLineText(rawOptionValue);
+
+    if (!optionValue) {
+      throwValidationError({
+        options: 'Variant option values cannot be empty.',
+      });
+    }
+
+    const optionNameKey = optionName.toLowerCase();
+
+    if (optionNameKeys.has(optionNameKey)) {
+      throwValidationError({
+        options: 'Variant option names must be unique.',
+      });
+    }
+
+    optionNameKeys.add(optionNameKey);
+
+    normalizedEntries.push([optionName, optionValue]);
+  }
+
+  return Object.fromEntries(normalizedEntries);
 }
 
 function getSpecifications(value) {
@@ -679,4 +740,55 @@ export function validateAdminProductQuery(query) {
   }
 
   return input;
+}
+
+export function validateProductVariantCreateInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, CREATE_PRODUCT_VARIANT_FIELDS);
+
+  const options = getVariantOptions(body.options);
+
+  if (typeof body.isActive !== 'boolean') {
+    throwValidationError({
+      isActive: 'Variant active status must be true or false.',
+    });
+  }
+
+  return {
+    options,
+    isActive: body.isActive,
+  };
+}
+
+export function validateProductVariantUpdateInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, UPDATE_PRODUCT_VARIANT_FIELDS);
+
+  if (Object.keys(body).length === 0) {
+    throwValidationError({
+      request: 'Provide variant options to update.',
+    });
+  }
+
+  return {
+    options: getVariantOptions(body.options),
+  };
+}
+
+export function validateProductVariantStatusInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, UPDATE_PRODUCT_VARIANT_STATUS_FIELDS);
+
+  if (typeof body.isActive !== 'boolean') {
+    throwValidationError({
+      isActive: 'Variant active status must be true or false.',
+    });
+  }
+
+  return {
+    isActive: body.isActive,
+  };
 }

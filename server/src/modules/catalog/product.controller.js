@@ -4,6 +4,9 @@ import {
   validateProductUpdateInput,
   validateProductStatusInput,
   validateProductImageUpdateInput,
+  validateProductVariantCreateInput,
+  validateProductVariantUpdateInput,
+  validateProductVariantStatusInput,
 } from './product.validation.js';
 
 import {
@@ -15,6 +18,9 @@ import {
   addProductImages,
   updateProductImage,
   deleteProductImage,
+  addProductVariant,
+  updateProductVariant,
+  updateProductVariantStatus,
 } from './product.service.js';
 
 export async function getProductsForAdmin(req, res) {
@@ -124,4 +130,54 @@ export async function deleteProductImageForAdmin(req, res) {
   await deleteProductImage(req.params.productId, req.params.imageId);
 
   res.status(204).send();
+}
+
+export async function addProductVariantForAdmin(req, res) {
+  const input = validateProductVariantCreateInput(req.body);
+
+  const product = await addProductVariant(req.params.productId, input);
+
+  res.status(201).json({
+    success: true,
+
+    data: {
+      product,
+    },
+  });
+}
+
+export async function updateProductVariantForAdmin(req, res) {
+  const input = validateProductVariantUpdateInput(req.body);
+
+  const product = await updateProductVariant(
+    req.params.productId,
+    req.params.variantId,
+    input,
+  );
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      product,
+    },
+  });
+}
+
+export async function updateProductVariantStatusForAdmin(req, res) {
+  const input = validateProductVariantStatusInput(req.body);
+
+  const product = await updateProductVariantStatus(
+    req.params.productId,
+    req.params.variantId,
+    input.isActive,
+  );
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      product,
+    },
+  });
 }

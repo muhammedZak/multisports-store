@@ -77,6 +77,52 @@ function toImageResource(image) {
   };
 }
 
+function toVariantResource(variant) {
+  return {
+    id: variant._id.toString(),
+    options: variant.options ?? {},
+    isActive: variant.isActive,
+  };
+}
+
+function normalizeVariantComparisonPart(value) {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function getNormalizedVariantKey(options) {
+  const normalizedEntries = Object.entries(options)
+    .map(([optionName, optionValue]) => [
+      normalizeVariantComparisonPart(optionName),
+      normalizeVariantComparisonPart(optionValue),
+    ])
+    .sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
+
+  return JSON.stringify(normalizedEntries);
+}
+
+function ensureVariantOptionsUnique(
+  product,
+  options,
+  excludedVariantId = null,
+) {
+  const targetKey = getNormalizedVariantKey(options);
+
+  const duplicateVariant = product.variants.some((variant) => {
+    if (
+      excludedVariantId &&
+      variant._id.toString() === excludedVariantId.toString()
+    ) {
+      return false;
+    }
+
+    return getNormalizedVariantKey(variant.options) === targetKey;
+  });
+
+  if (duplicateVariant) {
+    throwDuplicateVariant();
+  }
+}
+
 function getSortedImages(images = []) {
   return [...images].sort((left, right) => left.sortOrder - right.sortOrder);
 }
@@ -144,6 +190,8 @@ function toAdminProductResource(product, category = null) {
 
     images: getSortedImages(product.images).map(toImageResource),
 
+    variants: (product.variants ?? []).map(toVariantResource),
+
     basePrice: product.basePrice,
 
     discountType: product.discountType ?? null,
@@ -172,6 +220,20 @@ async function getProductOrThrow(productId) {
   }
 
   return product;
+}
+
+function getProductVariantOrThrow(product, variantId) {
+  if (!mongoose.isValidObjectId(variantId)) {
+    throwVariantNotFound();
+  }
+
+  const variant = product.variants.id(variantId);
+
+  if (!variant) {
+    throwVariantNotFound();
+  }
+
+  return variant;
 }
 
 async function cleanupProductImages(publicIds, reason) {
@@ -333,6 +395,21 @@ async function uploadAdditionalProductImageAssets(
 
     throw error;
   }
+}
+
+function throwVariantNotFound() {
+  throw new AppError(404, 'VARIANT_NOT_FOUND', 'Variant not found.');
+}
+
+function throwDuplicateVariant() {
+  throw new AppError(
+    409,
+    'DUPLICATE_VARIANT',
+    'A variant with the same option combination already exists.',
+    {
+      options: 'Use a different variant option combination.',
+    },
+  );
 }
 
 async function getPopulatedAdminProductResource(product) {
@@ -717,4 +794,53 @@ export async function deleteProductImage(productId, imageId) {
       error,
     );
   }
+}
+
+export async function addProductVariant(productId, input) {
+  const product = await getProductOrThrow(productId);
+
+  ensureVariantOptionsUnique(product, input.options);
+
+  product.variants.push({
+    options: input.options,
+    isActive: input.isActive,
+  });
+
+  await product.save();
+
+  return getPopulatedAdminProductResource(product);
+}
+
+export async function updateProductVariant(productId, variantId, changes) {
+  const product = await getProductOrThrow(productId);
+
+  const variant = getProductVariantOrThrow(product, variantId);
+
+  ensureVariantOptionsUnique(product, changes.options, variant._id);
+
+  variant.options = changes.options;
+
+  await product.save();
+
+  return getPopulatedAdminProductResource(product);
+}
+
+export async function updateProductVariantStatus(
+  productId,
+  variantId,
+  isActive,
+) {
+  const product = await getProductOrThrow(productId);
+
+  const variant = getProductVariantOrThrow(product, variantId);
+
+  if (isActive) {
+    ensureVariantOptionsUnique(product, variant.options, variant._id);
+  }
+
+  variant.isActive = isActive;
+
+  await product.save();
+
+  return getPopulatedAdminProductResource(product);
 }
