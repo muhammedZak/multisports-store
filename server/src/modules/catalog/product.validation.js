@@ -68,6 +68,7 @@ const PUBLIC_PRODUCT_QUERY_FIELDS = [
   'maxPrice',
   'size',
   'color',
+  'availability',
   'sort',
   'order',
 ];
@@ -77,6 +78,8 @@ const CATALOG_FILTER_OPTIONS_QUERY_FIELDS = ['q', 'sport', 'categoryId'];
 const PUBLIC_PRODUCT_SORT_VALUES = ['createdAt', 'price'];
 
 const PUBLIC_PRODUCT_ORDER_VALUES = ['asc', 'desc'];
+
+const PUBLIC_PRODUCT_AVAILABILITY_VALUES = ['in_stock', 'out_of_stock'];
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -1014,6 +1017,24 @@ export function validatePublicProductQuery(query) {
 
   if (color) {
     input.color = color;
+  }
+
+  if (query.availability !== undefined) {
+    if (typeof query.availability !== 'string') {
+      throwValidationError({
+        availability: 'Availability must be in_stock or out_of_stock.',
+      });
+    }
+
+    const availability = query.availability.trim().toLowerCase();
+
+    if (!PUBLIC_PRODUCT_AVAILABILITY_VALUES.includes(availability)) {
+      throwValidationError({
+        availability: 'Availability must be in_stock or out_of_stock.',
+      });
+    }
+
+    input.availability = availability;
   }
 
   if (query.sort !== undefined) {

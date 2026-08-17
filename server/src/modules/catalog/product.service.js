@@ -10,6 +10,8 @@ import {
 import { Category } from './category.model.js';
 import { Product } from './product.model.js';
 
+import { STOCK_STATES } from '../inventory/inventory.constants.js';
+
 import {
   assertProductInventoryStructure,
   createInitialInventoryForProduct,
@@ -1003,7 +1005,7 @@ function toPublicCategorySummary(category) {
   };
 }
 
-function toPublicProductListItem(product) {
+function toPublicProductListItem(product, availability) {
   const currentPrice = getCurrentProductPrice(product);
 
   return {
@@ -1029,6 +1031,8 @@ function toPublicProductListItem(product) {
           value: product.discountValue,
         }
       : null,
+
+    stockState: availability.stockState,
   };
 }
 
@@ -1384,6 +1388,26 @@ function productMatchesPriceFilters(product, { minPrice, maxPrice }) {
   return true;
 }
 
+function productMatchesAvailabilityFilter(stockState, availability) {
+  if (!availability) {
+    return true;
+  }
+
+  /*
+   * Public "in_stock" means the Product is purchasable.
+   *
+   * Both normal stock and low stock are therefore included.
+   */
+  if (availability === 'in_stock') {
+    return (
+      stockState === STOCK_STATES.IN_STOCK ||
+      stockState === STOCK_STATES.LOW_STOCK
+    );
+  }
+
+  return stockState === STOCK_STATES.OUT_OF_STOCK;
+}
+
 function sortPublicProducts(products, { sort, order }) {
   const direction = order === 'asc' ? 1 : -1;
 
@@ -1417,6 +1441,7 @@ export async function getPublicProducts({
   maxPrice,
   size,
   color,
+  availability,
   sort,
   order,
 }) {
@@ -1427,7 +1452,13 @@ export async function getPublicProducts({
     brand,
   });
 
-  const filteredProducts = candidates.filter((product) => {
+  /*
+   * Apply filters that do not require Inventory first.
+   *
+   * This means we avoid loading Inventory for Products already
+   * excluded by price or Variant-option filters.
+   */
+  const catalogFilteredProducts = candidates.filter((product) => {
     return (
       productMatchesPriceFilters(product, {
         minPrice,
@@ -1437,6 +1468,32 @@ export async function getPublicProducts({
         size,
         color,
       })
+    );
+  });
+
+  /*
+   * One batch Inventory query for all remaining Products.
+   *
+   * The same availability data is needed even when the Customer
+   * has not selected an availability filter because every public
+   * Product card now exposes stockState.
+   */
+  const availabilityByProductId = await getPublicProductAvailabilities(
+    catalogFilteredProducts,
+  );
+
+  /*
+   * Availability must be filtered before sorting/pagination so
+   * pagination metadata describes the actual filtered collection.
+   */
+  const filteredProducts = catalogFilteredProducts.filter((product) => {
+    const productAvailability = availabilityByProductId.get(
+      product._id.toString(),
+    );
+
+    return productMatchesAvailabilityFilter(
+      productAvailability.stockState,
+      availability,
     );
   });
 
@@ -1455,7 +1512,13 @@ export async function getPublicProducts({
   );
 
   return {
-    items: paginatedProducts.map(toPublicProductListItem),
+    items: paginatedProducts.map((product) => {
+      const productAvailability = availabilityByProductId.get(
+        product._id.toString(),
+      );
+
+      return toPublicProductListItem(product, productAvailability);
+    }),
 
     meta: {
       page,
@@ -1496,6 +1559,9 @@ export async function getCatalogFilterOptions({ q, sport, categoryId }) {
     categoryId,
   });
 
+  const availabilityByProductId =
+    await getPublicProductAvailabilities(products);
+
   const brandMap = new Map();
 
   const sizeMap = new Map();
@@ -1506,7 +1572,24 @@ export async function getCatalogFilterOptions({ q, sport, categoryId }) {
 
   const prices = [];
 
+  const availabilityStates = new Set();
+
   for (const product of products) {
+
+    const productAvailability = availabilityByProductId.get(
+      product._id.toString(),
+    );
+
+    if (productAvailability.stockState === STOCK_STATES.OUT_OF_STOCK) {
+      availabilityStates.add('out_of_stock');
+    } else {
+      /*
+       * low_stock is still publicly purchasable and therefore belongs
+       * to the public in_stock availability filter.
+       */
+      availabilityStates.add('in_stock');
+    }
+
     addUniqueCatalogOption(brandMap, product.brand);
 
     prices.push(getCurrentProductPrice(product));
@@ -1558,5 +1641,9 @@ export async function getCatalogFilterOptions({ q, sport, categoryId }) {
     sizes: sortCatalogOptionValues(sizeMap.values()),
 
     colors: sortCatalogOptionValues(colorMap.values()),
+
+    availability: ['in_stock', 'out_of_stock'].filter((value) =>
+      availabilityStates.has(value),
+    ),
   };
 }
