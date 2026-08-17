@@ -6,6 +6,20 @@ export async function fetchSports() {
   return response.data.data.items;
 }
 
+export async function fetchPublicCategories(filters = {}) {
+  const params = {};
+
+  if (filters.sport) {
+    params.sport = filters.sport;
+  }
+
+  const response = await apiClient.get('/categories', {
+    params,
+  });
+
+  return response.data.data.items;
+}
+
 export async function fetchAdminCategories(filters = {}) {
   const params = {};
 

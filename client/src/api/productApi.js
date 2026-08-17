@@ -1,5 +1,55 @@
 import { apiClient } from './client.js';
 
+const PUBLIC_PRODUCT_QUERY_FIELDS = [
+  'page',
+  'limit',
+  'q',
+  'sport',
+  'categoryId',
+  'brand',
+  'minPrice',
+  'maxPrice',
+  'size',
+  'color',
+  'sort',
+  'order',
+];
+
+const FILTER_OPTION_QUERY_FIELDS = ['q', 'sport', 'categoryId'];
+
+function createQueryParams(filters, supportedFields) {
+  const params = {};
+
+  for (const field of supportedFields) {
+    const value = filters[field];
+
+    if (value !== undefined && value !== null && value !== '') {
+      params[field] = value;
+    }
+  }
+
+  return params;
+}
+
+export async function fetchPublicProducts(filters = {}) {
+  const response = await apiClient.get('/products', {
+    params: createQueryParams(filters, PUBLIC_PRODUCT_QUERY_FIELDS),
+  });
+
+  return {
+    items: response.data.data.items,
+    meta: response.data.meta,
+  };
+}
+
+export async function fetchCatalogFilterOptions(filters = {}) {
+  const response = await apiClient.get('/catalog/filter-options', {
+    params: createQueryParams(filters, FILTER_OPTION_QUERY_FIELDS),
+  });
+
+  return response.data.data;
+}
+
 export async function fetchAdminProducts(filters = {}) {
   const params = {};
 

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router';
 
 import AuthLayout from '../../layouts/AuthLayout.jsx';
 import AdminLayout from '../../layouts/AdminLayout.jsx';
+import StorefrontLayout from '../../layouts/StorefrontLayout.jsx';
 
 import LoginPage from '../../pages/auth/LoginPage.jsx';
 import RegisterPage from '../../pages/auth/RegisterPage.jsx';
@@ -22,6 +23,8 @@ import AdminProductsPage from '../../pages/admin/AdminProductsPage.jsx';
 import AdminProductDetailsPage from '../../pages/admin/AdminProductDetailsPage.jsx';
 import AdminProductFormPage from '../../pages/admin/AdminProductFormPage.jsx';
 
+import CatalogPage from '../../pages/storefront/CatalogPage.jsx';
+
 import RequireAdmin from '../../features/auth/RequireAdmin.jsx';
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
 import RequireGuest from '../../features/auth/RequireGuest.jsx';
@@ -29,6 +32,12 @@ import RequireGuest from '../../features/auth/RequireGuest.jsx';
 function AppRouter() {
   return (
     <Routes>
+      <Route element={<StorefrontLayout />}>
+        <Route path='/shop' element={<CatalogPage mode='shop' />} />
+
+        <Route path='/search' element={<CatalogPage mode='search' />} />
+      </Route>
+
       <Route element={<AuthLayout />}>
         <Route element={<RequireGuest />}>
           <Route path='/auth/login' element={<LoginPage />} />
@@ -95,9 +104,9 @@ function AppRouter() {
         </Route>
       </Route>
 
-      <Route path='/' element={<Navigate to='/auth/login' replace />} />
+      <Route path='/' element={<Navigate to='/shop' replace />} />
 
-      <Route path='*' element={<Navigate to='/auth/login' replace />} />
+      <Route path='*' element={<Navigate to='/shop' replace />} />
     </Routes>
   );
 }
