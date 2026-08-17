@@ -100,6 +100,37 @@ function validateVariantProductInventoryStructure(product, inventories) {
   return seenInventoryVariantIds;
 }
 
+function assertProductInventoryStructureFromInventories(product, inventories) {
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+
+  // Simple Product:
+  // exactly one Product-level Inventory position is required.
+  if (variants.length === 0) {
+    validateSimpleProductInventoryStructure(product, inventories);
+
+    if (inventories.length === 0) {
+      throwInventoryNotFound(product._id);
+    }
+
+    return;
+  }
+
+  // Variant Product:
+  // every embedded Variant must have exactly one Inventory position.
+  const existingVariantIds = validateVariantProductInventoryStructure(
+    product,
+    inventories,
+  );
+
+  for (const variant of variants) {
+    const variantId = variant._id.toString();
+
+    if (!existingVariantIds.has(variantId)) {
+      throwInventoryNotFound(product._id, variant._id);
+    }
+  }
+}
+
 function throwAdminInventoryNotFound() {
   throw new AppError(
     404,
@@ -585,6 +616,112 @@ export function getStockState(quantity) {
   return STOCK_STATES.IN_STOCK;
 }
 
+function getPublicAvailabilityForProduct(product, inventories) {
+  assertProductInventoryStructureFromInventories(product, inventories);
+
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+
+  // Simple Product:
+  // Product stock state comes directly from its one Inventory position.
+  if (variants.length === 0) {
+    return {
+      stockState: getStockState(inventories[0].quantity),
+      variantStockStates: {},
+    };
+  }
+
+  const inventoriesByVariantId = new Map(
+    inventories.map((inventory) => [inventory.variantId.toString(), inventory]),
+  );
+
+  const variantStockStates = {};
+
+  /*
+   * Only active Variants participate in public availability.
+   *
+   * Inactive Variants still keep their Inventory and history,
+   * but they are not customer-purchasable.
+   */
+  for (const variant of variants) {
+    if (!variant.isActive) {
+      continue;
+    }
+
+    const variantId = variant._id.toString();
+
+    const inventory = inventoriesByVariantId.get(variantId);
+
+    variantStockStates[variantId] = getStockState(inventory.quantity);
+  }
+
+  const activeVariantStates = Object.values(variantStockStates);
+
+  let stockState = STOCK_STATES.OUT_OF_STOCK;
+
+  if (activeVariantStates.includes(STOCK_STATES.IN_STOCK)) {
+    stockState = STOCK_STATES.IN_STOCK;
+  } else if (activeVariantStates.includes(STOCK_STATES.LOW_STOCK)) {
+    stockState = STOCK_STATES.LOW_STOCK;
+  }
+
+  return {
+    stockState,
+    variantStockStates,
+  };
+}
+
+export async function getPublicProductAvailabilities(products) {
+  if (!Array.isArray(products)) {
+    throw new TypeError('Products must be provided as an array.');
+  }
+
+  if (products.length === 0) {
+    return new Map();
+  }
+
+  const productIds = products.map((product) => {
+    if (!product?._id) {
+      throw new TypeError(
+        'Each Product must have an ID before loading public availability.',
+      );
+    }
+
+    return product._id;
+  });
+
+  /*
+   * Important:
+   * one Inventory query for all supplied Products.
+   *
+   * Task 5.6.2 can reuse this for the public Product list
+   * without creating an N+1 Inventory query problem.
+   */
+  const inventories = await Inventory.find({
+    productId: {
+      $in: productIds,
+    },
+  })
+    .select('productId variantId quantity')
+    .lean();
+
+  const inventoriesByProductId = groupInventoriesByProduct(inventories);
+
+  const availabilityByProductId = new Map();
+
+  for (const product of products) {
+    const productId = product._id.toString();
+
+    const productInventories = inventoriesByProductId.get(productId) ?? [];
+
+    availabilityByProductId.set(
+      productId,
+      getPublicAvailabilityForProduct(product, productInventories),
+    );
+  }
+
+  return availabilityByProductId;
+}
+
 export async function getAdminInventories({
   page,
   limit,
@@ -737,30 +874,7 @@ export async function assertProductInventoryStructure(
 ) {
   const inventories = await getProductInventories(product._id, session);
 
-  const variants = Array.isArray(product.variants) ? product.variants : [];
-
-  if (variants.length === 0) {
-    validateSimpleProductInventoryStructure(product, inventories);
-
-    if (inventories.length === 0) {
-      throwInventoryNotFound(product._id);
-    }
-
-    return inventories;
-  }
-
-  const existingVariantIds = validateVariantProductInventoryStructure(
-    product,
-    inventories,
-  );
-
-  for (const variant of variants) {
-    const variantId = variant._id.toString();
-
-    if (!existingVariantIds.has(variantId)) {
-      throwInventoryNotFound(product._id, variant._id);
-    }
-  }
+  assertProductInventoryStructureFromInventories(product, inventories);
 
   return inventories;
 }

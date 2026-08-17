@@ -14,6 +14,7 @@ import {
   assertProductInventoryStructure,
   createInitialInventoryForProduct,
   createInitialInventoryForVariant,
+  getPublicProductAvailabilities,
 } from '../inventory/inventory.service.js';
 
 import { isSupportedSport } from './catalog.constants.js';
@@ -1047,14 +1048,15 @@ function getPublicProductImages(images = []) {
     .map(toPublicProductImage);
 }
 
-function toPublicProductVariant(variant) {
+function toPublicProductVariant(variant, stockState) {
   return {
     id: variant._id.toString(),
     options: variant.options ?? {},
+    stockState,
   };
 }
 
-function toPublicProductResource(product) {
+function toPublicProductResource(product, availability) {
   const currentPrice = getCurrentProductPrice(product);
 
   return {
@@ -1085,9 +1087,18 @@ function toPublicProductResource(product) {
 
     specifications: product.specifications ?? {},
 
+    stockState: availability.stockState,
+
     variants: (product.variants ?? [])
       .filter((variant) => variant.isActive)
-      .map(toPublicProductVariant),
+      .map((variant) => {
+        const variantId = variant._id.toString();
+
+        return toPublicProductVariant(
+          variant,
+          availability.variantStockStates[variantId],
+        );
+      }),
   };
 }
 
@@ -1127,7 +1138,13 @@ export async function getPublicProduct(productId) {
     throwProductNotFound();
   }
 
-  return toPublicProductResource(product);
+  const availabilityByProductId = await getPublicProductAvailabilities([
+    product,
+  ]);
+
+  const availability = availabilityByProductId.get(product._id.toString());
+
+  return toPublicProductResource(product, availability);
 }
 
 async function ensurePublicFilterCategoryIntegrity({ categoryId, sport }) {
