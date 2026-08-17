@@ -7,6 +7,7 @@ import { isSupportedSport } from '../catalog/catalog.constants.js';
 import {
   INVENTORY_ADJUSTMENT_REASONS,
   STOCK_STATES,
+  isInventoryAdjustmentReason,
   isManualInventoryAdjustmentReason,
 } from './inventory.constants.js';
 
@@ -25,6 +26,14 @@ const ADMIN_INVENTORY_QUERY_FIELDS = [
 const ADMIN_INVENTORY_SORT_VALUES = ['quantity', 'updatedAt'];
 const ADMIN_INVENTORY_ORDER_VALUES = ['asc', 'desc'];
 const ADMIN_INVENTORY_STOCK_STATE_VALUES = Object.values(STOCK_STATES);
+const ADMIN_INVENTORY_ADJUSTMENT_HISTORY_QUERY_FIELDS = [
+  'page',
+  'limit',
+  'reason',
+  'sort',
+  'order',
+];
+const ADMIN_INVENTORY_ADJUSTMENT_HISTORY_SORT_VALUES = ['createdAt'];
 
 const ADMIN_MANUAL_INVENTORY_ADJUSTMENT_FIELDS = [
   'quantityChange',
@@ -238,6 +247,75 @@ export function validateManualInventoryAdjustmentInput(input) {
     reason,
     ...(note ? { note } : {}),
   };
+}
+
+export function validateAdminInventoryAdjustmentHistoryQuery(query) {
+  validateObject(query);
+
+  rejectUnexpectedFields(
+    query,
+    ADMIN_INVENTORY_ADJUSTMENT_HISTORY_QUERY_FIELDS,
+  );
+
+  const input = {
+    page: getPositiveIntegerQuery(query.page, 'page', DEFAULT_PAGE),
+
+    limit: getPositiveIntegerQuery(
+      query.limit,
+      'limit',
+      DEFAULT_LIMIT,
+      MAX_LIMIT,
+    ),
+
+    sort: 'createdAt',
+    order: 'desc',
+  };
+
+  if (query.reason !== undefined) {
+    if (typeof query.reason !== 'string' || !query.reason.trim()) {
+      throwValidationError({
+        reason: 'Adjustment reason is invalid.',
+      });
+    }
+
+    const reason = query.reason.trim().toLowerCase();
+
+    if (!isInventoryAdjustmentReason(reason)) {
+      throwValidationError({
+        reason: 'Select a supported inventory adjustment reason.',
+      });
+    }
+
+    input.reason = reason;
+  }
+
+  if (query.sort !== undefined) {
+    if (
+      typeof query.sort !== 'string' ||
+      !ADMIN_INVENTORY_ADJUSTMENT_HISTORY_SORT_VALUES.includes(query.sort)
+    ) {
+      throwValidationError({
+        sort: 'Sort must be createdAt.',
+      });
+    }
+
+    input.sort = query.sort;
+  }
+
+  if (query.order !== undefined) {
+    if (
+      typeof query.order !== 'string' ||
+      !ADMIN_INVENTORY_ORDER_VALUES.includes(query.order)
+    ) {
+      throwValidationError({
+        order: 'Order must be asc or desc.',
+      });
+    }
+
+    input.order = query.order;
+  }
+
+  return input;
 }
 
 export function validateAdminInventoryQuery(query) {

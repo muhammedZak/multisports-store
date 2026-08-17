@@ -135,6 +135,56 @@ function throwCategorySportMismatch() {
   );
 }
 
+function toAdminInventoryAdjustmentPerformerResource(user) {
+  if (!user) {
+    return null;
+  }
+
+  return {
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    role: user.role,
+  };
+}
+
+function toAdminInventoryAdjustmentSourceResource(adjustment) {
+  if (!adjustment.sourceType || !adjustment.sourceId) {
+    return null;
+  }
+
+  return {
+    type: adjustment.sourceType,
+    id: adjustment.sourceId.toString(),
+  };
+}
+
+function toAdminInventoryAdjustmentHistoryResource(adjustment) {
+  return {
+    id: adjustment._id.toString(),
+
+    inventoryId: adjustment.inventoryId.toString(),
+
+    reason: adjustment.reason,
+
+    quantityChange: adjustment.quantityChange,
+
+    previousQuantity: adjustment.previousQuantity,
+
+    newQuantity: adjustment.newQuantity,
+
+    performedBy: toAdminInventoryAdjustmentPerformerResource(
+      adjustment.performedBy,
+    ),
+
+    source: toAdminInventoryAdjustmentSourceResource(adjustment),
+
+    note: adjustment.note ?? null,
+
+    createdAt: adjustment.createdAt,
+  };
+}
+
 function toAdminInventoryAdjustmentResource(adjustment) {
   return {
     id: adjustment._id.toString(),
@@ -758,6 +808,77 @@ export async function createInitialInventoryForVariant({
   }
 
   return inventory;
+}
+
+export async function getAdminInventoryAdjustments(
+  inventoryId,
+  { page, limit, reason, sort, order },
+) {
+  if (!mongoose.isValidObjectId(inventoryId)) {
+    throwAdminInventoryNotFound();
+  }
+
+  const inventoryExists = await Inventory.exists({
+    _id: inventoryId,
+  });
+
+  if (!inventoryExists) {
+    throwAdminInventoryNotFound();
+  }
+
+  const filter = {
+    inventoryId,
+  };
+
+  if (reason) {
+    filter.reason = reason;
+  }
+
+  const direction = order === 'asc' ? 1 : -1;
+
+  const sortDefinition = {
+    [sort]: direction,
+    _id: direction,
+  };
+
+  const skip = (page - 1) * limit;
+
+  const [adjustments, totalItems] = await Promise.all([
+    InventoryAdjustment.find(filter)
+      .select(
+        [
+          '_id',
+          'inventoryId',
+          'reason',
+          'quantityChange',
+          'previousQuantity',
+          'newQuantity',
+          'performedBy',
+          'sourceType',
+          'sourceId',
+          'note',
+          'createdAt',
+        ].join(' '),
+      )
+      .populate('performedBy', 'name email role')
+      .sort(sortDefinition)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    InventoryAdjustment.countDocuments(filter),
+  ]);
+
+  return {
+    items: adjustments.map(toAdminInventoryAdjustmentHistoryResource),
+
+    meta: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
 }
 
 export async function createInitialInventoryForProduct({
