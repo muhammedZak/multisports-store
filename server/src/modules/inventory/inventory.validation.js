@@ -4,7 +4,11 @@ import { AppError } from '../../utils/AppError.js';
 
 import { isSupportedSport } from '../catalog/catalog.constants.js';
 
-import { STOCK_STATES } from './inventory.constants.js';
+import {
+  INVENTORY_ADJUSTMENT_REASONS,
+  STOCK_STATES,
+  isManualInventoryAdjustmentReason,
+} from './inventory.constants.js';
 
 const ADMIN_INVENTORY_QUERY_FIELDS = [
   'page',
@@ -22,6 +26,12 @@ const ADMIN_INVENTORY_SORT_VALUES = ['quantity', 'updatedAt'];
 const ADMIN_INVENTORY_ORDER_VALUES = ['asc', 'desc'];
 const ADMIN_INVENTORY_STOCK_STATE_VALUES = Object.values(STOCK_STATES);
 
+const ADMIN_MANUAL_INVENTORY_ADJUSTMENT_FIELDS = [
+  'quantityChange',
+  'reason',
+  'note',
+];
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -35,22 +45,26 @@ function throwValidationError(fields) {
   );
 }
 
-function validateObject(value) {
+function validateObject(value, message = 'A valid query object is required.') {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throwValidationError({
-      request: 'A valid query object is required.',
+      request: message,
     });
   }
 }
 
-function rejectUnexpectedFields(input, allowedFields) {
+function rejectUnexpectedFields(
+  input,
+  allowedFields,
+  message = 'Unsupported query fields were provided.',
+) {
   const unexpectedFields = Object.keys(input).filter(
     (key) => !allowedFields.includes(key),
   );
 
   if (unexpectedFields.length > 0) {
     throwValidationError({
-      request: 'Unsupported query fields were provided.',
+      request: message,
     });
   }
 }
@@ -161,6 +175,69 @@ export function hasConsistentAdjustmentArithmetic({
   }
 
   return previousQuantity + quantityChange === newQuantity;
+}
+
+export function validateManualInventoryAdjustmentInput(input) {
+  validateObject(input, 'A valid request body is required.');
+
+  rejectUnexpectedFields(
+    input,
+    ADMIN_MANUAL_INVENTORY_ADJUSTMENT_FIELDS,
+    'Unsupported inventory adjustment fields were provided.',
+  );
+
+  const fields = {};
+
+  if (
+    !Number.isSafeInteger(input.quantityChange) ||
+    input.quantityChange === 0
+  ) {
+    fields.quantityChange = 'Quantity change must be a non-zero integer.';
+  }
+
+  let reason;
+
+  if (typeof input.reason !== 'string' || !input.reason.trim()) {
+    fields.reason = 'Adjustment reason is required.';
+  } else {
+    reason = input.reason.trim().toLowerCase();
+
+    if (!isManualInventoryAdjustmentReason(reason)) {
+      fields.reason = 'Reason must be restock or manual_correction.';
+    }
+  }
+
+  let note;
+
+  if (input.note !== undefined) {
+    if (typeof input.note !== 'string') {
+      fields.note = 'Note must be text.';
+    } else {
+      note = normalizeSingleLineText(input.note) || undefined;
+    }
+  }
+
+  if (
+    reason === INVENTORY_ADJUSTMENT_REASONS.RESTOCK &&
+    Number.isSafeInteger(input.quantityChange) &&
+    input.quantityChange <= 0
+  ) {
+    fields.quantityChange = 'Restock quantity change must be greater than 0.';
+  }
+
+  if (reason === INVENTORY_ADJUSTMENT_REASONS.MANUAL_CORRECTION && !note) {
+    fields.note = 'A note is required for a manual inventory correction.';
+  }
+
+  if (Object.keys(fields).length > 0) {
+    throwValidationError(fields);
+  }
+
+  return {
+    quantityChange: input.quantityChange,
+    reason,
+    ...(note ? { note } : {}),
+  };
 }
 
 export function validateAdminInventoryQuery(query) {

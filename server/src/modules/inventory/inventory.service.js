@@ -10,6 +10,7 @@ import { Product } from '../catalog/product.model.js';
 import {
   INVENTORY_ADJUSTMENT_REASONS,
   STOCK_STATES,
+  isManualInventoryAdjustmentReason,
 } from './inventory.constants.js';
 
 import { Inventory } from './inventory.model.js';
@@ -107,6 +108,18 @@ function throwAdminInventoryNotFound() {
   );
 }
 
+function throwInventoryQuantityConflict() {
+  throw new AppError(
+    409,
+    'INVENTORY_QUANTITY_CONFLICT',
+    'The inventory adjustment would make quantity negative.',
+    {
+      quantityChange:
+        'Refresh the inventory and enter an adjustment within the available quantity.',
+    },
+  );
+}
+
 function throwCategoryNotFound() {
   throw new AppError(404, 'CATEGORY_NOT_FOUND', 'Category not found.');
 }
@@ -120,6 +133,210 @@ function throwCategorySportMismatch() {
       categoryId: 'Select a category that belongs to the selected sport.',
     },
   );
+}
+
+function toAdminInventoryAdjustmentResource(adjustment) {
+  return {
+    id: adjustment._id.toString(),
+
+    inventoryId: adjustment.inventoryId.toString(),
+
+    reason: adjustment.reason,
+
+    quantityChange: adjustment.quantityChange,
+
+    previousQuantity: adjustment.previousQuantity,
+
+    newQuantity: adjustment.newQuantity,
+
+    performedBy: adjustment.performedBy?.toString() ?? null,
+
+    note: adjustment.note ?? null,
+
+    createdAt: adjustment.createdAt,
+  };
+}
+
+function assertManualInventoryAdjustmentServiceInput({
+  quantityChange,
+  reason,
+  note,
+  performedBy,
+}) {
+  if (!Number.isSafeInteger(quantityChange) || quantityChange === 0) {
+    throw new TypeError(
+      'Manual inventory quantity change must be a non-zero integer.',
+    );
+  }
+
+  if (!isManualInventoryAdjustmentReason(reason)) {
+    throw new TypeError('Invalid manual inventory adjustment reason.');
+  }
+
+  if (reason === INVENTORY_ADJUSTMENT_REASONS.RESTOCK && quantityChange <= 0) {
+    throw new TypeError('Restock quantity change must be greater than zero.');
+  }
+
+  if (
+    reason === INVENTORY_ADJUSTMENT_REASONS.MANUAL_CORRECTION &&
+    (typeof note !== 'string' || !note.trim())
+  ) {
+    throw new TypeError(
+      'A note is required for a manual inventory correction.',
+    );
+  }
+
+  if (!mongoose.isValidObjectId(performedBy)) {
+    throw new TypeError('A valid Admin performer ID is required.');
+  }
+}
+
+async function getInventoryProductContext(inventory, session) {
+  const product = await Product.findById(inventory.productId)
+    .select('name brand sport categoryId variants isActive')
+    .populate('categoryId', 'name')
+    .session(session)
+    .lean();
+
+  if (!product) {
+    throwInventoryModeConflict(inventory.productId);
+  }
+
+  /*
+   * Reuse the Task 5.3 relationship validation.
+   * This throws if a simple Inventory incorrectly has a
+   * variantId or a Variant Inventory points to no real Variant.
+   */
+  getInventoryVariantResource(inventory, product);
+
+  return product;
+}
+
+export async function adjustInventoryManually({
+  inventoryId,
+  quantityChange,
+  reason,
+  note,
+  performedBy,
+}) {
+  if (!mongoose.isValidObjectId(inventoryId)) {
+    throwAdminInventoryNotFound();
+  }
+
+  const normalizedNote =
+    typeof note === 'string' ? note.trim().replace(/\s+/g, ' ') : undefined;
+
+  assertManualInventoryAdjustmentServiceInput({
+    quantityChange,
+    reason,
+    note: normalizedNote,
+    performedBy,
+  });
+
+  let result;
+
+  await mongoose.connection.transaction(async (session) => {
+    const inventoryFilter = {
+      _id: inventoryId,
+    };
+
+    /*
+     * A negative correction is permitted only when the
+     * authoritative current quantity is sufficient.
+     *
+     * This condition is part of the write itself rather than
+     * a separate read/check/save sequence.
+     */
+    if (quantityChange < 0) {
+      inventoryFilter.quantity = {
+        $gte: Math.abs(quantityChange),
+      };
+    }
+
+    const updatedInventory = await Inventory.findOneAndUpdate(
+      inventoryFilter,
+
+      {
+        $inc: {
+          quantity: quantityChange,
+        },
+      },
+
+      {
+        session,
+        returnDocument: 'after',
+      },
+    )
+      .select('_id productId variantId quantity createdAt updatedAt')
+      .lean();
+
+    /*
+     * null means one of two things:
+     *
+     * 1. Inventory does not exist.
+     * 2. It exists, but a negative adjustment failed the
+     *    quantity >= abs(change) condition.
+     */
+    if (!updatedInventory) {
+      const inventoryExists = await Inventory.exists({
+        _id: inventoryId,
+      }).session(session);
+
+      if (!inventoryExists) {
+        throwAdminInventoryNotFound();
+      }
+
+      throwInventoryQuantityConflict();
+    }
+
+    /*
+     * Validate the owning Product/Variant relationship before
+     * allowing the transaction to commit.
+     */
+    const product = await getInventoryProductContext(updatedInventory, session);
+
+    /*
+     * Because updatedInventory is the document AFTER the atomic
+     * $inc, the previous quantity can be derived exactly from
+     * this successful write.
+     */
+    const previousQuantity = updatedInventory.quantity - quantityChange;
+
+    const [adjustment] = await InventoryAdjustment.create(
+      [
+        {
+          inventoryId: updatedInventory._id,
+
+          reason,
+
+          quantityChange,
+
+          previousQuantity,
+
+          newQuantity: updatedInventory.quantity,
+
+          performedBy,
+
+          ...(normalizedNote
+            ? {
+                note: normalizedNote,
+              }
+            : {}),
+        },
+      ],
+      {
+        session,
+      },
+    );
+
+    result = {
+      inventory: toAdminInventoryResource(updatedInventory, product),
+
+      adjustment: toAdminInventoryAdjustmentResource(adjustment),
+    };
+  });
+
+  return result;
 }
 
 function toAdminInventoryCategoryResource(category) {
