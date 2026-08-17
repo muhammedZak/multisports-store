@@ -84,7 +84,11 @@ const MAX_LIMIT = 100;
 
 const UPDATE_PRODUCT_IMAGE_FIELDS = ['altText', 'isPrimary', 'sortOrder'];
 
-const CREATE_PRODUCT_VARIANT_FIELDS = ['options', 'isActive'];
+const CREATE_PRODUCT_VARIANT_FIELDS = [
+  'options',
+  'initialQuantity',
+  'isActive',
+];
 
 const UPDATE_PRODUCT_VARIANT_FIELDS = ['options'];
 
@@ -1068,6 +1072,8 @@ export function validateProductVariantCreateInput(body) {
 
   const options = getVariantOptions(body.options);
 
+  const initialQuantity = getInitialQuantity(body.initialQuantity);
+
   if (typeof body.isActive !== 'boolean') {
     throwValidationError({
       isActive: 'Variant active status must be true or false.',
@@ -1076,6 +1082,7 @@ export function validateProductVariantCreateInput(body) {
 
   return {
     options,
+    initialQuantity,
     isActive: body.isActive,
   };
 }

@@ -22,6 +22,18 @@ function throwInventoryModeConflict(productId) {
   );
 }
 
+function throwInventoryNotFound(productId, variantId = null) {
+  const target = variantId
+    ? `Variant ${variantId} on Product ${productId}`
+    : `Product ${productId}`;
+
+  throw new AppError(
+    409,
+    'INVENTORY_NOT_FOUND',
+    `Required Inventory position is missing for ${target}.`,
+  );
+}
+
 function hasVariantIdField(inventory) {
   return Object.prototype.hasOwnProperty.call(inventory, 'variantId');
 }
@@ -100,6 +112,97 @@ export function getStockState(quantity) {
   }
 
   return STOCK_STATES.IN_STOCK;
+}
+
+async function getProductInventories(productId, session = null) {
+  let query = Inventory.find({
+    productId,
+  }).select('_id productId variantId quantity');
+
+  if (session) {
+    query = query.session(session);
+  }
+
+  return query.lean();
+}
+
+export async function assertProductInventoryStructure(
+  product,
+  { session = null } = {},
+) {
+  const inventories = await getProductInventories(product._id, session);
+
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+
+  if (variants.length === 0) {
+    validateSimpleProductInventoryStructure(product, inventories);
+
+    if (inventories.length === 0) {
+      throwInventoryNotFound(product._id);
+    }
+
+    return inventories;
+  }
+
+  const existingVariantIds = validateVariantProductInventoryStructure(
+    product,
+    inventories,
+  );
+
+  for (const variant of variants) {
+    const variantId = variant._id.toString();
+
+    if (!existingVariantIds.has(variantId)) {
+      throwInventoryNotFound(product._id, variant._id);
+    }
+  }
+
+  return inventories;
+}
+
+export async function createInitialInventoryForVariant({
+  productId,
+  variantId,
+  initialQuantity,
+  session,
+}) {
+  if (!isNonNegativeInteger(initialQuantity)) {
+    throw new TypeError(
+      'Variant initial quantity must be a non-negative integer.',
+    );
+  }
+
+  const [inventory] = await Inventory.create(
+    [
+      {
+        productId,
+        variantId,
+        quantity: initialQuantity,
+      },
+    ],
+    {
+      session,
+    },
+  );
+
+  if (initialQuantity > 0) {
+    await InventoryAdjustment.create(
+      [
+        {
+          inventoryId: inventory._id,
+          reason: INVENTORY_ADJUSTMENT_REASONS.INITIAL_STOCK,
+          quantityChange: initialQuantity,
+          previousQuantity: 0,
+          newQuantity: initialQuantity,
+        },
+      ],
+      {
+        session,
+      },
+    );
+  }
+
+  return inventory;
 }
 
 export async function createInitialInventoryForProduct({

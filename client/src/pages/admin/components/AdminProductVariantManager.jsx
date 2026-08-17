@@ -34,12 +34,12 @@ function normalizeSingleLineText(value) {
   return value.trim().replace(/\s+/g, ' ');
 }
 
-function createLocalValidationError(message) {
+function createLocalValidationError(message, fieldName = 'options') {
   return {
     code: 'VALIDATION_ERROR',
     message: 'Please correct the invalid fields.',
     fields: {
-      options: message,
+      [fieldName]: message,
     },
   };
 }
@@ -189,6 +189,8 @@ function AdminProductVariantManager({
 
   const [createIsActive, setCreateIsActive] = useState(true);
 
+  const [createInitialQuantity, setCreateInitialQuantity] = useState('0');
+
   const [editingVariantId, setEditingVariantId] = useState(null);
 
   const [editRows, setEditRows] = useState([]);
@@ -204,6 +206,8 @@ function AdminProductVariantManager({
   const busy = disabled || requestBusy;
 
   const variants = product.variants ?? [];
+
+  const variantCreationAllowed = variants.length > 0;
 
   useEffect(() => {
     onBusyChange(requestBusy || Boolean(editingVariantId));
@@ -262,6 +266,32 @@ function AdminProductVariantManager({
       return;
     }
 
+    const normalizedInitialQuantity = createInitialQuantity.trim();
+
+    if (!/^\d+$/.test(normalizedInitialQuantity)) {
+      setActionError(
+        createLocalValidationError(
+          'Initial quantity must be a non-negative whole number.',
+          'initialQuantity',
+        ),
+      );
+
+      return;
+    }
+
+    const initialQuantity = Number(normalizedInitialQuantity);
+
+    if (!Number.isSafeInteger(initialQuantity)) {
+      setActionError(
+        createLocalValidationError(
+          'Initial quantity must be a valid non-negative whole number.',
+          'initialQuantity',
+        ),
+      );
+
+      return;
+    }
+
     clearFeedback();
 
     setActionKey('create');
@@ -269,12 +299,14 @@ function AdminProductVariantManager({
     try {
       const updatedProduct = await addAdminProductVariant(product.id, {
         options: validation.options,
+        initialQuantity,
         isActive: createIsActive,
       });
 
       onProductChange(updatedProduct);
 
       setCreateRows([createOptionRow()]);
+      setCreateInitialQuantity('0');
       setCreateIsActive(true);
 
       setMessage('Variant added successfully.');
@@ -394,8 +426,8 @@ function AdminProductVariantManager({
         </p>
 
         <p className='mt-1 text-xs text-neutral-500'>
-          Inventory, stock quantity, SKU and availability are managed separately
-          in a later task.
+          New Variants receive their own Inventory position and initial stock.
+          Ongoing stock adjustments are managed separately.
         </p>
       </div>
 
@@ -430,17 +462,57 @@ function AdminProductVariantManager({
           Example: size → 9 and color → Black.
         </p>
 
+        {!variantCreationAllowed && (
+          <div
+            role='status'
+            className='mt-4 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800'>
+            This Product uses simple Product Inventory. Converting an
+            established simple Product into a Variant Product is outside the
+            current MVP.
+          </div>
+        )}
+
         <div className='mt-4'>
           <OptionRowsEditor
             rows={createRows}
             prefix='create-variant'
-            disabled={busy || Boolean(editingVariantId)}
+            disabled={
+              busy || Boolean(editingVariantId) || !variantCreationAllowed
+            }
             onChange={(rowId, field, value) =>
               updateRows(setCreateRows, rowId, field, value)
             }
             onAdd={() => addRow(setCreateRows)}
             onRemove={(rowId) => removeRow(setCreateRows, rowId)}
           />
+        </div>
+
+        <div className='mt-4 max-w-sm'>
+          <label
+            htmlFor='create-variant-initial-quantity'
+            className='mb-2 block text-sm font-medium'>
+            Initial quantity
+          </label>
+
+          <input
+            id='create-variant-initial-quantity'
+            type='number'
+            min='0'
+            step='1'
+            disabled={
+              busy || Boolean(editingVariantId) || !variantCreationAllowed
+            }
+            value={createInitialQuantity}
+            onChange={(event) => {
+              setCreateInitialQuantity(event.target.value);
+              clearFeedback();
+            }}
+            className='w-full border border-neutral-300 px-3 py-2.5 text-sm outline-none focus:border-black disabled:bg-neutral-100'
+          />
+
+          <p className='mt-2 text-xs text-neutral-500'>
+            Use 0 when the Variant exists but stock has not arrived yet.
+          </p>
         </div>
 
         <label className='mt-4 flex items-start gap-3'>
@@ -467,7 +539,9 @@ function AdminProductVariantManager({
 
         <button
           type='button'
-          disabled={busy || Boolean(editingVariantId)}
+          disabled={
+            busy || Boolean(editingVariantId) || !variantCreationAllowed
+          }
           onClick={handleCreateVariant}
           className='mt-4 bg-black px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50'>
           {actionKey === 'create' ? 'Adding...' : 'Add Variant'}

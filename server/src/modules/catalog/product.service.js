@@ -10,7 +10,11 @@ import {
 import { Category } from './category.model.js';
 import { Product } from './product.model.js';
 
-import { createInitialInventoryForProduct } from '../inventory/inventory.service.js';
+import {
+  assertProductInventoryStructure,
+  createInitialInventoryForProduct,
+  createInitialInventoryForVariant,
+} from '../inventory/inventory.service.js';
 
 import { isSupportedSport } from './catalog.constants.js';
 
@@ -212,12 +216,18 @@ function toAdminProductResource(product, category = null) {
   };
 }
 
-async function getProductOrThrow(productId) {
+async function getProductOrThrow(productId, session = null) {
   if (!mongoose.isValidObjectId(productId)) {
     throwProductNotFound();
   }
 
-  const product = await Product.findById(productId);
+  let query = Product.findById(productId);
+
+  if (session) {
+    query = query.session(session);
+  }
+
+  const product = await query;
 
   if (!product) {
     throwProductNotFound();
@@ -413,6 +423,14 @@ function throwDuplicateVariant() {
     {
       options: 'Use a different variant option combination.',
     },
+  );
+}
+
+function throwVariantInventoryModeConflict() {
+  throw new AppError(
+    409,
+    'INVENTORY_MODE_CONFLICT',
+    'An established simple Product cannot receive its first Variant without an inventory-mode migration.',
   );
 }
 
@@ -729,6 +747,8 @@ export async function updateProductStatus(productId, isActive) {
       discountType: product.discountType,
       discountValue: product.discountValue,
     });
+
+     await assertProductInventoryStructure(product);
   } else {
     category = await Category.findById(product.categoryId);
   }
@@ -836,24 +856,58 @@ export async function deleteProductImage(productId, imageId) {
 }
 
 export async function addProductVariant(productId, input) {
-  const product = await getProductOrThrow(productId);
+  await mongoose.connection.transaction(async (session) => {
+    const product = await getProductOrThrow(productId, session);
 
-  ensureVariantOptionsUnique(product, input.options);
+    /*
+     * A Product with no embedded Variants is an established
+     * simple-Inventory Product.
+     *
+     * Converting it to Variant Inventory is outside this MVP.
+     */
+    if (product.variants.length === 0) {
+      throwVariantInventoryModeConflict();
+    }
 
-  product.variants.push({
-    options: input.options,
-    isActive: input.isActive,
+    /*
+     * Before extending an existing Variant Product, make sure
+     * its current Product ↔ Variant ↔ Inventory structure
+     * is already valid.
+     */
+    await assertProductInventoryStructure(product, {
+      session,
+    });
+
+    ensureVariantOptionsUnique(product, input.options);
+
+    product.variants.push({
+      options: input.options,
+      isActive: input.isActive,
+    });
+
+    const newVariant = product.variants[product.variants.length - 1];
+
+    await product.save({
+      session,
+    });
+
+    await createInitialInventoryForVariant({
+      productId: product._id,
+      variantId: newVariant._id,
+      initialQuantity: input.initialQuantity,
+      session,
+    });
   });
 
-  await product.save();
-
-  return getPopulatedAdminProductResource(product);
+  return getAdminProduct(productId);
 }
 
 export async function updateProductVariant(productId, variantId, changes) {
   const product = await getProductOrThrow(productId);
 
   const variant = getProductVariantOrThrow(product, variantId);
+
+  await assertProductInventoryStructure(product);
 
   ensureVariantOptionsUnique(product, changes.options, variant._id);
 
@@ -875,6 +929,14 @@ export async function updateProductVariantStatus(
 
   if (isActive) {
     ensureVariantOptionsUnique(product, variant.options, variant._id);
+
+    /*
+     * Reactivation is only safe when every required
+     * Inventory relationship is intact.
+     *
+     * Quantity may still be zero.
+     */
+    await assertProductInventoryStructure(product);
   }
 
   variant.isActive = isActive;
