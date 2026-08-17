@@ -10,6 +10,8 @@ import {
 import { Category } from './category.model.js';
 import { Product } from './product.model.js';
 
+import { isSupportedSport } from './catalog.constants.js';
+
 import { validateProductDiscountState } from './product.validation.js';
 
 function throwCategoryNotFound() {
@@ -843,4 +845,503 @@ export async function updateProductVariantStatus(
   await product.save();
 
   return getPopulatedAdminProductResource(product);
+}
+
+function normalizePublicCatalogValue(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function getCurrentProductPrice(product) {
+  if (
+    product.discountType === 'percentage' &&
+    Number.isInteger(product.discountValue)
+  ) {
+    return Math.round(
+      (product.basePrice * (100 - product.discountValue)) / 100,
+    );
+  }
+
+  if (
+    product.discountType === 'fixed' &&
+    Number.isInteger(product.discountValue)
+  ) {
+    return product.basePrice - product.discountValue;
+  }
+
+  return product.basePrice;
+}
+
+function getPublicPrimaryImage(images = []) {
+  const sortedImages = [...images].sort(
+    (left, right) => left.sortOrder - right.sortOrder,
+  );
+
+  const image = sortedImages.find((item) => item.isPrimary) ?? sortedImages[0];
+
+  if (!image) {
+    return null;
+  }
+
+  return {
+    url: image.url,
+    altText: image.altText ?? '',
+  };
+}
+
+function toPublicCategorySummary(category) {
+  if (!category) {
+    return null;
+  }
+
+  return {
+    id: category._id.toString(),
+    name: category.name,
+  };
+}
+
+function toPublicProductListItem(product) {
+  const currentPrice = getCurrentProductPrice(product);
+
+  return {
+    id: product._id.toString(),
+
+    name: product.name,
+
+    brand: product.brand,
+
+    sport: product.sport,
+
+    category: toPublicCategorySummary(product.categoryId),
+
+    primaryImage: getPublicPrimaryImage(product.images),
+
+    basePrice: product.basePrice,
+
+    currentPrice,
+
+    discount: product.discountType
+      ? {
+          type: product.discountType,
+          value: product.discountValue,
+        }
+      : null,
+  };
+}
+
+async function ensurePublicFilterCategoryIntegrity({ categoryId, sport }) {
+  if (!categoryId) {
+    return null;
+  }
+
+  const category = await Category.findById(categoryId)
+    .select('name nameKey sport isActive')
+    .lean();
+
+  // Public catalog does not reveal inactive Categories.
+  if (!category || !category.isActive) {
+    throwCategoryNotFound();
+  }
+
+  if (sport && category.sport !== sport) {
+    throwCategorySportMismatch();
+  }
+
+  return category;
+}
+
+async function resolvePublicSearchContext({ q, sport, categoryId }) {
+  let resolvedSport = sport;
+
+  let resolvedCategoryIds = categoryId ? [categoryId] : null;
+
+  let textSearch = q;
+
+  if (!q) {
+    return {
+      sport: resolvedSport,
+      categoryIds: resolvedCategoryIds,
+      textSearch,
+    };
+  }
+
+  const normalizedQuery = normalizePublicCatalogValue(q);
+
+  // Exact Sport terms become the structured Sport filter.
+  if (
+    isSupportedSport(normalizedQuery) &&
+    (!resolvedSport || resolvedSport === normalizedQuery)
+  ) {
+    resolvedSport = normalizedQuery;
+    textSearch = undefined;
+  }
+
+  // If the Customer has not already selected a Category,
+  // an exact active Category name may become a Category filter.
+  if (!categoryId && textSearch) {
+    const categoryFilter = {
+      nameKey: normalizedQuery,
+      isActive: true,
+    };
+
+    if (resolvedSport) {
+      categoryFilter.sport = resolvedSport;
+    }
+
+    const matchingCategories = await Category.find(categoryFilter)
+      .select('_id')
+      .lean();
+
+    if (matchingCategories.length > 0) {
+      resolvedCategoryIds = matchingCategories.map((category) =>
+        category._id.toString(),
+      );
+
+      textSearch = undefined;
+    }
+  }
+
+  return {
+    sport: resolvedSport,
+    categoryIds: resolvedCategoryIds,
+    textSearch,
+  };
+}
+
+async function getPublicProductCandidates({ q, sport, categoryId, brand }) {
+  const selectedCategory = await ensurePublicFilterCategoryIntegrity({
+    categoryId,
+    sport,
+  });
+
+  const searchContext = await resolvePublicSearchContext({
+    q,
+    sport,
+    categoryId,
+  });
+
+  // q may itself have resolved to a Sport.
+  if (
+    selectedCategory &&
+    searchContext.sport &&
+    selectedCategory.sport !== searchContext.sport
+  ) {
+    throwCategorySportMismatch();
+  }
+
+  const categoryFilter = {
+    isActive: true,
+  };
+
+  if (searchContext.sport) {
+    categoryFilter.sport = searchContext.sport;
+  }
+
+  if (searchContext.categoryIds) {
+    categoryFilter._id = {
+      $in: searchContext.categoryIds,
+    };
+  }
+
+  const activeCategories = await Category.find(categoryFilter)
+    .select('_id')
+    .lean();
+
+  const activeCategoryIds = activeCategories.map((category) => category._id);
+
+  if (activeCategoryIds.length === 0) {
+    return [];
+  }
+
+  const productFilter = {
+    isActive: true,
+
+    categoryId: {
+      $in: activeCategoryIds,
+    },
+  };
+
+  if (searchContext.sport) {
+    productFilter.sport = searchContext.sport;
+  }
+
+  if (searchContext.textSearch) {
+    productFilter.$text = {
+      $search: searchContext.textSearch,
+    };
+  }
+
+  if (brand) {
+    productFilter.brand = {
+      $regex: `^${escapeRegex(brand)}$`,
+      $options: 'i',
+    };
+  }
+
+  const products = await Product.find(productFilter)
+    .select(
+      [
+        'name',
+        'brand',
+        'sport',
+        'categoryId',
+        'images',
+        'variants',
+        'basePrice',
+        'discountType',
+        'discountValue',
+        'createdAt',
+      ].join(' '),
+    )
+    .populate('categoryId', 'name sport isActive')
+    .lean();
+
+  // Extra defensive check in case catalog data was manually corrupted.
+  return products.filter((product) => {
+    return (
+      product.categoryId &&
+      product.categoryId.isActive &&
+      product.categoryId.sport === product.sport
+    );
+  });
+}
+
+function getNormalizedVariantOption(options, optionName) {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    return null;
+  }
+
+  const targetName = normalizePublicCatalogValue(optionName);
+
+  for (const [name, value] of Object.entries(options)) {
+    if (normalizePublicCatalogValue(name) === targetName) {
+      return normalizePublicCatalogValue(value);
+    }
+  }
+
+  return null;
+}
+
+function productMatchesVariantFilters(product, { size, color }) {
+  if (!size && !color) {
+    return true;
+  }
+
+  const normalizedSize = size ? normalizePublicCatalogValue(size) : null;
+
+  const normalizedColor = color ? normalizePublicCatalogValue(color) : null;
+
+  return (product.variants ?? []).some((variant) => {
+    if (!variant.isActive) {
+      return false;
+    }
+
+    const variantSize = getNormalizedVariantOption(variant.options, 'size');
+
+    const variantColor = getNormalizedVariantOption(variant.options, 'color');
+
+    if (normalizedSize && variantSize !== normalizedSize) {
+      return false;
+    }
+
+    if (normalizedColor && variantColor !== normalizedColor) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function productMatchesPriceFilters(product, { minPrice, maxPrice }) {
+  const currentPrice = getCurrentProductPrice(product);
+
+  if (minPrice !== undefined && currentPrice < minPrice) {
+    return false;
+  }
+
+  if (maxPrice !== undefined && currentPrice > maxPrice) {
+    return false;
+  }
+
+  return true;
+}
+
+function sortPublicProducts(products, { sort, order }) {
+  const direction = order === 'asc' ? 1 : -1;
+
+  return [...products].sort((left, right) => {
+    let comparison = 0;
+
+    if (sort === 'price') {
+      comparison = getCurrentProductPrice(left) - getCurrentProductPrice(right);
+    } else {
+      comparison =
+        new Date(left.createdAt).getTime() -
+        new Date(right.createdAt).getTime();
+    }
+
+    if (comparison !== 0) {
+      return comparison * direction;
+    }
+
+    return left._id.toString().localeCompare(right._id.toString()) * direction;
+  });
+}
+
+export async function getPublicProducts({
+  page,
+  limit,
+  q,
+  sport,
+  categoryId,
+  brand,
+  minPrice,
+  maxPrice,
+  size,
+  color,
+  sort,
+  order,
+}) {
+  const candidates = await getPublicProductCandidates({
+    q,
+    sport,
+    categoryId,
+    brand,
+  });
+
+  const filteredProducts = candidates.filter((product) => {
+    return (
+      productMatchesPriceFilters(product, {
+        minPrice,
+        maxPrice,
+      }) &&
+      productMatchesVariantFilters(product, {
+        size,
+        color,
+      })
+    );
+  });
+
+  const sortedProducts = sortPublicProducts(filteredProducts, {
+    sort,
+    order,
+  });
+
+  const totalItems = sortedProducts.length;
+
+  const startIndex = (page - 1) * limit;
+
+  const paginatedProducts = sortedProducts.slice(
+    startIndex,
+    startIndex + limit,
+  );
+
+  return {
+    items: paginatedProducts.map(toPublicProductListItem),
+
+    meta: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+}
+
+function addUniqueCatalogOption(map, value) {
+  if (typeof value !== 'string') {
+    return;
+  }
+
+  const normalizedValue = normalizePublicCatalogValue(value);
+
+  if (!normalizedValue || map.has(normalizedValue)) {
+    return;
+  }
+
+  map.set(normalizedValue, value.trim().replace(/\s+/g, ' '));
+}
+
+function sortCatalogOptionValues(values) {
+  return [...values].sort((left, right) =>
+    left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    }),
+  );
+}
+
+export async function getCatalogFilterOptions({ q, sport, categoryId }) {
+  const products = await getPublicProductCandidates({
+    q,
+    sport,
+    categoryId,
+  });
+
+  const brandMap = new Map();
+
+  const sizeMap = new Map();
+
+  const colorMap = new Map();
+
+  const categoryMap = new Map();
+
+  const prices = [];
+
+  for (const product of products) {
+    addUniqueCatalogOption(brandMap, product.brand);
+
+    prices.push(getCurrentProductPrice(product));
+
+    if (product.categoryId) {
+      categoryMap.set(product.categoryId._id.toString(), {
+        id: product.categoryId._id.toString(),
+        name: product.categoryId.name,
+      });
+    }
+
+    for (const variant of product.variants ?? []) {
+      if (!variant.isActive) {
+        continue;
+      }
+
+      for (const [optionName, optionValue] of Object.entries(
+        variant.options ?? {},
+      )) {
+        const normalizedOptionName = normalizePublicCatalogValue(optionName);
+
+        if (normalizedOptionName === 'size') {
+          addUniqueCatalogOption(sizeMap, optionValue);
+        }
+
+        if (normalizedOptionName === 'color') {
+          addUniqueCatalogOption(colorMap, optionValue);
+        }
+      }
+    }
+  }
+
+  const categories = [...categoryMap.values()].sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, {
+      sensitivity: 'base',
+    }),
+  );
+
+  return {
+    brands: sortCatalogOptionValues(brandMap.values()),
+
+    categories,
+
+    priceRange: {
+      min: prices.length > 0 ? Math.min(...prices) : null,
+      max: prices.length > 0 ? Math.max(...prices) : null,
+    },
+
+    sizes: sortCatalogOptionValues(sizeMap.values()),
+
+    colors: sortCatalogOptionValues(colorMap.values()),
+  };
 }

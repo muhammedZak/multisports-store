@@ -7,6 +7,8 @@ import {
   validateProductVariantCreateInput,
   validateProductVariantUpdateInput,
   validateProductVariantStatusInput,
+  validatePublicProductQuery,
+  validateCatalogFilterOptionsQuery,
 } from './product.validation.js';
 
 import {
@@ -21,6 +23,8 @@ import {
   addProductVariant,
   updateProductVariant,
   updateProductVariantStatus,
+  getPublicProducts,
+  getCatalogFilterOptions,
 } from './product.service.js';
 
 export async function getProductsForAdmin(req, res) {
@@ -179,5 +183,33 @@ export async function updateProductVariantStatusForAdmin(req, res) {
     data: {
       product,
     },
+  });
+}
+
+export async function getProductsForPublic(req, res) {
+  const query = validatePublicProductQuery(req.query);
+
+  const result = await getPublicProducts(query);
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      items: result.items,
+    },
+
+    meta: result.meta,
+  });
+}
+
+export async function getCatalogFilterOptionsForPublic(req, res) {
+  const query = validateCatalogFilterOptionsQuery(req.query);
+
+  const filterOptions = await getCatalogFilterOptions(query);
+
+  res.status(200).json({
+    success: true,
+
+    data: filterOptions,
   });
 }

@@ -49,6 +49,27 @@ const ADMIN_PRODUCT_SORT_VALUES = ['createdAt', 'name', 'basePrice'];
 
 const ADMIN_PRODUCT_ORDER_VALUES = ['asc', 'desc'];
 
+const PUBLIC_PRODUCT_QUERY_FIELDS = [
+  'page',
+  'limit',
+  'q',
+  'sport',
+  'categoryId',
+  'brand',
+  'minPrice',
+  'maxPrice',
+  'size',
+  'color',
+  'sort',
+  'order',
+];
+
+const CATALOG_FILTER_OPTIONS_QUERY_FIELDS = ['q', 'sport', 'categoryId'];
+
+const PUBLIC_PRODUCT_SORT_VALUES = ['createdAt', 'price'];
+
+const PUBLIC_PRODUCT_ORDER_VALUES = ['asc', 'desc'];
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -369,6 +390,44 @@ function getPositiveIntegerQuery(
   if (maximum !== null && parsedValue > maximum) {
     throwValidationError({
       [fieldName]: `${fieldName} cannot exceed ${maximum}.`,
+    });
+  }
+
+  return parsedValue;
+}
+
+function getOptionalQueryText(value, fieldName, label) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    throwValidationError({
+      [fieldName]: `${label} must be text.`,
+    });
+  }
+
+  const normalizedValue = normalizeSingleLineText(value);
+
+  return normalizedValue || undefined;
+}
+
+function getOptionalNonNegativeIntegerQuery(value, fieldName) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+    throwValidationError({
+      [fieldName]: `${fieldName} must be a non-negative integer in paise.`,
+    });
+  }
+
+  const parsedValue = Number(value);
+
+  if (!Number.isSafeInteger(parsedValue) || parsedValue < 0) {
+    throwValidationError({
+      [fieldName]: `${fieldName} must be a non-negative integer in paise.`,
     });
   }
 
@@ -737,6 +796,127 @@ export function validateAdminProductQuery(query) {
     }
 
     input.order = query.order;
+  }
+
+  return input;
+}
+
+export function validatePublicProductQuery(query) {
+  validateObject(query);
+
+  rejectUnexpectedFields(query, PUBLIC_PRODUCT_QUERY_FIELDS);
+
+  const minPrice = getOptionalNonNegativeIntegerQuery(
+    query.minPrice,
+    'minPrice',
+  );
+
+  const maxPrice = getOptionalNonNegativeIntegerQuery(
+    query.maxPrice,
+    'maxPrice',
+  );
+
+  if (minPrice !== undefined && maxPrice !== undefined && minPrice > maxPrice) {
+    throwValidationError({
+      minPrice: 'Minimum price cannot be greater than maximum price.',
+    });
+  }
+
+  const input = {
+    page: getPositiveIntegerQuery(query.page, 'page', DEFAULT_PAGE),
+
+    limit: getPositiveIntegerQuery(
+      query.limit,
+      'limit',
+      DEFAULT_LIMIT,
+      MAX_LIMIT,
+    ),
+
+    sport: getOptionalSport(query.sport),
+
+    categoryId: getOptionalCategoryId(query.categoryId),
+
+    sort: 'createdAt',
+
+    order: 'desc',
+  };
+
+  const q = getOptionalQueryText(query.q, 'q', 'Search value');
+
+  const brand = getOptionalQueryText(query.brand, 'brand', 'Brand');
+
+  const size = getOptionalQueryText(query.size, 'size', 'Size');
+
+  const color = getOptionalQueryText(query.color, 'color', 'Color');
+
+  if (q) {
+    input.q = q;
+  }
+
+  if (brand) {
+    input.brand = brand;
+  }
+
+  if (minPrice !== undefined) {
+    input.minPrice = minPrice;
+  }
+
+  if (maxPrice !== undefined) {
+    input.maxPrice = maxPrice;
+  }
+
+  if (size) {
+    input.size = size;
+  }
+
+  if (color) {
+    input.color = color;
+  }
+
+  if (query.sort !== undefined) {
+    if (
+      typeof query.sort !== 'string' ||
+      !PUBLIC_PRODUCT_SORT_VALUES.includes(query.sort)
+    ) {
+      throwValidationError({
+        sort: 'Sort must be createdAt or price.',
+      });
+    }
+
+    input.sort = query.sort;
+  }
+
+  if (query.order !== undefined) {
+    if (
+      typeof query.order !== 'string' ||
+      !PUBLIC_PRODUCT_ORDER_VALUES.includes(query.order)
+    ) {
+      throwValidationError({
+        order: 'Order must be asc or desc.',
+      });
+    }
+
+    input.order = query.order;
+  }
+
+  return input;
+}
+
+export function validateCatalogFilterOptionsQuery(query) {
+  validateObject(query);
+
+  rejectUnexpectedFields(query, CATALOG_FILTER_OPTIONS_QUERY_FIELDS);
+
+  const input = {
+    sport: getOptionalSport(query.sport),
+
+    categoryId: getOptionalCategoryId(query.categoryId),
+  };
+
+  const q = getOptionalQueryText(query.q, 'q', 'Search value');
+
+  if (q) {
+    input.q = q;
   }
 
   return input;
