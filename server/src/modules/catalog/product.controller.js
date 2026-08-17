@@ -24,6 +24,7 @@ import {
   updateProductVariant,
   updateProductVariantStatus,
   getPublicProducts,
+  getPublicProduct,
   getCatalogFilterOptions,
 } from './product.service.js';
 
@@ -199,6 +200,18 @@ export async function getProductsForPublic(req, res) {
     },
 
     meta: result.meta,
+  });
+}
+
+export async function getProductForPublic(req, res) {
+  const product = await getPublicProduct(req.params.productId);
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      product,
+    },
   });
 }
 

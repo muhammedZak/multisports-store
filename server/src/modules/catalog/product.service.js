@@ -932,6 +932,105 @@ function toPublicProductListItem(product) {
   };
 }
 
+function toPublicProductImage(image) {
+  return {
+    id: image._id.toString(),
+    url: image.url,
+    altText: image.altText ?? '',
+    isPrimary: image.isPrimary,
+    sortOrder: image.sortOrder,
+  };
+}
+
+function getPublicProductImages(images = []) {
+  return [...images]
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map(toPublicProductImage);
+}
+
+function toPublicProductVariant(variant) {
+  return {
+    id: variant._id.toString(),
+    options: variant.options ?? {},
+  };
+}
+
+function toPublicProductResource(product) {
+  const currentPrice = getCurrentProductPrice(product);
+
+  return {
+    id: product._id.toString(),
+
+    name: product.name,
+
+    description: product.description,
+
+    brand: product.brand,
+
+    sport: product.sport,
+
+    category: toPublicCategorySummary(product.categoryId),
+
+    images: getPublicProductImages(product.images),
+
+    basePrice: product.basePrice,
+
+    currentPrice,
+
+    discount: product.discountType
+      ? {
+          type: product.discountType,
+          value: product.discountValue,
+        }
+      : null,
+
+    specifications: product.specifications ?? {},
+
+    variants: (product.variants ?? [])
+      .filter((variant) => variant.isActive)
+      .map(toPublicProductVariant),
+  };
+}
+
+export async function getPublicProduct(productId) {
+  if (!mongoose.isValidObjectId(productId)) {
+    throwProductNotFound();
+  }
+
+  const product = await Product.findOne({
+    _id: productId,
+    isActive: true,
+  })
+    .select(
+      [
+        'name',
+        'description',
+        'brand',
+        'sport',
+        'categoryId',
+        'images',
+        'variants',
+        'basePrice',
+        'discountType',
+        'discountValue',
+        'specifications',
+      ].join(' '),
+    )
+    .populate('categoryId', 'name sport isActive')
+    .lean();
+
+  if (
+    !product ||
+    !product.categoryId ||
+    !product.categoryId.isActive ||
+    product.categoryId.sport !== product.sport
+  ) {
+    throwProductNotFound();
+  }
+
+  return toPublicProductResource(product);
+}
+
 async function ensurePublicFilterCategoryIntegrity({ categoryId, sport }) {
   if (!categoryId) {
     return null;
