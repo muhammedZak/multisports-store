@@ -77,6 +77,18 @@ function AdminLayout() {
               }>
               Categories
             </NavLink>
+            <NavLink
+              to='/admin/inventory'
+              className={({ isActive }) =>
+                [
+                  'block px-3 py-2 text-sm font-medium transition',
+                  isActive
+                    ? 'bg-black text-white'
+                    : 'text-neutral-700 hover:bg-neutral-100',
+                ].join(' ')
+              }>
+              Inventory
+            </NavLink>
           </nav>
         </aside>
 

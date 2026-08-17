@@ -22,6 +22,8 @@ import AdminCategoriesPage from '../../pages/admin/AdminCategoriesPage.jsx';
 import AdminProductsPage from '../../pages/admin/AdminProductsPage.jsx';
 import AdminProductDetailsPage from '../../pages/admin/AdminProductDetailsPage.jsx';
 import AdminProductFormPage from '../../pages/admin/AdminProductFormPage.jsx';
+import AdminInventoryPage from '../../pages/admin/AdminInventoryPage.jsx';
+import AdminInventoryDetailsPage from '../../pages/admin/AdminInventoryDetailsPage.jsx';
 
 import CatalogPage from '../../pages/storefront/CatalogPage.jsx';
 import ProductDetailsPage from '../../pages/storefront/ProductDetailsPage.jsx';
@@ -104,6 +106,13 @@ function AppRouter() {
           />
 
           <Route path='/admin/categories' element={<AdminCategoriesPage />} />
+
+          <Route path='/admin/inventory' element={<AdminInventoryPage />} />
+
+          <Route
+            path='/admin/inventory/:inventoryId'
+            element={<AdminInventoryDetailsPage />}
+          />
         </Route>
       </Route>
 
