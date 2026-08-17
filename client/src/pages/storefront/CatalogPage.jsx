@@ -351,12 +351,37 @@ function CatalogPage({ mode = 'shop' }) {
   }, [catalogQuery, reloadKey]);
 
   const visibleCategories = useMemo(() => {
-    if (!filterForm.sport) {
-      return categories;
+    let availableCategories = filterOptions.categories ?? [];
+
+    if (filterOptionsError) {
+      availableCategories = filterForm.sport
+        ? categories.filter((category) => category.sport === filterForm.sport)
+        : categories;
     }
 
-    return categories.filter((category) => category.sport === filterForm.sport);
-  }, [categories, filterForm.sport]);
+    if (
+      filterForm.categoryId &&
+      !availableCategories.some(
+        (category) => category.id === filterForm.categoryId,
+      )
+    ) {
+      const selectedCategory = categories.find(
+        (category) => category.id === filterForm.categoryId,
+      );
+
+      if (selectedCategory) {
+        return [selectedCategory, ...availableCategories];
+      }
+    }
+
+    return availableCategories;
+  }, [
+    categories,
+    filterForm.categoryId,
+    filterForm.sport,
+    filterOptions.categories,
+    filterOptionsError,
+  ]);
 
   const brandOptions = includeCurrentOption(
     filterOptions.brands ?? [],
