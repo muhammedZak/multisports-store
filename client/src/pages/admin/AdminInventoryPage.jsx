@@ -468,7 +468,7 @@ function AdminInventoryPage() {
                 <Link
                   to={`/admin/inventory/${inventory.id}`}
                   className='mt-4 inline-flex text-sm font-medium underline underline-offset-4'>
-                  View inventory
+                  Adjust / History
                 </Link>
               </article>
             ))}
@@ -551,7 +551,7 @@ function AdminInventoryPage() {
                       <Link
                         to={`/admin/inventory/${inventory.id}`}
                         className='font-medium underline underline-offset-4'>
-                        View
+                        Adjust / History
                       </Link>
                     </td>
                   </tr>
