@@ -8,6 +8,21 @@ import { normalizeApiError } from '../../api/errors.js';
 
 import { formatInrFromPaise } from '../../utils/money.js';
 
+const STOCK_STATE_PRESENTATION = {
+  in_stock: {
+    label: 'In stock',
+    className: 'text-green-700',
+  },
+  low_stock: {
+    label: 'Low stock',
+    className: 'text-amber-700',
+  },
+  out_of_stock: {
+    label: 'Out of stock',
+    className: 'text-red-700',
+  },
+};
+
 function getDiscountLabel(product) {
   if (!product.discount) {
     return null;
@@ -184,6 +199,9 @@ function ProductDetailsPage() {
 
   const discountLabel = getDiscountLabel(product);
 
+  const productStockPresentation =
+    STOCK_STATE_PRESENTATION[product.stockState] ?? null;
+
   return (
     <main className='mx-auto max-w-7xl px-5 py-10 lg:px-8'>
       <Link
@@ -284,6 +302,13 @@ function ProductDetailsPage() {
             <p className='mt-2 text-xs text-neutral-500'>
               Inclusive of applicable taxes
             </p>
+
+            {productStockPresentation && (
+              <p
+                className={`mt-4 text-sm font-medium ${productStockPresentation.className}`}>
+                {productStockPresentation.label}
+              </p>
+            )}
           </div>
 
           {/* Variants */}
@@ -314,17 +339,33 @@ function ProductDetailsPage() {
 
                     const options = Object.entries(variant.options ?? {});
 
+                    const stockPresentation =
+                      STOCK_STATE_PRESENTATION[variant.stockState] ?? null;
+
+                    const isOutOfStock = variant.stockState === 'out_of_stock';
+
+                    let variantStateClassName =
+                      'border-neutral-300 hover:border-neutral-500';
+
+                    if (selected) {
+                      variantStateClassName = 'border-black bg-neutral-50';
+                    }
+
+                    if (isOutOfStock) {
+                      variantStateClassName =
+                        'cursor-not-allowed border-neutral-200 bg-neutral-50 opacity-60';
+                    }
+
                     return (
                       <button
                         key={variant.id}
                         type='button'
+                        disabled={isOutOfStock}
                         onClick={() => setSelectedVariantId(variant.id)}
                         aria-pressed={selected}
                         className={[
                           'border p-4 text-left transition',
-                          selected
-                            ? 'border-black bg-neutral-50'
-                            : 'border-neutral-300 hover:border-neutral-500',
+                          variantStateClassName,
                         ].join(' ')}>
                         <dl className='space-y-2'>
                           {options.map(([name, value]) => (
@@ -339,6 +380,13 @@ function ProductDetailsPage() {
                             </div>
                           ))}
                         </dl>
+
+                        {stockPresentation && (
+                          <p
+                            className={`mt-3 text-xs font-medium ${stockPresentation.className}`}>
+                            {stockPresentation.label}
+                          </p>
+                        )}
                       </button>
                     );
                   })}
