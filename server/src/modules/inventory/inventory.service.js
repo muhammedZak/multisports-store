@@ -4,8 +4,13 @@ import { AppError } from '../../utils/AppError.js';
 
 import { Product } from '../catalog/product.model.js';
 
-import { STOCK_STATES } from './inventory.constants.js';
+import {
+  INVENTORY_ADJUSTMENT_REASONS,
+  STOCK_STATES,
+} from './inventory.constants.js';
+
 import { Inventory } from './inventory.model.js';
+import { InventoryAdjustment } from './inventoryAdjustment.model.js';
 
 import { isNonNegativeInteger } from './inventory.validation.js';
 
@@ -95,6 +100,101 @@ export function getStockState(quantity) {
   }
 
   return STOCK_STATES.IN_STOCK;
+}
+
+export async function createInitialInventoryForProduct({
+  product,
+  initialQuantity,
+  variantInitialQuantities,
+  session,
+}) {
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+
+  if (variants.length === 0) {
+    if (
+      !isNonNegativeInteger(initialQuantity) ||
+      variantInitialQuantities !== undefined
+    ) {
+      throwInventoryModeConflict(product._id);
+    }
+
+    const [inventory] = await Inventory.create(
+      [
+        {
+          productId: product._id,
+          quantity: initialQuantity,
+        },
+      ],
+      {
+        session,
+      },
+    );
+
+    if (initialQuantity > 0) {
+      await InventoryAdjustment.create(
+        [
+          {
+            inventoryId: inventory._id,
+            reason: INVENTORY_ADJUSTMENT_REASONS.INITIAL_STOCK,
+            quantityChange: initialQuantity,
+            previousQuantity: 0,
+            newQuantity: initialQuantity,
+          },
+        ],
+        {
+          session,
+        },
+      );
+    }
+
+    return [inventory];
+  }
+
+  if (
+    initialQuantity !== undefined ||
+    !Array.isArray(variantInitialQuantities) ||
+    variantInitialQuantities.length !== variants.length ||
+    variantInitialQuantities.some((quantity) => !isNonNegativeInteger(quantity))
+  ) {
+    throwInventoryModeConflict(product._id);
+  }
+
+  const inventories = await Inventory.create(
+    variants.map((variant, index) => ({
+      productId: product._id,
+      variantId: variant._id,
+      quantity: variantInitialQuantities[index],
+    })),
+    {
+      session,
+    },
+  );
+
+  const adjustments = [];
+
+  for (let index = 0; index < inventories.length; index += 1) {
+    const quantity = variantInitialQuantities[index];
+
+    if (quantity === 0) {
+      continue;
+    }
+
+    adjustments.push({
+      inventoryId: inventories[index]._id,
+      reason: INVENTORY_ADJUSTMENT_REASONS.INITIAL_STOCK,
+      quantityChange: quantity,
+      previousQuantity: 0,
+      newQuantity: quantity,
+    });
+  }
+
+  if (adjustments.length > 0) {
+    await InventoryAdjustment.create(adjustments, {
+      session,
+    });
+  }
+
+  return inventories;
 }
 
 export async function bootstrapExistingCatalogInventory() {

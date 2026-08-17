@@ -14,6 +14,14 @@ const CREATE_PRODUCT_FIELDS = [
   'discountType',
   'discountValue',
   'specifications',
+  'initialQuantity',
+  'variants',
+  'isActive',
+];
+
+const CREATE_INITIAL_VARIANT_FIELDS = [
+  'options',
+  'initialQuantity',
   'isActive',
 ];
 
@@ -111,6 +119,29 @@ function throwInvalidDiscount(message) {
   throw new AppError(422, 'INVALID_DISCOUNT', 'Product discount is invalid.', {
     discountValue: message,
   });
+}
+
+function throwInventoryModeConflict() {
+  throw new AppError(
+    422,
+    'INVENTORY_MODE_CONFLICT',
+    'Product inventory configuration is invalid.',
+    {
+      inventory:
+        'Use initialQuantity for a simple Product or variants for a Variant Product, not both.',
+    },
+  );
+}
+
+function throwDuplicateInitialVariant() {
+  throw new AppError(
+    409,
+    'DUPLICATE_VARIANT',
+    'A variant with the same option combination already exists.',
+    {
+      options: 'Use a different variant option combination.',
+    },
+  );
 }
 
 function validateObject(body) {
@@ -322,6 +353,87 @@ function getVariantOptions(value) {
   return Object.fromEntries(normalizedEntries);
 }
 
+function getInitialQuantity(value, fieldName = 'initialQuantity') {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throwValidationError({
+      [fieldName]: 'Initial quantity must be a non-negative integer.',
+    });
+  }
+
+  return value;
+}
+
+function getNormalizedInitialVariantKey(options) {
+  const normalizedEntries = Object.entries(options)
+    .map(([optionName, optionValue]) => [
+      normalizeSingleLineText(optionName).toLowerCase(),
+      normalizeSingleLineText(optionValue).toLowerCase(),
+    ])
+    .sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
+
+  return JSON.stringify(normalizedEntries);
+}
+
+function getInitialProductVariants(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throwValidationError({
+      variants: 'Add at least one Variant.',
+    });
+  }
+
+  const normalizedVariants = [];
+  const seenVariantKeys = new Set();
+
+  for (let index = 0; index < value.length; index += 1) {
+    const variant = value[index];
+
+    if (!isPlainObject(variant)) {
+      throwValidationError({
+        variants: `Variant ${index + 1} must be an object.`,
+      });
+    }
+
+    const unexpectedFields = Object.keys(variant).filter(
+      (field) => !CREATE_INITIAL_VARIANT_FIELDS.includes(field),
+    );
+
+    if (unexpectedFields.length > 0) {
+      throwValidationError({
+        variants: `Variant ${index + 1} contains unsupported fields.`,
+      });
+    }
+
+    const options = getVariantOptions(variant.options);
+
+    const initialQuantity = getInitialQuantity(
+      variant.initialQuantity,
+      'initialQuantity',
+    );
+
+    if (typeof variant.isActive !== 'boolean') {
+      throwValidationError({
+        variants: `Variant ${index + 1} active status must be true or false.`,
+      });
+    }
+
+    const variantKey = getNormalizedInitialVariantKey(options);
+
+    if (seenVariantKeys.has(variantKey)) {
+      throwDuplicateInitialVariant();
+    }
+
+    seenVariantKeys.add(variantKey);
+
+    normalizedVariants.push({
+      options,
+      initialQuantity,
+      isActive: variant.isActive,
+    });
+  }
+
+  return normalizedVariants;
+}
+
 function getSpecifications(value) {
   if (!isPlainObject(value)) {
     throwValidationError({
@@ -529,6 +641,32 @@ export function validateProductCreateInput(body) {
     });
   }
 
+  const hasInitialQuantity = Object.prototype.hasOwnProperty.call(
+    body,
+    'initialQuantity',
+  );
+
+  const hasVariants = Object.prototype.hasOwnProperty.call(body, 'variants');
+
+  if (hasInitialQuantity && hasVariants) {
+    throwInventoryModeConflict();
+  }
+
+  if (!hasInitialQuantity && !hasVariants) {
+    throwValidationError({
+      inventory:
+        'Choose a simple Product initial quantity or provide initial Variants.',
+    });
+  }
+
+  const inventoryConfiguration = hasVariants
+    ? {
+        variants: getInitialProductVariants(body.variants),
+      }
+    : {
+        initialQuantity: getInitialQuantity(body.initialQuantity),
+      };
+
   return {
     name,
     description,
@@ -539,6 +677,7 @@ export function validateProductCreateInput(body) {
     discountType,
     discountValue,
     specifications,
+    ...inventoryConfiguration,
     isActive: body.isActive,
   };
 }

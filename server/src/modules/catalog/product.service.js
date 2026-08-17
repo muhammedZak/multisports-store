@@ -10,6 +10,8 @@ import {
 import { Category } from './category.model.js';
 import { Product } from './product.model.js';
 
+import { createInitialInventoryForProduct } from '../inventory/inventory.service.js';
+
 import { isSupportedSport } from './catalog.constants.js';
 
 import { validateProductDiscountState } from './product.validation.js';
@@ -594,28 +596,63 @@ export async function createProduct(input, imageFiles) {
     throwProductImageRequired();
   }
 
+  const {
+    initialQuantity,
+    variants: requestedVariants,
+    ...productInput
+  } = input;
+
   const category = await validateProductCatalogState({
-    categoryId: input.categoryId,
-    sport: input.sport,
-    isActive: input.isActive,
-    basePrice: input.basePrice,
-    discountType: input.discountType,
-    discountValue: input.discountValue,
+    categoryId: productInput.categoryId,
+    sport: productInput.sport,
+    isActive: productInput.isActive,
+    basePrice: productInput.basePrice,
+    discountType: productInput.discountType,
+    discountValue: productInput.discountValue,
   });
 
-  const uploadedImages = await uploadProductImages(imageFiles, input.name);
+  const uploadedImages = await uploadProductImages(
+    imageFiles,
+    productInput.name,
+  );
+
+  const productVariants = Array.isArray(requestedVariants)
+    ? requestedVariants.map((variant) => ({
+        options: variant.options,
+        isActive: variant.isActive,
+      }))
+    : [];
 
   let product;
 
   try {
-    product = await Product.create({
-      ...input,
-      images: uploadedImages,
+    await mongoose.connection.transaction(async (session) => {
+      [product] = await Product.create(
+        [
+          {
+            ...productInput,
+            images: uploadedImages,
+            variants: productVariants,
+          },
+        ],
+        {
+          session,
+        },
+      );
+
+      await createInitialInventoryForProduct({
+        product,
+        initialQuantity,
+        variantInitialQuantities: Array.isArray(requestedVariants)
+          ? requestedVariants.map((variant) => variant.initialQuantity)
+          : undefined,
+        session,
+      });
     });
   } catch (error) {
     await cleanupProductImages(
       uploadedImages.map((image) => image.publicId),
-      'database save failure',
+      'product and initial inventory transaction failure',
     );
 
     throw error;
