@@ -42,6 +42,12 @@ export async function fetchPublicProducts(filters = {}) {
   };
 }
 
+export async function fetchPublicProduct(productId) {
+  const response = await apiClient.get(`/products/${productId}`);
+
+  return response.data.data.product;
+}
+
 export async function fetchCatalogFilterOptions(filters = {}) {
   const response = await apiClient.get('/catalog/filter-options', {
     params: createQueryParams(filters, FILTER_OPTION_QUERY_FIELDS),
