@@ -10,6 +10,12 @@ if (!allowedNodeEnvs.includes(nodeEnv)) {
 
 const port = Number(process.env.PORT || 4000);
 
+const lowStockThreshold = Number(process.env.LOW_STOCK_THRESHOLD ?? 5);
+
+if (!Number.isInteger(lowStockThreshold) || lowStockThreshold < 0) {
+  throw new Error('LOW_STOCK_THRESHOLD must be a non-negative integer');
+}
+
 if (!Number.isInteger(port) || port <= 0) {
   throw new Error('PORT must be a valid positive number');
 }
@@ -64,6 +70,8 @@ if (!process.env.CLOUDINARY_API_SECRET) {
 export const env = Object.freeze({
   nodeEnv,
   port,
+  lowStockThreshold,
+
   mongodbUri: process.env.MONGODB_URI,
   clientOrigins,
 
