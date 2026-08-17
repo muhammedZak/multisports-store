@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { useNavigate, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import {
   fetchCatalogFilterOptions,
@@ -157,47 +157,53 @@ function ProductCard({ product }) {
 
   return (
     <article>
-      <div className='aspect-square overflow-hidden bg-neutral-100'>
-        {product.primaryImage?.url ? (
-          <img
-            src={product.primaryImage.url}
-            alt={product.primaryImage.altText || product.name}
-            className='h-full w-full object-cover transition duration-300 hover:scale-[1.02]'
-          />
-        ) : (
-          <div className='flex h-full items-center justify-center text-sm text-neutral-500'>
-            No image
-          </div>
-        )}
-      </div>
-
-      <div className='pt-4'>
-        <p className='text-xs font-medium uppercase tracking-[0.12em] text-neutral-500'>
-          {product.category?.name || product.sport}
-        </p>
-
-        <h2 className='mt-2 font-semibold leading-6'>{product.name}</h2>
-
-        <p className='mt-1 text-sm text-neutral-500'>{product.brand}</p>
-
-        <div className='mt-3 flex flex-wrap items-baseline gap-2'>
-          <p className='font-semibold'>
-            {formatInrFromPaise(product.currentPrice)}
-          </p>
-
-          {hasDiscount && (
-            <p className='text-sm text-neutral-400 line-through'>
-              {formatInrFromPaise(product.basePrice)}
-            </p>
-          )}
-
-          {discountLabel && (
-            <p className='text-xs font-medium text-green-700'>
-              {discountLabel}
-            </p>
+      <Link
+        to={`/products/${product.id}`}
+        className='group block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4'>
+        <div className='aspect-square overflow-hidden bg-neutral-100'>
+          {product.primaryImage?.url ? (
+            <img
+              src={product.primaryImage.url}
+              alt={product.primaryImage.altText || product.name}
+              className='h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]'
+            />
+          ) : (
+            <div className='flex h-full items-center justify-center text-sm text-neutral-500'>
+              No image
+            </div>
           )}
         </div>
-      </div>
+
+        <div className='pt-4'>
+          <p className='text-xs font-medium uppercase tracking-[0.12em] text-neutral-500'>
+            {product.category?.name || product.sport}
+          </p>
+
+          <h2 className='mt-2 font-semibold leading-6 group-hover:underline group-hover:underline-offset-4'>
+            {product.name}
+          </h2>
+
+          <p className='mt-1 text-sm text-neutral-500'>{product.brand}</p>
+
+          <div className='mt-3 flex flex-wrap items-baseline gap-2'>
+            <p className='font-semibold'>
+              {formatInrFromPaise(product.currentPrice)}
+            </p>
+
+            {hasDiscount && (
+              <p className='text-sm text-neutral-400 line-through'>
+                {formatInrFromPaise(product.basePrice)}
+              </p>
+            )}
+
+            {discountLabel && (
+              <p className='text-xs font-medium text-green-700'>
+                {discountLabel}
+              </p>
+            )}
+          </div>
+        </div>
+      </Link>
     </article>
   );
 }
