@@ -1,7 +1,10 @@
+import mongoose from 'mongoose';
+
 import { env } from '../../config/env.js';
 
 import { AppError } from '../../utils/AppError.js';
 
+import { Category } from '../catalog/category.model.js';
 import { Product } from '../catalog/product.model.js';
 
 import {
@@ -96,6 +99,207 @@ function validateVariantProductInventoryStructure(product, inventories) {
   return seenInventoryVariantIds;
 }
 
+function throwAdminInventoryNotFound() {
+  throw new AppError(
+    404,
+    'INVENTORY_NOT_FOUND',
+    'Inventory position not found.',
+  );
+}
+
+function throwCategoryNotFound() {
+  throw new AppError(404, 'CATEGORY_NOT_FOUND', 'Category not found.');
+}
+
+function throwCategorySportMismatch() {
+  throw new AppError(
+    422,
+    'CATEGORY_SPORT_MISMATCH',
+    'The selected category does not belong to the selected sport.',
+    {
+      categoryId: 'Select a category that belongs to the selected sport.',
+    },
+  );
+}
+
+function toAdminInventoryCategoryResource(category) {
+  if (!category) {
+    return null;
+  }
+
+  return {
+    id: category._id.toString(),
+    name: category.name,
+  };
+}
+
+function toAdminInventoryProductResource(product) {
+  return {
+    id: product._id.toString(),
+    name: product.name,
+    brand: product.brand,
+    sport: product.sport,
+    category: toAdminInventoryCategoryResource(product.categoryId),
+    isActive: product.isActive,
+  };
+}
+
+function getInventoryVariantResource(inventory, product) {
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+
+  // Simple Product must have Product-level Inventory only.
+  if (variants.length === 0) {
+    if (hasVariantIdField(inventory)) {
+      throwInventoryModeConflict(product._id);
+    }
+
+    return null;
+  }
+
+  // Variant Product must point to one real embedded Variant.
+  if (!hasVariantIdField(inventory) || inventory.variantId === null) {
+    throwInventoryModeConflict(product._id);
+  }
+
+  const variantId = inventory.variantId.toString();
+
+  const variant = variants.find((item) => item._id.toString() === variantId);
+
+  if (!variant) {
+    throwInventoryModeConflict(product._id);
+  }
+
+  return {
+    id: variant._id.toString(),
+    options: variant.options ?? {},
+    isActive: variant.isActive,
+  };
+}
+
+function toAdminInventoryResource(inventory, product) {
+  return {
+    id: inventory._id.toString(),
+
+    product: toAdminInventoryProductResource(product),
+
+    variant: getInventoryVariantResource(inventory, product),
+
+    quantity: inventory.quantity,
+
+    stockState: getStockState(inventory.quantity),
+
+    createdAt: inventory.createdAt,
+
+    updatedAt: inventory.updatedAt,
+  };
+}
+
+async function getProductsForInventoryResources(inventories) {
+  const productIds = [
+    ...new Set(inventories.map((inventory) => inventory.productId.toString())),
+  ];
+
+  const products = await Product.find({
+    _id: {
+      $in: productIds,
+    },
+  })
+    .select('name brand sport categoryId variants isActive')
+    .populate('categoryId', 'name')
+    .lean();
+
+  const productsById = new Map(
+    products.map((product) => [product._id.toString(), product]),
+  );
+
+  /*
+   * An Inventory row without its owning Product is corrupted state.
+   * Do not silently return incomplete Admin data.
+   */
+  for (const inventory of inventories) {
+    const productId = inventory.productId.toString();
+
+    if (!productsById.has(productId)) {
+      throwInventoryModeConflict(productId);
+    }
+  }
+
+  return productsById;
+}
+
+async function ensureInventoryFilterCategoryIntegrity({ categoryId, sport }) {
+  if (!categoryId) {
+    return;
+  }
+
+  const category = await Category.findById(categoryId).select('sport').lean();
+
+  if (!category) {
+    throwCategoryNotFound();
+  }
+
+  if (sport && category.sport !== sport) {
+    throwCategorySportMismatch();
+  }
+}
+
+function getInventoryQuantityFilter(stockState) {
+  if (!stockState) {
+    return undefined;
+  }
+
+  if (stockState === STOCK_STATES.OUT_OF_STOCK) {
+    return 0;
+  }
+
+  if (stockState === STOCK_STATES.LOW_STOCK) {
+    return {
+      $gt: 0,
+      $lte: env.lowStockThreshold,
+    };
+  }
+
+  return {
+    $gt: env.lowStockThreshold,
+  };
+}
+
+async function resolveInventoryProductIds({ q, sport, categoryId, productId }) {
+  const hasProductContextFilter = Boolean(q || sport || categoryId);
+
+  /*
+   * productId by itself can be applied directly to Inventory,
+   * so no Product pre-query is necessary.
+   */
+  if (!hasProductContextFilter) {
+    return null;
+  }
+
+  const productFilter = {};
+
+  if (productId) {
+    productFilter._id = productId;
+  }
+
+  if (q) {
+    productFilter.$text = {
+      $search: q,
+    };
+  }
+
+  if (sport) {
+    productFilter.sport = sport;
+  }
+
+  if (categoryId) {
+    productFilter.categoryId = categoryId;
+  }
+
+  const products = await Product.find(productFilter).select('_id').lean();
+
+  return products.map((product) => product._id);
+}
+
 export function getStockState(quantity) {
   if (!isNonNegativeInteger(quantity)) {
     throw new TypeError(
@@ -112,6 +316,140 @@ export function getStockState(quantity) {
   }
 
   return STOCK_STATES.IN_STOCK;
+}
+
+export async function getAdminInventories({
+  page,
+  limit,
+  q,
+  sport,
+  categoryId,
+  stockState,
+  productId,
+  sort,
+  order,
+}) {
+  await ensureInventoryFilterCategoryIntegrity({
+    categoryId,
+    sport,
+  });
+
+  const inventoryFilter = {};
+
+  /*
+   * Search/sport/category belong to Product, not Inventory.
+   * Resolve all matching Product IDs in one query.
+   */
+  const matchingProductIds = await resolveInventoryProductIds({
+    q,
+    sport,
+    categoryId,
+    productId,
+  });
+
+  if (matchingProductIds !== null) {
+    if (matchingProductIds.length === 0) {
+      return {
+        items: [],
+        meta: {
+          page,
+          limit,
+          totalItems: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
+    inventoryFilter.productId = {
+      $in: matchingProductIds,
+    };
+  } else if (productId) {
+    inventoryFilter.productId = productId;
+  }
+
+  /*
+   * stockState is derived, but filtering must happen before
+   * pagination. Translate it to the authoritative quantity.
+   */
+  const quantityFilter = getInventoryQuantityFilter(stockState);
+
+  if (quantityFilter !== undefined) {
+    inventoryFilter.quantity = quantityFilter;
+  }
+
+  const direction = order === 'asc' ? 1 : -1;
+
+  const sortDefinition = {
+    [sort]: direction,
+    _id: direction,
+  };
+
+  const skip = (page - 1) * limit;
+
+  const [inventories, totalItems] = await Promise.all([
+    Inventory.find(inventoryFilter)
+      .select('_id productId variantId quantity createdAt updatedAt')
+      .sort(sortDefinition)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    Inventory.countDocuments(inventoryFilter),
+  ]);
+
+  if (inventories.length === 0) {
+    return {
+      items: [],
+      meta: {
+        page,
+        limit,
+        totalItems,
+        totalPages: Math.ceil(totalItems / limit),
+      },
+    };
+  }
+
+  /*
+   * One batch Product query for the current page.
+   * Variant information comes from the Product document because
+   * Variants are embedded.
+   */
+  const productsById = await getProductsForInventoryResources(inventories);
+
+  return {
+    items: inventories.map((inventory) => {
+      const product = productsById.get(inventory.productId.toString());
+
+      return toAdminInventoryResource(inventory, product);
+    }),
+
+    meta: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+}
+
+export async function getAdminInventory(inventoryId) {
+  if (!mongoose.isValidObjectId(inventoryId)) {
+    throwAdminInventoryNotFound();
+  }
+
+  const inventory = await Inventory.findById(inventoryId)
+    .select('_id productId variantId quantity createdAt updatedAt')
+    .lean();
+
+  if (!inventory) {
+    throwAdminInventoryNotFound();
+  }
+
+  const productsById = await getProductsForInventoryResources([inventory]);
+
+  const product = productsById.get(inventory.productId.toString());
+
+  return toAdminInventoryResource(inventory, product);
 }
 
 async function getProductInventories(productId, session = null) {
