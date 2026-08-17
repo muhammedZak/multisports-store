@@ -11,6 +11,7 @@ const PUBLIC_PRODUCT_QUERY_FIELDS = [
   'maxPrice',
   'size',
   'color',
+  'availability',
   'sort',
   'order',
 ];

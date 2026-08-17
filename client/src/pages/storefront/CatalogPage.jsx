@@ -26,6 +26,7 @@ const EMPTY_FILTER_OPTIONS = {
   },
   sizes: [],
   colors: [],
+  availability: [],
 };
 
 const DEFAULT_META = {
@@ -36,6 +37,32 @@ const DEFAULT_META = {
 };
 
 const SORT_VALUES = ['createdAt:desc', 'price:asc', 'price:desc'];
+
+const STOCK_STATE_PRESENTATION = {
+  in_stock: {
+    label: 'In stock',
+    className: 'text-green-700',
+  },
+  low_stock: {
+    label: 'Low stock',
+    className: 'text-amber-700',
+  },
+  out_of_stock: {
+    label: 'Out of stock',
+    className: 'text-red-700',
+  },
+};
+
+const AVAILABILITY_FILTER_OPTIONS = [
+  {
+    value: 'in_stock',
+    label: 'In stock',
+  },
+  {
+    value: 'out_of_stock',
+    label: 'Out of stock',
+  },
+];
 
 function normalizeParam(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -73,6 +100,8 @@ function getCatalogQuery(searchParams) {
 
     color: normalizeParam(searchParams.get('color')),
 
+    availability: normalizeParam(searchParams.get('availability')),
+
     sort: normalizeParam(searchParams.get('sort')) || 'createdAt',
 
     order: normalizeParam(searchParams.get('order')) || 'desc',
@@ -103,6 +132,7 @@ function createFilterForm(query) {
     maxPrice: getRupeesValue(query.maxPrice),
     size: query.size,
     color: query.color,
+    availability: query.availability,
   };
 }
 
@@ -155,6 +185,9 @@ function ProductCard({ product }) {
 
   const discountLabel = getDiscountLabel(product);
 
+  const stockPresentation =
+    STOCK_STATE_PRESENTATION[product.stockState] ?? null;
+
   return (
     <article>
       <Link
@@ -184,6 +217,13 @@ function ProductCard({ product }) {
           </h2>
 
           <p className='mt-1 text-sm text-neutral-500'>{product.brand}</p>
+
+          {stockPresentation && (
+            <p
+              className={`mt-2 text-xs font-medium ${stockPresentation.className}`}>
+              {stockPresentation.label}
+            </p>
+          )}
 
           <div className='mt-3 flex flex-wrap items-baseline gap-2'>
             <p className='font-semibold'>
@@ -404,6 +444,16 @@ function CatalogPage({ mode = 'shop' }) {
     filterForm.color,
   );
 
+  const availableAvailabilityValues = new Set(filterOptions.availability ?? []);
+
+  if (filterForm.availability) {
+    availableAvailabilityValues.add(filterForm.availability);
+  }
+
+  const availabilityOptions = AVAILABILITY_FILTER_OPTIONS.filter((option) =>
+    availableAvailabilityValues.has(option.value),
+  );
+
   function navigateToCatalog(params) {
     const hasSearchQuery = Boolean(params.get('q')?.trim());
 
@@ -482,7 +532,15 @@ function CatalogPage({ mode = 'shop' }) {
 
     const params = new URLSearchParams();
 
-    const textFields = ['q', 'sport', 'categoryId', 'brand', 'size', 'color'];
+    const textFields = [
+      'q',
+      'sport',
+      'categoryId',
+      'brand',
+      'size',
+      'color',
+      'availability',
+    ];
 
     for (const field of textFields) {
       const value = filterForm[field].trim();
@@ -644,6 +702,18 @@ function CatalogPage({ mode = 'shop' }) {
     activeFilters.push({
       key: 'color',
       label: catalogQuery.color,
+    });
+  }
+
+  if (catalogQuery.availability) {
+    const availabilityLabel =
+      AVAILABILITY_FILTER_OPTIONS.find(
+        (option) => option.value === catalogQuery.availability,
+      )?.label ?? catalogQuery.availability;
+
+    activeFilters.push({
+      key: 'availability',
+      label: `Availability: ${availabilityLabel}`,
     });
   }
 
@@ -830,6 +900,33 @@ function CatalogPage({ mode = 'shop' }) {
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label
+            htmlFor='availability'
+            className='mb-2 block text-sm font-medium'>
+            Availability
+          </label>
+
+          <select
+            id='availability'
+            name='availability'
+            value={filterForm.availability}
+            onChange={handleFilterChange}
+            className='w-full border border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-black'>
+            <option value=''>All availability</option>
+
+            {availabilityOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <p className='mt-2 text-xs leading-5 text-neutral-500'>
+            In stock includes low-stock products.
+          </p>
         </div>
 
         {filterOptionsError && (
