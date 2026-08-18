@@ -18,6 +18,8 @@ const INVENTORY_INTEGRITY_ERROR_CODES = new Set([
   'INVENTORY_NOT_FOUND',
 ]);
 
+const CART_WRITE_MAX_ATTEMPTS = 5;
+
 function throwProductNotFound() {
   throw new AppError(404, 'PRODUCT_NOT_FOUND', 'Product not found.');
 }
@@ -162,6 +164,48 @@ function assertRequestedQuantityAvailable(inventory, finalQuantity) {
 
 export function getCartLineIdentity(productId, variantId = null) {
   return `${productId.toString()}:${variantId?.toString() ?? 'simple'}`;
+}
+
+function sameObjectId(left, right) {
+  if (left === null || left === undefined) {
+    return right === null || right === undefined;
+  }
+
+  if (right === null || right === undefined) {
+    return false;
+  }
+
+  return left.toString() === right.toString();
+}
+
+function findCartItemByIdentity(cart, productId, variantId = null) {
+  return (
+    cart.items.find((item) => {
+      return (
+        sameObjectId(item.productId, productId) &&
+        sameObjectId(item.variantId, variantId)
+      );
+    }) ?? null
+  );
+}
+
+function getCartIdentityMatch(productId, variantId = null) {
+  return {
+    productId,
+    variantId: variantId ?? null,
+  };
+}
+
+function isDuplicateKeyError(error) {
+  return error?.code === 11000;
+}
+
+function throwCartWriteConflict() {
+  throw new AppError(
+    409,
+    'CART_ITEM_UNAVAILABLE',
+    'The Cart changed while this item was being added. Please try again.',
+  );
 }
 
 export async function resolveCartItemForAdd({
@@ -517,6 +561,201 @@ export async function resolveCustomerCart(cart) {
 
     canCheckout: items.length > 0 && issues.length === 0,
   };
+}
+
+export async function addItemToCustomerCart({
+  customerId,
+  productId,
+  variantId = null,
+  quantity,
+}) {
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw new TypeError('A valid Customer ID is required.');
+  }
+
+  for (let attempt = 0; attempt < CART_WRITE_MAX_ATTEMPTS; attempt += 1) {
+    /*
+     * Read only the persisted Cart identity/quantities needed to decide
+     * whether this request is a new line or an increment.
+     *
+     * The actual mutation below is still conditional and atomic.
+     */
+    const existingCart = await Cart.findOne({
+      customerId,
+    }).select('_id customerId items appliedCouponId createdAt updatedAt');
+
+    /*
+     * First successful Add to Cart creates the Customer's persistent Cart.
+     */
+    if (!existingCart) {
+      const resolvedItem = await resolveCartItemForAdd({
+        productId,
+        variantId,
+        quantity,
+        existingQuantity: 0,
+      });
+
+      try {
+        const createdCart = await Cart.create({
+          customerId,
+
+          items: [
+            {
+              productId: resolvedItem.productId,
+              variantId: resolvedItem.variantId,
+              quantity,
+            },
+          ],
+        });
+
+        return resolveCustomerCart(createdCart);
+      } catch (error) {
+        /*
+         * Two first-add requests may both observe no Cart.
+         *
+         * customerId is unique, so only one Cart can actually be created.
+         * The losing request retries against the Cart that now exists.
+         */
+        if (isDuplicateKeyError(error)) {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    const persistedVariantId = variantId ?? null;
+
+    const existingItem = findCartItemByIdentity(
+      existingCart,
+      productId,
+      persistedVariantId,
+    );
+
+    /*
+     * Existing logical line:
+     *
+     * Re-resolve Product/Variant/Inventory and validate the requested
+     * cumulative quantity before attempting the atomic increment.
+     */
+    if (existingItem) {
+      const existingQuantity = existingItem.quantity;
+
+      const resolvedItem = await resolveCartItemForAdd({
+        productId,
+        variantId,
+        quantity,
+        existingQuantity,
+      });
+
+      /*
+       * Optimistic compare-and-update:
+       *
+       * The mutation succeeds only if this exact Cart Item still has the
+       * quantity we just validated.
+       *
+       * If another request changed it meanwhile, this update matches
+       * nothing and we retry with the new authoritative quantity.
+       */
+      const updatedCart = await Cart.findOneAndUpdate(
+        {
+          _id: existingCart._id,
+
+          items: {
+            $elemMatch: {
+              _id: existingItem._id,
+
+              ...getCartIdentityMatch(
+                resolvedItem.productId,
+                resolvedItem.variantId,
+              ),
+
+              quantity: existingQuantity,
+            },
+          },
+        },
+
+        {
+          $inc: {
+            'items.$.quantity': quantity,
+          },
+        },
+
+        {
+          returnDocument: 'after',
+          runValidators: true,
+        },
+      );
+
+      if (!updatedCart) {
+        continue;
+      }
+
+      return resolveCustomerCart(updatedCart);
+    }
+
+    /*
+     * New logical line.
+     *
+     * Validate Product/Variant/Inventory first.
+     */
+    const resolvedItem = await resolveCartItemForAdd({
+      productId,
+      variantId,
+      quantity,
+      existingQuantity: 0,
+    });
+
+    const identityMatch = getCartIdentityMatch(
+      resolvedItem.productId,
+      resolvedItem.variantId,
+    );
+
+    /*
+     * Push only while this Product + Variant identity does NOT already
+     * exist.
+     *
+     * This prevents concurrent requests from inserting duplicate lines.
+     */
+    const updatedCart = await Cart.findOneAndUpdate(
+      {
+        _id: existingCart._id,
+
+        items: {
+          $not: {
+            $elemMatch: identityMatch,
+          },
+        },
+      },
+
+      {
+        $push: {
+          items: {
+            productId: resolvedItem.productId,
+            variantId: resolvedItem.variantId,
+            quantity,
+          },
+        },
+      },
+
+      {
+        returnDocument: 'after',
+        runValidators: true,
+      },
+    );
+
+    /*
+     * Another request may have inserted this identity after our read.
+     * Retry and it will now follow the existing-line $inc path.
+     */
+    if (!updatedCart) {
+      continue;
+    }
+
+    return resolveCustomerCart(updatedCart);
+  }
+
+  throwCartWriteConflict();
 }
 
 export async function getResolvedCustomerCart(customerId) {

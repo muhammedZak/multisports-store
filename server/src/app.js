@@ -18,6 +18,8 @@ import adminProductRouter from './modules/catalog/adminProduct.routes.js';
 import publicCatalogRouter from './modules/catalog/publicCatalog.routes.js';
 import adminInventoryRouter from './modules/inventory/adminInventory.routes.js';
 
+import cartRouter from './modules/cart/cart.routes.js';
+
 const app = express();
 
 app.use(helmet());
@@ -46,6 +48,8 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', userRouter);
 app.use('/api/v1', categoryRouter);
 app.use('/api/v1', publicCatalogRouter);
+
+app.use('/api/v1/cart', cartRouter);
 
 app.use('/api/v1/admin/categories', adminCategoryRouter);
 app.use('/api/v1/admin/products', adminProductRouter);
