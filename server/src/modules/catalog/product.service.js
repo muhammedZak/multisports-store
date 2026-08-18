@@ -957,7 +957,7 @@ function normalizePublicCatalogValue(value) {
   return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-function getCurrentProductPrice(product) {
+export function getCurrentProductPrice(product) {
   if (
     product.discountType === 'percentage' &&
     Number.isInteger(product.discountValue)
