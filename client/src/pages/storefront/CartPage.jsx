@@ -296,6 +296,8 @@ function CartPage() {
     actionError,
     actionItemId,
     actionOperation,
+    mergeStatus,
+    mergeError,
   } = useSelector((state) => state.cart);
 
   const [guestProducts, setGuestProducts] = useState({});
@@ -494,6 +496,14 @@ function CartPage() {
     );
   }
 
+  if (isCustomer && mergeStatus === 'loading') {
+    return (
+      <main className='mx-auto max-w-7xl px-5 py-10 lg:px-8'>
+        <p className='text-sm text-neutral-600'>Merging your Guest Cart...</p>
+      </main>
+    );
+  }
+
   if (isCustomer && (!customerCartInitialized || loadStatus === 'loading')) {
     return (
       <main className='mx-auto max-w-7xl px-5 py-10 lg:px-8'>
@@ -505,6 +515,22 @@ function CartPage() {
   if (isCustomer && loadStatus === 'failed') {
     return (
       <main className='mx-auto max-w-7xl px-5 py-16 lg:px-8'>
+        {mergeStatus === 'failed' && (
+          <div
+            role='alert'
+            className='mb-4 max-w-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800'>
+            <p className='font-medium'>Your Guest Cart could not be merged.</p>
+
+            <p className='mt-1'>
+              {mergeError?.message ?? 'Unable to merge your Guest Cart.'}
+            </p>
+
+            <p className='mt-1'>
+              Your Guest Cart has been kept and was not discarded.
+            </p>
+          </div>
+        )}
+
         <div
           role='alert'
           className='max-w-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
@@ -568,6 +594,23 @@ function CartPage() {
           )}
         </div>
       </div>
+
+      {isCustomer && mergeStatus === 'failed' && (
+        <div
+          role='alert'
+          className='mt-6 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800'>
+          <p className='font-medium'>Your Guest Cart could not be merged.</p>
+
+          <p className='mt-1'>
+            {mergeError?.message ?? 'Unable to merge your Guest Cart.'}
+          </p>
+
+          <p className='mt-1'>
+            Your Guest Cart is still saved. Your Customer Cart below was loaded
+            separately so no Guest items were silently discarded.
+          </p>
+        </div>
+      )}
 
       {clearCartError && (
         <div

@@ -4,6 +4,7 @@ import {
   addCustomerCartItem,
   clearCustomerCart,
   fetchCustomerCart,
+  mergeCustomerCart,
   removeCustomerCartItem,
   updateCustomerCartItemQuantity,
 } from '../../api/cartApi.js';
@@ -50,6 +51,10 @@ function createAuthenticatedCartState() {
 
     actionItemId: null,
     actionOperation: null,
+
+    mergeStatus: 'idle',
+    mergeError: null,
+    mergeRequestId: null,
   };
 }
 
@@ -97,6 +102,42 @@ export const loadCustomerCart = createAsyncThunk(
       }
 
       return true;
+    },
+  },
+);
+
+export const mergeGuestCart = createAsyncThunk(
+  'cart/mergeGuestCart',
+
+  async ({ customerId, items }, { rejectWithValue }) => {
+    try {
+      const cart = await mergeCustomerCart({
+        items,
+      });
+
+      return {
+        customerId,
+        cart,
+      };
+    } catch (error) {
+      return rejectWithValue(
+        normalizeApiError(error, 'Unable to merge your Guest Cart.'),
+      );
+    }
+  },
+
+  {
+    condition: ({ customerId, items }, { getState }) => {
+      const state = getState();
+
+      return (
+        Boolean(customerId) &&
+        Array.isArray(items) &&
+        items.length > 0 &&
+        state.auth.user?.id === customerId &&
+        state.auth.user?.role === 'customer' &&
+        state.cart.mergeStatus === 'idle'
+      );
     },
   },
 );
@@ -373,6 +414,89 @@ const cartSlice = createSlice({
         state.loadStatus = 'failed';
         state.loadError = action.payload;
 
+        state.loadRequestId = null;
+      })
+
+      .addCase(mergeGuestCart.pending, (state, action) => {
+        state.ownerId = action.meta.arg.customerId;
+
+        /*
+         * The Customer Cart is intentionally considered not ready while
+         * Guest → Customer reconciliation is happening.
+         *
+         * This prevents a stale/empty Customer Cart from flashing before the
+         * authoritative merge response arrives.
+         */
+        state.initialized = false;
+
+        state.loadStatus = 'idle';
+        state.loadError = null;
+        state.loadRequestId = null;
+
+        state.mergeStatus = 'loading';
+        state.mergeError = null;
+        state.mergeRequestId = action.meta.requestId;
+      })
+
+      .addCase(mergeGuestCart.fulfilled, (state, action) => {
+        if (
+          state.mergeRequestId !== action.meta.requestId ||
+          state.ownerId !== action.payload.customerId
+        ) {
+          return;
+        }
+
+        /*
+         * Never calculate the merged Customer Cart locally.
+         * The backend response is the commerce authority.
+         */
+        state.cart = action.payload.cart;
+
+        state.initialized = true;
+
+        state.loadStatus = 'succeeded';
+        state.loadError = null;
+        state.loadRequestId = null;
+
+        state.mergeStatus = 'succeeded';
+        state.mergeError = null;
+        state.mergeRequestId = null;
+
+        /*
+         * Clear Guest persistence ONLY after the backend confirms success.
+         *
+         * The existing Redux store subscriber observes this change and removes
+         * multisports_guest_cart from localStorage.
+         */
+        state.guestItems = [];
+      })
+
+      .addCase(mergeGuestCart.rejected, (state, action) => {
+        if (state.mergeRequestId !== action.meta.requestId) {
+          return;
+        }
+
+        /*
+         * Do NOT clear guestItems here.
+         *
+         * A failed merge must preserve the Guest Cart in Redux/localStorage.
+         */
+        state.mergeStatus = 'failed';
+
+        state.mergeError = action.payload ?? {
+          message: 'Unable to merge your Guest Cart.',
+        };
+
+        state.mergeRequestId = null;
+
+        /*
+         * The next CartSessionSync pass will GET the Customer's actual
+         * persisted Cart.
+         */
+        state.initialized = false;
+
+        state.loadStatus = 'idle';
+        state.loadError = null;
         state.loadRequestId = null;
       })
 
