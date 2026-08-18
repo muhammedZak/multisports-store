@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { Link, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
+
+import { useDispatch, useSelector } from 'react-redux';
+
+import {
+  addCartItem,
+  clearCartActionError,
+} from '../../features/cart/cartSlice.js';
 
 import { fetchPublicProduct } from '../../api/productApi.js';
 
@@ -47,6 +54,20 @@ function formatOptionName(name) {
 }
 
 function ProductDetailsPage() {
+  const dispatch = useDispatch();
+
+  const location = useLocation();
+
+  const { initialized: authInitialized, user } = useSelector(
+    (state) => state.auth,
+  );
+
+  const {
+    initialized: cartInitialized,
+    actionStatus: cartActionStatus,
+    actionError: cartActionError,
+  } = useSelector((state) => state.cart);
+
   const { productId } = useParams();
 
   const [product, setProduct] = useState(null);
@@ -58,6 +79,12 @@ function ProductDetailsPage() {
   const [selectedImageId, setSelectedImageId] = useState(null);
 
   const [selectedVariantId, setSelectedVariantId] = useState('');
+
+  const [quantity, setQuantity] = useState('1');
+
+  const [purchaseError, setPurchaseError] = useState(null);
+
+  const [purchaseSuccess, setPurchaseSuccess] = useState(null);
 
   const loadProduct = useCallback(async () => {
     setLoading(true);
@@ -97,6 +124,103 @@ function ProductDetailsPage() {
   useEffect(() => {
     loadProduct();
   }, [loadProduct]);
+
+  useEffect(() => {
+    setQuantity('1');
+
+    setPurchaseError(null);
+    setPurchaseSuccess(null);
+
+    dispatch(clearCartActionError());
+  }, [dispatch, productId]);
+
+  function clearPurchaseFeedback() {
+    setPurchaseError(null);
+    setPurchaseSuccess(null);
+
+    if (cartActionError) {
+      dispatch(clearCartActionError());
+    }
+  }
+
+  function handleVariantSelection(variantId) {
+    setSelectedVariantId(variantId);
+
+    clearPurchaseFeedback();
+  }
+
+  function handleQuantityChange(event) {
+    setQuantity(event.target.value);
+
+    clearPurchaseFeedback();
+  }
+
+  async function handleAddToCart() {
+    clearPurchaseFeedback();
+
+    if (!product || user?.role !== 'customer') {
+      return;
+    }
+
+    const parsedQuantity = Number(quantity);
+
+    if (!Number.isSafeInteger(parsedQuantity) || parsedQuantity < 1) {
+      setPurchaseError('Quantity must be a positive whole number.');
+
+      return;
+    }
+
+    const variants = product.variants ?? [];
+
+    if (variants.length > 0 && !selectedVariantId) {
+      setPurchaseError(
+        'Choose an available option before adding this product.',
+      );
+
+      return;
+    }
+
+    const selectedVariant =
+      variants.find((variant) => variant.id === selectedVariantId) ?? null;
+
+    if (product.stockState === 'out_of_stock') {
+      setPurchaseError('This product is currently out of stock.');
+
+      return;
+    }
+
+    if (selectedVariant?.stockState === 'out_of_stock') {
+      setPurchaseError(
+        'The selected product option is currently out of stock.',
+      );
+
+      return;
+    }
+
+    const item = {
+      productId: product.id,
+
+      quantity: parsedQuantity,
+    };
+
+    /*
+     * Simple Products omit variantId entirely.
+     */
+    if (variants.length > 0) {
+      item.variantId = selectedVariantId;
+    }
+
+    const result = await dispatch(
+      addCartItem({
+        customerId: user.id,
+        item,
+      }),
+    );
+
+    if (addCartItem.fulfilled.match(result)) {
+      setPurchaseSuccess('Added to cart.');
+    }
+  }
 
   if (loading) {
     return (
@@ -360,8 +484,10 @@ function ProductDetailsPage() {
                       <button
                         key={variant.id}
                         type='button'
-                        disabled={isOutOfStock}
-                        onClick={() => setSelectedVariantId(variant.id)}
+                        disabled={
+                          isOutOfStock || cartActionStatus === 'loading'
+                        }
+                        onClick={() => handleVariantSelection(variant.id)}
                         aria-pressed={selected}
                         className={[
                           'border p-4 text-left transition',
@@ -392,6 +518,103 @@ function ProductDetailsPage() {
                   })}
                 </div>
               </>
+            )}
+          </div>
+
+          {/* Add to Cart */}
+          <div className='mt-8 border-t border-neutral-200 pt-7'>
+            <h2 className='text-base font-semibold'>Purchase</h2>
+
+            {!authInitialized ? (
+              <p className='mt-3 text-sm text-neutral-500'>
+                Checking your account...
+              </p>
+            ) : !user ? (
+              <div className='mt-4'>
+                <p className='text-sm leading-6 text-neutral-600'>
+                  Sign in to add this product to your Customer cart.
+                </p>
+
+                <Link
+                  to='/auth/login'
+                  state={{
+                    from: location.pathname + location.search,
+                  }}
+                  className='mt-4 inline-flex bg-black px-5 py-3 text-sm font-medium text-white'>
+                  Sign in to add to cart
+                </Link>
+              </div>
+            ) : user.role !== 'customer' ? (
+              <p className='mt-3 text-sm text-neutral-600'>
+                Add to Cart is available to Customer accounts.
+              </p>
+            ) : (
+              <>
+                <div className='mt-4 max-w-40'>
+                  <label
+                    htmlFor='product-quantity'
+                    className='mb-2 block text-sm font-medium'>
+                    Quantity
+                  </label>
+
+                  <input
+                    id='product-quantity'
+                    type='number'
+                    min='1'
+                    step='1'
+                    inputMode='numeric'
+                    value={quantity}
+                    disabled={
+                      cartActionStatus === 'loading' ||
+                      !cartInitialized ||
+                      product.stockState === 'out_of_stock'
+                    }
+                    onChange={handleQuantityChange}
+                    className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:cursor-not-allowed disabled:bg-neutral-100'
+                  />
+                </div>
+
+                <button
+                  type='button'
+                  onClick={handleAddToCart}
+                  disabled={
+                    cartActionStatus === 'loading' ||
+                    !cartInitialized ||
+                    product.stockState === 'out_of_stock' ||
+                    selectedVariant?.stockState === 'out_of_stock'
+                  }
+                  className='mt-5 inline-flex min-w-40 items-center justify-center bg-black px-6 py-3 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
+                  {!cartInitialized
+                    ? 'Loading cart...'
+                    : cartActionStatus === 'loading'
+                      ? 'Adding...'
+                      : product.stockState === 'out_of_stock'
+                        ? 'Out of stock'
+                        : 'Add to cart'}
+                </button>
+              </>
+            )}
+
+            {(purchaseError ||
+              cartActionError?.fields?.quantity ||
+              cartActionError?.fields?.variantId ||
+              cartActionError?.message) && (
+              <div
+                role='alert'
+                className='mt-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
+                {purchaseError ||
+                  cartActionError?.fields?.quantity ||
+                  cartActionError?.fields?.variantId ||
+                  cartActionError?.message}
+              </div>
+            )}
+
+            {purchaseSuccess && (
+              <div
+                role='status'
+                className='mt-4 border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'>
+                {purchaseSuccess}
+              </div>
             )}
           </div>
         </section>
