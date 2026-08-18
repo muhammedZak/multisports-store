@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useDispatch, useSelector } from 'react-redux';
 
@@ -51,7 +51,10 @@ function resolveGuestItem(item, product, requestError) {
       quantity: item.quantity,
       unitPrice: null,
       lineTotal: null,
-      availability: { stockState: null },
+      availability: {
+        stockState: null,
+        isAvailable: false,
+      },
       issues: [
         {
           message:
@@ -65,6 +68,14 @@ function resolveGuestItem(item, product, requestError) {
   const variants = product.variants ?? [];
   const issues = [];
   let variant = null;
+
+  if (requestError) {
+    issues.push({
+      message:
+        requestError.message ??
+        'Unable to confirm current information for this item.',
+    });
+  }
 
   if (variants.length > 0) {
     if (!item.variantId) {
@@ -118,7 +129,10 @@ function resolveGuestItem(item, product, requestError) {
     quantity: item.quantity,
     unitPrice,
     lineTotal,
-    availability: { stockState },
+    availability: {
+      stockState,
+      isAvailable: issues.length === 0,
+    },
     issues,
   };
 }
@@ -319,6 +333,11 @@ function CartPage() {
   const [guestLoadStatus, setGuestLoadStatus] = useState('idle');
   const [guestReloadKey, setGuestReloadKey] = useState(0);
 
+  const [guestPriceChanges, setGuestPriceChanges] = useState([]);
+
+  const guestProductsRef = useRef({});
+  const guestHasResolvedOnceRef = useRef(false);
+
   const isCustomer = user?.role === 'customer';
   const isGuest = !user;
   const hasAuthenticatedUser = Boolean(user);
@@ -342,15 +361,25 @@ function CartPage() {
 
     if (!guestProductIdsKey) {
       setGuestProducts({});
+      guestProductsRef.current = {};
+
       setGuestErrors({});
+      setGuestPriceChanges([]);
       setGuestLoadStatus('succeeded');
+
+      guestHasResolvedOnceRef.current = false;
+
       return undefined;
     }
 
     let cancelled = false;
 
+    const isRefresh = guestHasResolvedOnceRef.current;
+
     async function loadGuestProducts() {
-      setGuestLoadStatus('loading');
+      setGuestLoadStatus(isRefresh ? 'refreshing' : 'loading');
+
+      const previousProducts = guestProductsRef.current;
 
       const results = await Promise.all(
         guestProductIdsKey.split('|').map(async (productId) => {
@@ -359,43 +388,92 @@ function CartPage() {
               productId,
               product: await fetchPublicProduct(productId),
               error: null,
+              retainPrevious: false,
             };
           } catch (error) {
+            const normalizedError = normalizeApiError(
+              error,
+              'Unable to load current information for this cart item.',
+            );
+
+            const status = error.response?.status;
+
+            /*
+             * Keep the last successfully resolved Product only when the new
+             * request failed for a temporary/recoverable reason.
+             *
+             * An authoritative 4xx such as Product-not-found must replace the
+             * old Product with an unavailable line instead of pretending the
+             * old catalog data still exists.
+             */
+            const retainPrevious =
+              Boolean(previousProducts[productId]) &&
+              (status == null || status >= 500 || status === 429);
+
             return {
               productId,
               product: null,
-              error: normalizeApiError(
-                error,
-                'Unable to load current information for this cart item.',
-              ),
+              error: normalizedError,
+              retainPrevious,
             };
           }
         }),
       );
 
-      if (cancelled) return;
-
-      const nextProducts = {};
-      const nextErrors = {};
-
-      for (const result of results) {
-        if (result.product) nextProducts[result.productId] = result.product;
-        if (result.error) nextErrors[result.productId] = result.error;
-      }
-
-      setGuestProducts(nextProducts);
-      setGuestErrors(nextErrors);
-      setGuestLoadStatus(
-        Object.keys(nextErrors).length > 0 ? 'partial' : 'succeeded',
-      );
-    }
-
-    function handleCustomerCartRefresh() {
-      if (!isCustomer || !user?.id) {
+      if (cancelled) {
         return;
       }
 
-      dispatch(revalidateCustomerCart(user.id));
+      const nextProducts = {};
+      const nextErrors = {};
+      const nextPriceChanges = [];
+
+      for (const result of results) {
+        const previousProduct = previousProducts[result.productId];
+
+        if (result.product) {
+          nextProducts[result.productId] = result.product;
+
+          if (
+            isRefresh &&
+            previousProduct &&
+            Number.isSafeInteger(previousProduct.currentPrice) &&
+            Number.isSafeInteger(result.product.currentPrice) &&
+            previousProduct.currentPrice !== result.product.currentPrice
+          ) {
+            nextPriceChanges.push({
+              productId: result.productId,
+              productName:
+                result.product.name ?? previousProduct.name ?? 'Cart item',
+              previousPrice: previousProduct.currentPrice,
+              currentPrice: result.product.currentPrice,
+            });
+          }
+        } else if (result.retainPrevious && previousProduct) {
+          /*
+           * Temporary refresh failure:
+           * preserve the last display snapshot, but guestErrors below ensures
+           * the line is marked as not currently confirmed.
+           */
+          nextProducts[result.productId] = previousProduct;
+        }
+
+        if (result.error) {
+          nextErrors[result.productId] = result.error;
+        }
+      }
+
+      setGuestProducts(nextProducts);
+      guestProductsRef.current = nextProducts;
+
+      setGuestErrors(nextErrors);
+      setGuestPriceChanges(isRefresh ? nextPriceChanges : []);
+
+      setGuestLoadStatus(
+        Object.keys(nextErrors).length > 0 ? 'partial' : 'succeeded',
+      );
+
+      guestHasResolvedOnceRef.current = true;
     }
 
     loadGuestProducts();
@@ -409,6 +487,29 @@ function CartPage() {
     guestReloadKey,
     hasAuthenticatedUser,
   ]);
+
+  function handleCustomerCartRefresh() {
+    if (!isCustomer || !user?.id) {
+      return;
+    }
+
+    dispatch(revalidateCustomerCart(user.id));
+  }
+
+  function handleGuestCartRefresh() {
+    if (
+      !isGuest ||
+      guestItems.length === 0 ||
+      guestLoadStatus === 'refreshing'
+    ) {
+      return;
+    }
+
+    setGuestPriceChanges([]);
+    setGuestLoadStatus('refreshing');
+
+    setGuestReloadKey((value) => value + 1);
+  }
 
   const guestResolvedItems = useMemo(
     () =>
@@ -623,12 +724,25 @@ function CartPage() {
             </button>
           )}
 
+          {isGuest && items.length > 0 && (
+            <button
+              type='button'
+              disabled={guestLoadStatus === 'refreshing'}
+              onClick={handleGuestCartRefresh}
+              className='text-sm font-medium underline underline-offset-4 disabled:cursor-not-allowed disabled:text-neutral-400'>
+              {guestLoadStatus === 'refreshing'
+                ? 'Refreshing...'
+                : 'Refresh cart'}
+            </button>
+          )}
+
           {items.length > 0 && (
             <button
               type='button'
               disabled={
-                isCustomer &&
-                (actionStatus === 'loading' || isCustomerCartRevalidating)
+                (isCustomer &&
+                  (actionStatus === 'loading' || isCustomerCartRevalidating)) ||
+                (isGuest && guestLoadStatus === 'refreshing')
               }
               onClick={handleClearCart}
               className='text-sm font-medium text-red-700 underline underline-offset-4 disabled:cursor-not-allowed disabled:text-neutral-400'>
@@ -700,15 +814,45 @@ function CartPage() {
         </div>
       )}
 
+      {isGuest && guestLoadStatus === 'refreshing' && (
+        <div
+          aria-live='polite'
+          className='mt-6 border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600'>
+          Refreshing current cart prices and availability...
+        </div>
+      )}
+
       {isGuest && guestLoadStatus === 'partial' && (
         <div className='mt-6 flex flex-wrap items-center justify-between gap-3 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800'>
-          <p>Some cart items could not be refreshed.</p>
+          <p>
+            Some cart items could not be confirmed with current product
+            information. Previously loaded details may still be shown.
+          </p>
           <button
             type='button'
-            onClick={() => setGuestReloadKey((value) => value + 1)}
+            onClick={handleGuestCartRefresh}
             className='font-medium underline underline-offset-4'>
             Try again
           </button>
+        </div>
+      )}
+
+      {isGuest && guestPriceChanges.length > 0 && (
+        <div
+          aria-live='polite'
+          className='mt-6 border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800'>
+          <p className='font-medium'>
+            Pricing was updated while these items were in your cart.
+          </p>
+
+          <ul className='mt-2 space-y-1'>
+            {guestPriceChanges.map((change) => (
+              <li key={change.productId}>
+                {change.productName}: {formatInrFromPaise(change.previousPrice)}{' '}
+                → {formatInrFromPaise(change.currentPrice)}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -732,13 +876,13 @@ function CartPage() {
                 key={item.id}
                 item={item}
                 canEditQuantity={
-                  isGuest ||
-                  (actionStatus !== 'loading' && !isCustomerCartRevalidating)
+                  isGuest
+                    ? guestLoadStatus !== 'refreshing'
+                    : actionStatus !== 'loading' && !isCustomerCartRevalidating
                 }
                 quantityBlocked={
-                  isCustomer &&
-                  (item.availability?.isAvailable === false ||
-                    (item.issues?.length ?? 0) > 0)
+                  item.availability?.isAvailable === false ||
+                  (item.issues?.length ?? 0) > 0
                 }
                 canRemove={
                   isGuest ||
@@ -778,8 +922,8 @@ function CartPage() {
               </span>
             </div>
             <p className='mt-4 text-xs leading-5 text-neutral-500'>
-              Prices shown use the current product pricing available to this
-              cart view.
+              Prices shown use the latest product pricing successfully resolved
+              for this cart view. Refresh any item that needs attention.
             </p>
             <Link
               to='/shop'
