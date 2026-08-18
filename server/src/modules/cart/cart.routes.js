@@ -10,6 +10,7 @@ import { requireCsrf } from '../../middleware/csrf.middleware.js';
 import {
   getCartForCustomer,
   addCartItemForCustomer,
+  mergeGuestCartForCustomer,
   updateCartItemQuantityForCustomer,
   removeCartItemForCustomer,
   clearCartForCustomer,
@@ -22,6 +23,8 @@ router.use(requireAuth, requireCustomer);
 router.get('/', getCartForCustomer);
 
 router.post('/items', requireCsrf, addCartItemForCustomer);
+
+router.post('/merge', requireCsrf, mergeGuestCartForCustomer);
 
 router.patch(
   '/items/:cartItemId',

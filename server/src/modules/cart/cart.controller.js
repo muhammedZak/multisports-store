@@ -1,6 +1,7 @@
 import {
   validateAddCartItemInput,
   validateCartItemId,
+  validateMergeCartInput,
   validateUpdateCartItemInput,
 } from './cart.validation.js';
 
@@ -8,6 +9,7 @@ import {
   addItemToCustomerCart,
   clearCustomerCart,
   getResolvedCustomerCart,
+  mergeGuestCartIntoCustomerCart,
   removeItemFromCustomerCart,
   updateCustomerCartItemQuantity,
 } from './cart.service.js';
@@ -81,6 +83,23 @@ export async function removeCartItemForCustomer(req, res) {
 
 export async function clearCartForCustomer(req, res) {
   const cart = await clearCustomerCart(req.user.id);
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      cart,
+    },
+  });
+}
+
+export async function mergeGuestCartForCustomer(req, res) {
+  const input = validateMergeCartInput(req.body);
+
+  const cart = await mergeGuestCartIntoCustomerCart({
+    customerId: req.user.id,
+    items: input.items,
+  });
 
   res.status(200).json({
     success: true,
