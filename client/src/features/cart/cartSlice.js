@@ -16,6 +16,31 @@ import {
   sanitizeGuestCartItem,
 } from './guestCartStorage.js';
 
+const CUSTOMER_CART_REVALIDATION_ERROR_CODES = new Set([
+  'OUT_OF_STOCK',
+  'CART_ITEM_UNAVAILABLE',
+  'CART_ITEM_NOT_FOUND',
+  'PRODUCT_NOT_FOUND',
+  'VARIANT_NOT_FOUND',
+  'VARIANT_REQUIRED',
+  'INVENTORY_NOT_FOUND',
+  'INVENTORY_MODE_CONFLICT',
+]);
+
+function shouldRevalidateCustomerCart(error) {
+  if (!error) {
+    return false;
+  }
+
+  if (CUSTOMER_CART_REVALIDATION_ERROR_CODES.has(error.code)) {
+    return true;
+  }
+
+  // A Product changing from Variant → simple can surface as
+  // VALIDATION_ERROR on the persisted stale variant identity.
+  return error.code === 'VALIDATION_ERROR' && Boolean(error.fields?.variantId);
+}
+
 function createEmptyCart() {
   return {
     id: null,
@@ -48,6 +73,10 @@ function createAuthenticatedCartState() {
 
     loadRequestId: null,
     actionRequestId: null,
+
+    revalidationStatus: 'idle',
+    revalidationError: null,
+    revalidationRequestId: null,
 
     actionItemId: null,
     actionOperation: null,
@@ -102,6 +131,45 @@ export const loadCustomerCart = createAsyncThunk(
       }
 
       return true;
+    },
+  },
+);
+
+export const revalidateCustomerCart = createAsyncThunk(
+  'cart/revalidateCustomerCart',
+
+  async (customerId, { rejectWithValue }) => {
+    try {
+      const cart = await fetchCustomerCart();
+
+      return {
+        customerId,
+        cart,
+      };
+    } catch (error) {
+      return rejectWithValue(
+        normalizeApiError(
+          error,
+          'Unable to refresh current cart pricing and availability.',
+        ),
+      );
+    }
+  },
+
+  {
+    condition: (customerId, { getState }) => {
+      const state = getState();
+
+      return (
+        Boolean(customerId) &&
+        state.auth.user?.id === customerId &&
+        state.auth.user?.role === 'customer' &&
+        state.cart.ownerId === customerId &&
+        state.cart.initialized &&
+        state.cart.loadStatus !== 'loading' &&
+        state.cart.mergeStatus !== 'loading' &&
+        state.cart.revalidationStatus !== 'loading'
+      );
     },
   },
 );
@@ -177,7 +245,10 @@ export const addCartItem = createAsyncThunk(
 export const updateCartItemQuantity = createAsyncThunk(
   'cart/updateCartItemQuantity',
 
-  async ({ customerId, cartItemId, quantity }, { rejectWithValue }) => {
+  async (
+    { customerId, cartItemId, quantity },
+    { dispatch, rejectWithValue },
+  ) => {
     try {
       const cart = await updateCustomerCartItemQuantity(cartItemId, {
         quantity,
@@ -189,9 +260,16 @@ export const updateCartItemQuantity = createAsyncThunk(
         cart,
       };
     } catch (error) {
-      return rejectWithValue(
-        normalizeApiError(error, 'Unable to update this cart quantity.'),
+      const normalizedError = normalizeApiError(
+        error,
+        'Unable to update this cart quantity.',
       );
+
+      if (shouldRevalidateCustomerCart(normalizedError)) {
+        dispatch(revalidateCustomerCart(customerId));
+      }
+
+      return rejectWithValue(normalizedError);
     }
   },
 
@@ -215,7 +293,7 @@ export const updateCartItemQuantity = createAsyncThunk(
 export const removeCartItem = createAsyncThunk(
   'cart/removeCartItem',
 
-  async ({ customerId, cartItemId }, { rejectWithValue }) => {
+  async ({ customerId, cartItemId }, { dispatch, rejectWithValue }) => {
     try {
       const cart = await removeCustomerCartItem(cartItemId);
 
@@ -225,9 +303,16 @@ export const removeCartItem = createAsyncThunk(
         cart,
       };
     } catch (error) {
-      return rejectWithValue(
-        normalizeApiError(error, 'Unable to remove this item from your cart.'),
+      const normalizedError = normalizeApiError(
+        error,
+        'Unable to remove this item from your cart.',
       );
+
+      if (shouldRevalidateCustomerCart(normalizedError)) {
+        dispatch(revalidateCustomerCart(customerId));
+      }
+
+      return rejectWithValue(normalizedError);
     }
   },
 
@@ -415,6 +500,56 @@ const cartSlice = createSlice({
         state.loadError = action.payload;
 
         state.loadRequestId = null;
+      })
+
+      .addCase(revalidateCustomerCart.pending, (state, action) => {
+        state.revalidationStatus = 'loading';
+        state.revalidationError = null;
+        state.revalidationRequestId = action.meta.requestId;
+      })
+
+      .addCase(revalidateCustomerCart.fulfilled, (state, action) => {
+        if (
+          state.revalidationRequestId !== action.meta.requestId ||
+          state.ownerId !== action.payload.customerId
+        ) {
+          return;
+        }
+
+        /*
+         * GET /cart is the authority.
+         *
+         * Never patch price, availability, issues or totals locally.
+         */
+        state.cart = action.payload.cart;
+
+        state.initialized = true;
+
+        state.loadStatus = 'succeeded';
+        state.loadError = null;
+
+        state.revalidationStatus = 'succeeded';
+        state.revalidationError = null;
+        state.revalidationRequestId = null;
+      })
+
+      .addCase(revalidateCustomerCart.rejected, (state, action) => {
+        if (state.revalidationRequestId !== action.meta.requestId) {
+          return;
+        }
+
+        /*
+         * Keep the previously rendered Cart.
+         *
+         * A refresh failure must not destroy valid Customer Cart state.
+         */
+        state.revalidationStatus = 'failed';
+
+        state.revalidationError = action.payload ?? {
+          message: 'Unable to refresh current cart pricing and availability.',
+        };
+
+        state.revalidationRequestId = null;
       })
 
       .addCase(mergeGuestCart.pending, (state, action) => {

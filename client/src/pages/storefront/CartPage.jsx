@@ -8,6 +8,7 @@ import {
   clearCart,
   clearGuestCart,
   loadCustomerCart,
+  revalidateCustomerCart,
   removeCartItem,
   removeGuestCartItem,
   updateCartItemQuantity,
@@ -125,6 +126,7 @@ function resolveGuestItem(item, product, requestError) {
 function CartItemRow({
   item,
   canEditQuantity,
+  quantityBlocked,
   canRemove,
   isUpdatingQuantity,
   isRemoving,
@@ -138,10 +140,14 @@ function CartItemRow({
   const stockLabel = STOCK_LABELS[item.availability?.stockState];
 
   const canDecrease =
-    canEditQuantity && !isUpdatingQuantity && item.quantity > 1;
+    canEditQuantity &&
+    !quantityBlocked &&
+    !isUpdatingQuantity &&
+    item.quantity > 1;
 
   const canIncrease =
     canEditQuantity &&
+    !quantityBlocked &&
     !isUpdatingQuantity &&
     item.product?.name &&
     item.unitPrice !== null &&
@@ -237,6 +243,12 @@ function CartItemRow({
               {isUpdatingQuantity && (
                 <p className='mt-2 text-xs text-neutral-500'>Updating...</p>
               )}
+
+              {quantityBlocked && (
+                <p className='mt-2 text-xs text-neutral-500'>
+                  Refresh or remove this item before changing its quantity.
+                </p>
+              )}
             </div>
             <div>
               <p className='text-neutral-500'>Unit price</p>
@@ -298,6 +310,8 @@ function CartPage() {
     actionOperation,
     mergeStatus,
     mergeError,
+    revalidationStatus,
+    revalidationError,
   } = useSelector((state) => state.cart);
 
   const [guestProducts, setGuestProducts] = useState({});
@@ -308,6 +322,12 @@ function CartPage() {
   const isCustomer = user?.role === 'customer';
   const isGuest = !user;
   const hasAuthenticatedUser = Boolean(user);
+
+  const isCustomerCartRevalidating =
+    isCustomer && revalidationStatus === 'loading';
+
+  const customerCartHasIssues =
+    isCustomer && (customerCart.issues?.length ?? 0) > 0;
 
   const guestProductIdsKey = useMemo(
     () =>
@@ -368,6 +388,14 @@ function CartPage() {
       setGuestLoadStatus(
         Object.keys(nextErrors).length > 0 ? 'partial' : 'succeeded',
       );
+    }
+
+    function handleCustomerCartRefresh() {
+      if (!isCustomer || !user?.id) {
+        return;
+      }
+
+      dispatch(revalidateCustomerCart(user.id));
     }
 
     loadGuestProducts();
@@ -583,10 +611,25 @@ function CartPage() {
             {items.length} {items.length === 1 ? 'item' : 'items'}
           </p>
 
+          {isCustomer && items.length > 0 && (
+            <button
+              type='button'
+              disabled={
+                actionStatus === 'loading' || isCustomerCartRevalidating
+              }
+              onClick={handleCustomerCartRefresh}
+              className='text-sm font-medium underline underline-offset-4 disabled:cursor-not-allowed disabled:text-neutral-400'>
+              {isCustomerCartRevalidating ? 'Refreshing...' : 'Refresh cart'}
+            </button>
+          )}
+
           {items.length > 0 && (
             <button
               type='button'
-              disabled={isCustomer && actionStatus === 'loading'}
+              disabled={
+                isCustomer &&
+                (actionStatus === 'loading' || isCustomerCartRevalidating)
+              }
               onClick={handleClearCart}
               className='text-sm font-medium text-red-700 underline underline-offset-4 disabled:cursor-not-allowed disabled:text-neutral-400'>
               {isClearingCart ? 'Clearing...' : 'Clear Cart'}
@@ -608,6 +651,43 @@ function CartPage() {
           <p className='mt-1'>
             Your Guest Cart is still saved. Your Customer Cart below was loaded
             separately so no Guest items were silently discarded.
+          </p>
+        </div>
+      )}
+
+      {isCustomer && revalidationStatus === 'loading' && (
+        <div
+          aria-live='polite'
+          className='mt-6 border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600'>
+          Refreshing current cart prices and availability...
+        </div>
+      )}
+
+      {isCustomer && revalidationStatus === 'failed' && (
+        <div
+          role='alert'
+          className='mt-6 flex flex-wrap items-center justify-between gap-3 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
+          <p>
+            {revalidationError?.message ??
+              'Unable to refresh current cart pricing and availability.'}
+          </p>
+
+          <button
+            type='button'
+            onClick={handleCustomerCartRefresh}
+            className='font-medium underline underline-offset-4'>
+            Try again
+          </button>
+        </div>
+      )}
+
+      {customerCartHasIssues && (
+        <div className='mt-6 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800'>
+          <p className='font-medium'>Some cart items need your attention.</p>
+
+          <p className='mt-1'>
+            Review the highlighted items below. Unavailable items can still be
+            removed from your cart.
           </p>
         </div>
       )}
@@ -651,8 +731,19 @@ function CartPage() {
               <CartItemRow
                 key={item.id}
                 item={item}
-                canEditQuantity={isGuest || actionStatus !== 'loading'}
-                canRemove={isGuest || actionStatus !== 'loading'}
+                canEditQuantity={
+                  isGuest ||
+                  (actionStatus !== 'loading' && !isCustomerCartRevalidating)
+                }
+                quantityBlocked={
+                  isCustomer &&
+                  (item.availability?.isAvailable === false ||
+                    (item.issues?.length ?? 0) > 0)
+                }
+                canRemove={
+                  isGuest ||
+                  (actionStatus !== 'loading' && !isCustomerCartRevalidating)
+                }
                 isUpdatingQuantity={
                   isCustomer &&
                   actionStatus === 'loading' &&
