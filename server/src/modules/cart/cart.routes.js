@@ -12,6 +12,7 @@ import {
   addCartItemForCustomer,
   updateCartItemQuantityForCustomer,
   removeCartItemForCustomer,
+  clearCartForCustomer,
 } from './cart.controller.js';
 
 const router = Router();
@@ -27,7 +28,7 @@ router.patch(
   requireCsrf,
   updateCartItemQuantityForCustomer,
 );
-
+router.delete('/items', requireCsrf, clearCartForCustomer);
 router.delete('/items/:cartItemId', requireCsrf, removeCartItemForCustomer);
 
 export default router;

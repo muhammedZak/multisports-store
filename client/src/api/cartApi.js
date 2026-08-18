@@ -23,3 +23,9 @@ export async function removeCustomerCartItem(cartItemId) {
 
   return response.data.data.cart;
 }
+
+export async function clearCustomerCart() {
+  const response = await apiClient.delete('/cart/items');
+
+  return response.data.data.cart;
+}

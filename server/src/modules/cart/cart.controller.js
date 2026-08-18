@@ -6,6 +6,7 @@ import {
 
 import {
   addItemToCustomerCart,
+  clearCustomerCart,
   getResolvedCustomerCart,
   removeItemFromCustomerCart,
   updateCustomerCartItemQuantity,
@@ -68,6 +69,18 @@ export async function removeCartItemForCustomer(req, res) {
     customerId: req.user.id,
     cartItemId,
   });
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      cart,
+    },
+  });
+}
+
+export async function clearCartForCustomer(req, res) {
+  const cart = await clearCustomerCart(req.user.id);
 
   res.status(200).json({
     success: true,

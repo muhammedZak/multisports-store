@@ -2,6 +2,7 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
 import {
   addCustomerCartItem,
+  clearCustomerCart,
   fetchCustomerCart,
   removeCustomerCartItem,
   updateCustomerCartItemQuantity,
@@ -204,6 +205,38 @@ export const removeCartItem = createAsyncThunk(
   },
 );
 
+export const clearCart = createAsyncThunk(
+  'cart/clearCart',
+
+  async (customerId, { rejectWithValue }) => {
+    try {
+      const cart = await clearCustomerCart();
+
+      return {
+        customerId,
+        cart,
+      };
+    } catch (error) {
+      return rejectWithValue(
+        normalizeApiError(error, 'Unable to clear your cart.'),
+      );
+    }
+  },
+
+  {
+    condition: (customerId, { getState }) => {
+      const state = getState();
+
+      return (
+        Boolean(customerId) &&
+        state.auth.user?.id === customerId &&
+        state.auth.user?.role === 'customer' &&
+        state.cart.actionStatus !== 'loading'
+      );
+    },
+  },
+);
+
 const cartSlice = createSlice({
   name: 'cart',
 
@@ -275,6 +308,10 @@ const cartSlice = createSlice({
             (item.variantId ?? null) === (identity.variantId ?? null)
           ),
       );
+    },
+
+    clearGuestCart(state) {
+      state.guestItems = [];
     },
 
     clearAuthenticatedCart(state) {
@@ -481,7 +518,55 @@ const cartSlice = createSlice({
         state.actionRequestId = null;
         state.actionItemId = action.meta.arg.cartItemId;
         state.actionOperation = 'remove';
-      });;
+      })
+
+      .addCase(clearCart.pending, (state, action) => {
+        state.ownerId = action.meta.arg;
+
+        state.actionStatus = 'loading';
+        state.actionError = null;
+
+        state.actionRequestId = action.meta.requestId;
+        state.actionItemId = null;
+        state.actionOperation = 'clear';
+      })
+
+      .addCase(clearCart.fulfilled, (state, action) => {
+        if (
+          state.actionRequestId !== action.meta.requestId ||
+          state.ownerId !== action.payload.customerId
+        ) {
+          return;
+        }
+
+        /*
+         * Customer Cart remains backend-authoritative.
+         * Replace it with the resolved empty Cart returned by the server.
+         */
+        state.cart = action.payload.cart;
+
+        state.initialized = true;
+
+        state.actionStatus = 'idle';
+        state.actionError = null;
+
+        state.actionRequestId = null;
+        state.actionItemId = null;
+        state.actionOperation = null;
+      })
+
+      .addCase(clearCart.rejected, (state, action) => {
+        if (state.actionRequestId !== action.meta.requestId) {
+          return;
+        }
+
+        state.actionStatus = 'idle';
+        state.actionError = action.payload;
+
+        state.actionRequestId = null;
+        state.actionItemId = null;
+        state.actionOperation = 'clear';
+      });
   },
 });
 
@@ -489,6 +574,7 @@ export const {
   addGuestCartItem,
   updateGuestCartItemQuantity,
   removeGuestCartItem,
+  clearGuestCart,
   clearAuthenticatedCart,
   clearCartActionError,
 } = cartSlice.actions;

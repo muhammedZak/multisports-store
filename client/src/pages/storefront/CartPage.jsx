@@ -5,6 +5,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import { normalizeApiError } from '../../api/errors.js';
 import { fetchPublicProduct } from '../../api/productApi.js';
 import {
+  clearCart,
+  clearGuestCart,
   loadCustomerCart,
   removeCartItem,
   removeGuestCartItem,
@@ -284,17 +286,17 @@ function CartPage() {
   const { initialized: authInitialized, user } = useSelector(
     (state) => state.auth,
   );
-const {
-  cart: customerCart,
-  guestItems,
-  initialized: customerCartInitialized,
-  loadStatus,
-  loadError,
-  actionStatus,
-  actionError,
-  actionItemId,
-  actionOperation,
-} = useSelector((state) => state.cart);
+  const {
+    cart: customerCart,
+    guestItems,
+    initialized: customerCartInitialized,
+    loadStatus,
+    loadError,
+    actionStatus,
+    actionError,
+    actionItemId,
+    actionOperation,
+  } = useSelector((state) => state.cart);
 
   const [guestProducts, setGuestProducts] = useState({});
   const [guestErrors, setGuestErrors] = useState({});
@@ -457,6 +459,17 @@ const {
     }
   }
 
+  function handleClearCart() {
+    if (isCustomer) {
+      dispatch(clearCart(user.id));
+      return;
+    }
+
+    if (isGuest) {
+      dispatch(clearGuestCart());
+    }
+  }
+
   if (!authInitialized) {
     return (
       <main className='mx-auto max-w-7xl px-5 py-10 lg:px-8'>
@@ -525,16 +538,44 @@ const {
     ? (customerCart.pricing?.subtotal ?? 0)
     : guestSubtotal;
 
+  const isClearingCart =
+    isCustomer && actionStatus === 'loading' && actionOperation === 'clear';
+
+  const clearCartError =
+    isCustomer && actionStatus !== 'loading' && actionOperation === 'clear'
+      ? actionError
+      : null;
+
   return (
     <main className='mx-auto max-w-7xl px-5 py-10 lg:px-8'>
       <div className='flex items-end justify-between gap-4'>
         <h1 className='text-3xl font-semibold tracking-tight sm:text-4xl'>
           Shopping Cart
         </h1>
-        <p className='text-sm text-neutral-500'>
-          {items.length} {items.length === 1 ? 'item' : 'items'}
-        </p>
+        <div className='flex items-center gap-4'>
+          <p className='text-sm text-neutral-500'>
+            {items.length} {items.length === 1 ? 'item' : 'items'}
+          </p>
+
+          {items.length > 0 && (
+            <button
+              type='button'
+              disabled={isCustomer && actionStatus === 'loading'}
+              onClick={handleClearCart}
+              className='text-sm font-medium text-red-700 underline underline-offset-4 disabled:cursor-not-allowed disabled:text-neutral-400'>
+              {isClearingCart ? 'Clearing...' : 'Clear Cart'}
+            </button>
+          )}
+        </div>
       </div>
+
+      {clearCartError && (
+        <div
+          role='alert'
+          className='mt-6 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
+          {clearCartError.message ?? 'Unable to clear your cart.'}
+        </div>
+      )}
 
       {isGuest && guestLoadStatus === 'partial' && (
         <div className='mt-6 flex flex-wrap items-center justify-between gap-3 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800'>

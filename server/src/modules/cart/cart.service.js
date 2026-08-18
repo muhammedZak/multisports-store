@@ -907,6 +907,38 @@ export async function removeItemFromCustomerCart({ customerId, cartItemId }) {
   return resolveCustomerCart(updatedCart);
 }
 
+export async function clearCustomerCart(customerId) {
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw new TypeError('A valid Customer ID is required.');
+  }
+
+  /*
+   * Clear Cart preserves the Customer's persistent Cart document.
+   *
+   * Coupon persistence is also cleared because a Coupon cannot remain
+   * attached to an empty Cart.
+   *
+   * If no Cart exists yet, return the same logical empty Cart used by GET.
+   */
+  const updatedCart = await Cart.findOneAndUpdate(
+    {
+      customerId,
+    },
+    {
+      $set: {
+        items: [],
+        appliedCouponId: null,
+      },
+    },
+    {
+      returnDocument: 'after',
+      runValidators: true,
+    },
+  );
+
+  return resolveCustomerCart(updatedCart);
+}
+
 export async function getResolvedCustomerCart(customerId) {
   if (!mongoose.isValidObjectId(customerId)) {
     throw new TypeError('A valid Customer ID is required.');
