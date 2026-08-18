@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { Link, useLocation, useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 
 import { useDispatch, useSelector } from 'react-redux';
 
 import {
   addCartItem,
+  addGuestCartItem,
   clearCartActionError,
 } from '../../features/cart/cartSlice.js';
 
@@ -55,8 +56,6 @@ function formatOptionName(name) {
 
 function ProductDetailsPage() {
   const dispatch = useDispatch();
-
-  const location = useLocation();
 
   const { initialized: authInitialized, user } = useSelector(
     (state) => state.auth,
@@ -158,7 +157,15 @@ function ProductDetailsPage() {
   async function handleAddToCart() {
     clearPurchaseFeedback();
 
-    if (!product || user?.role !== 'customer') {
+    if (!product || !authInitialized) {
+      return;
+    }
+
+    /*
+     * Admin and other non-Customer authenticated roles cannot purchase.
+     * Guests are allowed to continue into the local Guest Cart flow.
+     */
+    if (user && user.role !== 'customer') {
       return;
     }
 
@@ -199,7 +206,6 @@ function ProductDetailsPage() {
 
     const item = {
       productId: product.id,
-
       quantity: parsedQuantity,
     };
 
@@ -210,6 +216,21 @@ function ProductDetailsPage() {
       item.variantId = selectedVariantId;
     }
 
+    /*
+     * Guest Cart is frontend-only.
+     * Task 6.3.1 handles Redux + localStorage persistence.
+     */
+    if (!user) {
+      dispatch(addGuestCartItem(item));
+
+      setPurchaseSuccess('Added to cart.');
+
+      return;
+    }
+
+    /*
+     * Authenticated Customer Cart remains backend-authoritative.
+     */
     const result = await dispatch(
       addCartItem({
         customerId: user.id,
@@ -325,6 +346,17 @@ function ProductDetailsPage() {
 
   const productStockPresentation =
     STOCK_STATE_PRESENTATION[product.stockState] ?? null;
+
+  const isCustomer = user?.role === 'customer';
+
+  const isCustomerCartBusy =
+    isCustomer && (cartActionStatus === 'loading' || !cartInitialized);
+
+  const customerCartErrorMessage = isCustomer
+    ? cartActionError?.fields?.quantity ||
+      cartActionError?.fields?.variantId ||
+      cartActionError?.message
+    : null;
 
   return (
     <main className='mx-auto max-w-7xl px-5 py-10 lg:px-8'>
@@ -485,7 +517,8 @@ function ProductDetailsPage() {
                         key={variant.id}
                         type='button'
                         disabled={
-                          isOutOfStock || cartActionStatus === 'loading'
+                          isOutOfStock ||
+                          (isCustomer && cartActionStatus === 'loading')
                         }
                         onClick={() => handleVariantSelection(variant.id)}
                         aria-pressed={selected}
@@ -529,24 +562,10 @@ function ProductDetailsPage() {
               <p className='mt-3 text-sm text-neutral-500'>
                 Checking your account...
               </p>
-            ) : !user ? (
-              <div className='mt-4'>
-                <p className='text-sm leading-6 text-neutral-600'>
-                  Sign in to add this product to your Customer cart.
-                </p>
-
-                <Link
-                  to='/auth/login'
-                  state={{
-                    from: location.pathname + location.search,
-                  }}
-                  className='mt-4 inline-flex bg-black px-5 py-3 text-sm font-medium text-white'>
-                  Sign in to add to cart
-                </Link>
-              </div>
-            ) : user.role !== 'customer' ? (
+            ) : user && user.role !== 'customer' ? (
               <p className='mt-3 text-sm text-neutral-600'>
-                Add to Cart is available to Customer accounts.
+                Add to Cart is available to Customer shopping accounts and
+                Guests.
               </p>
             ) : (
               <>
@@ -565,8 +584,7 @@ function ProductDetailsPage() {
                     inputMode='numeric'
                     value={quantity}
                     disabled={
-                      cartActionStatus === 'loading' ||
-                      !cartInitialized ||
+                      isCustomerCartBusy ||
                       product.stockState === 'out_of_stock'
                     }
                     onChange={handleQuantityChange}
@@ -578,15 +596,14 @@ function ProductDetailsPage() {
                   type='button'
                   onClick={handleAddToCart}
                   disabled={
-                    cartActionStatus === 'loading' ||
-                    !cartInitialized ||
+                    isCustomerCartBusy ||
                     product.stockState === 'out_of_stock' ||
                     selectedVariant?.stockState === 'out_of_stock'
                   }
                   className='mt-5 inline-flex min-w-40 items-center justify-center bg-black px-6 py-3 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
-                  {!cartInitialized
+                  {isCustomer && !cartInitialized
                     ? 'Loading cart...'
-                    : cartActionStatus === 'loading'
+                    : isCustomer && cartActionStatus === 'loading'
                       ? 'Adding...'
                       : product.stockState === 'out_of_stock'
                         ? 'Out of stock'
@@ -595,17 +612,11 @@ function ProductDetailsPage() {
               </>
             )}
 
-            {(purchaseError ||
-              cartActionError?.fields?.quantity ||
-              cartActionError?.fields?.variantId ||
-              cartActionError?.message) && (
+            {(purchaseError || customerCartErrorMessage) && (
               <div
                 role='alert'
                 className='mt-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-                {purchaseError ||
-                  cartActionError?.fields?.quantity ||
-                  cartActionError?.fields?.variantId ||
-                  cartActionError?.message}
+                {purchaseError || customerCartErrorMessage}
               </div>
             )}
 
