@@ -3,6 +3,7 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import {
   addCustomerCartItem,
   fetchCustomerCart,
+  removeCustomerCartItem,
   updateCustomerCartItemQuantity,
 } from '../../api/cartApi.js';
 
@@ -47,6 +48,7 @@ function createAuthenticatedCartState() {
     actionRequestId: null,
 
     actionItemId: null,
+    actionOperation: null,
   };
 }
 
@@ -168,6 +170,40 @@ export const updateCartItemQuantity = createAsyncThunk(
   },
 );
 
+export const removeCartItem = createAsyncThunk(
+  'cart/removeCartItem',
+
+  async ({ customerId, cartItemId }, { rejectWithValue }) => {
+    try {
+      const cart = await removeCustomerCartItem(cartItemId);
+
+      return {
+        customerId,
+        cartItemId,
+        cart,
+      };
+    } catch (error) {
+      return rejectWithValue(
+        normalizeApiError(error, 'Unable to remove this item from your cart.'),
+      );
+    }
+  },
+
+  {
+    condition: ({ customerId, cartItemId }, { getState }) => {
+      const state = getState();
+
+      return (
+        Boolean(customerId) &&
+        Boolean(cartItemId) &&
+        state.auth.user?.id === customerId &&
+        state.auth.user?.role === 'customer' &&
+        state.cart.actionStatus !== 'loading'
+      );
+    },
+  },
+);
+
 const cartSlice = createSlice({
   name: 'cart',
 
@@ -222,6 +258,25 @@ const cartSlice = createSlice({
       existingItem.quantity = incomingItem.quantity;
     },
 
+    removeGuestCartItem(state, action) {
+      const identity = sanitizeGuestCartItem({
+        ...action.payload,
+        quantity: 1,
+      });
+
+      if (!identity) {
+        return;
+      }
+
+      state.guestItems = state.guestItems.filter(
+        (item) =>
+          !(
+            item.productId === identity.productId &&
+            (item.variantId ?? null) === (identity.variantId ?? null)
+          ),
+      );
+    },
+
     clearAuthenticatedCart(state) {
       /*
        * Reset only the backend-authoritative Customer Cart.
@@ -238,6 +293,7 @@ const cartSlice = createSlice({
     clearCartActionError(state) {
       state.actionError = null;
       state.actionItemId = null;
+      state.actionOperation = null;
     },
   },
 
@@ -289,7 +345,7 @@ const cartSlice = createSlice({
         state.actionStatus = 'loading';
         state.actionError = null;
         state.actionItemId = null;
-
+        state.actionOperation = null;
         state.actionRequestId = action.meta.requestId;
       })
 
@@ -312,7 +368,7 @@ const cartSlice = createSlice({
         state.actionStatus = 'idle';
         state.actionError = null;
         state.actionItemId = null;
-
+        state.actionOperation = null;
         state.actionRequestId = null;
       })
 
@@ -325,7 +381,7 @@ const cartSlice = createSlice({
         state.actionError = action.payload;
 
         state.actionItemId = null;
-
+        state.actionOperation = null;
         state.actionRequestId = null;
       })
 
@@ -337,6 +393,7 @@ const cartSlice = createSlice({
 
         state.actionRequestId = action.meta.requestId;
         state.actionItemId = action.meta.arg.cartItemId;
+        state.actionOperation = 'quantity';
       })
 
       .addCase(updateCartItemQuantity.fulfilled, (state, action) => {
@@ -360,6 +417,8 @@ const cartSlice = createSlice({
 
         state.actionRequestId = null;
         state.actionItemId = null;
+
+        state.actionOperation = null;
       })
 
       .addCase(updateCartItemQuantity.rejected, (state, action) => {
@@ -372,13 +431,64 @@ const cartSlice = createSlice({
 
         state.actionRequestId = null;
         state.actionItemId = action.meta.arg.cartItemId;
-      });
+
+        state.actionOperation = 'quantity';
+      })
+
+      .addCase(removeCartItem.pending, (state, action) => {
+        state.ownerId = action.meta.arg.customerId;
+
+        state.actionStatus = 'loading';
+        state.actionError = null;
+
+        state.actionRequestId = action.meta.requestId;
+        state.actionItemId = action.meta.arg.cartItemId;
+        state.actionOperation = 'remove';
+      })
+
+      .addCase(removeCartItem.fulfilled, (state, action) => {
+        if (
+          state.actionRequestId !== action.meta.requestId ||
+          state.ownerId !== action.payload.customerId
+        ) {
+          return;
+        }
+
+        /*
+         * Customer Cart stays backend-authoritative.
+         * The removed line and recalculated subtotal come from the response.
+         */
+        state.cart = action.payload.cart;
+
+        state.initialized = true;
+
+        state.actionStatus = 'idle';
+        state.actionError = null;
+
+        state.actionRequestId = null;
+        state.actionItemId = null;
+        state.actionOperation = null;
+      })
+
+      .addCase(removeCartItem.rejected, (state, action) => {
+        if (state.actionRequestId !== action.meta.requestId) {
+          return;
+        }
+
+        state.actionStatus = 'idle';
+        state.actionError = action.payload;
+
+        state.actionRequestId = null;
+        state.actionItemId = action.meta.arg.cartItemId;
+        state.actionOperation = 'remove';
+      });;
   },
 });
 
 export const {
   addGuestCartItem,
   updateGuestCartItemQuantity,
+  removeGuestCartItem,
   clearAuthenticatedCart,
   clearCartActionError,
 } = cartSlice.actions;

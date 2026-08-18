@@ -6,6 +6,8 @@ import { normalizeApiError } from '../../api/errors.js';
 import { fetchPublicProduct } from '../../api/productApi.js';
 import {
   loadCustomerCart,
+  removeCartItem,
+  removeGuestCartItem,
   updateCartItemQuantity,
   updateGuestCartItemQuantity,
 } from '../../features/cart/cartSlice.js';
@@ -121,9 +123,12 @@ function resolveGuestItem(item, product, requestError) {
 function CartItemRow({
   item,
   canEditQuantity,
+  canRemove,
   isUpdatingQuantity,
-  quantityError,
+  isRemoving,
+  itemActionError,
   onQuantityChange,
+  onRemove,
 }) {
   const productName = item.product?.name ?? 'Unavailable product';
   const image = item.product?.primaryImage ?? null;
@@ -244,12 +249,20 @@ function CartItemRow({
               </p>
             </div>
           </div>
-
-          {quantityError && (
+          <div className='mt-4'>
+            <button
+              type='button'
+              disabled={!canRemove || isRemoving}
+              onClick={() => onRemove(item)}
+              className='text-sm font-medium text-red-700 underline underline-offset-4 disabled:cursor-not-allowed disabled:text-neutral-400'>
+              {isRemoving ? 'Removing...' : 'Remove'}
+            </button>
+          </div>
+          {itemActionError && (
             <p
               role='alert'
               className='mt-3 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700'>
-              {quantityError.message ?? 'Unable to update this cart quantity.'}
+              {itemActionError.message ?? 'Unable to update this cart item.'}
             </p>
           )}
 
@@ -280,6 +293,7 @@ const {
   actionStatus,
   actionError,
   actionItemId,
+  actionOperation,
 } = useSelector((state) => state.cart);
 
   const [guestProducts, setGuestProducts] = useState({});
@@ -417,6 +431,32 @@ const {
     }
   }
 
+  function handleRemoveItem(item) {
+    if (isCustomer) {
+      dispatch(
+        removeCartItem({
+          customerId: user.id,
+          cartItemId: item.id,
+        }),
+      );
+
+      return;
+    }
+
+    if (isGuest) {
+      dispatch(
+        removeGuestCartItem({
+          productId: item.product.id,
+          ...(item.variant?.id
+            ? {
+                variantId: item.variant.id,
+              }
+            : {}),
+        }),
+      );
+    }
+  }
+
   if (!authInitialized) {
     return (
       <main className='mx-auto max-w-7xl px-5 py-10 lg:px-8'>
@@ -528,12 +568,20 @@ const {
                 key={item.id}
                 item={item}
                 canEditQuantity={isGuest || actionStatus !== 'loading'}
+                canRemove={isGuest || actionStatus !== 'loading'}
                 isUpdatingQuantity={
                   isCustomer &&
                   actionStatus === 'loading' &&
-                  actionItemId === item.id
+                  actionItemId === item.id &&
+                  actionOperation === 'quantity'
                 }
-                quantityError={
+                isRemoving={
+                  isCustomer &&
+                  actionStatus === 'loading' &&
+                  actionItemId === item.id &&
+                  actionOperation === 'remove'
+                }
+                itemActionError={
                   isCustomer &&
                   actionStatus !== 'loading' &&
                   actionItemId === item.id
@@ -541,6 +589,7 @@ const {
                     : null
                 }
                 onQuantityChange={handleQuantityChange}
+                onRemove={handleRemoveItem}
               />
             ))}
           </section>

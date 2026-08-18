@@ -864,6 +864,49 @@ export async function updateCustomerCartItemQuantity({
   throwCartUpdateConflict();
 }
 
+export async function removeItemFromCustomerCart({ customerId, cartItemId }) {
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw new TypeError('A valid Customer ID is required.');
+  }
+
+  if (!mongoose.isValidObjectId(cartItemId)) {
+    throw new TypeError('A valid Cart Item ID is required.');
+  }
+
+  /*
+   * Removal intentionally does not re-resolve Product, Variant or Inventory.
+   *
+   * A stale, inactive, deleted or out-of-stock Cart Item must still be
+   * removable by its owning Customer.
+   *
+   * The query is ownership-safe because it requires both the authenticated
+   * Customer and the embedded Cart Item ID to match.
+   */
+  const updatedCart = await Cart.findOneAndUpdate(
+    {
+      customerId,
+      'items._id': cartItemId,
+    },
+    {
+      $pull: {
+        items: {
+          _id: cartItemId,
+        },
+      },
+    },
+    {
+      returnDocument: 'after',
+      runValidators: true,
+    },
+  );
+
+  if (!updatedCart) {
+    throwCartItemNotFound();
+  }
+
+  return resolveCustomerCart(updatedCart);
+}
+
 export async function getResolvedCustomerCart(customerId) {
   if (!mongoose.isValidObjectId(customerId)) {
     throw new TypeError('A valid Customer ID is required.');

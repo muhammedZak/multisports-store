@@ -7,6 +7,7 @@ import {
 import {
   addItemToCustomerCart,
   getResolvedCustomerCart,
+  removeItemFromCustomerCart,
   updateCustomerCartItemQuantity,
 } from './cart.service.js';
 
@@ -49,6 +50,23 @@ export async function addCartItemForCustomer(req, res) {
     customerId: req.user.id,
 
     ...input,
+  });
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      cart,
+    },
+  });
+}
+
+export async function removeCartItemForCustomer(req, res) {
+  const cartItemId = validateCartItemId(req.params.cartItemId);
+
+  const cart = await removeItemFromCustomerCart({
+    customerId: req.user.id,
+    cartItemId,
   });
 
   res.status(200).json({

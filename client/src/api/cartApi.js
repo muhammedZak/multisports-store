@@ -17,3 +17,9 @@ export async function updateCustomerCartItemQuantity(cartItemId, payload) {
 
   return response.data.data.cart;
 }
+
+export async function removeCustomerCartItem(cartItemId) {
+  const response = await apiClient.delete(`/cart/items/${cartItemId}`);
+
+  return response.data.data.cart;
+}
