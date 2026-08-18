@@ -1,6 +1,10 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
-import { addCustomerCartItem, fetchCustomerCart } from '../../api/cartApi.js';
+import {
+  addCustomerCartItem,
+  fetchCustomerCart,
+  updateCustomerCartItemQuantity,
+} from '../../api/cartApi.js';
 
 import { normalizeApiError } from '../../api/errors.js';
 
@@ -41,6 +45,8 @@ function createAuthenticatedCartState() {
 
     loadRequestId: null,
     actionRequestId: null,
+
+    actionItemId: null,
   };
 }
 
@@ -124,6 +130,44 @@ export const addCartItem = createAsyncThunk(
   },
 );
 
+export const updateCartItemQuantity = createAsyncThunk(
+  'cart/updateCartItemQuantity',
+
+  async ({ customerId, cartItemId, quantity }, { rejectWithValue }) => {
+    try {
+      const cart = await updateCustomerCartItemQuantity(cartItemId, {
+        quantity,
+      });
+
+      return {
+        customerId,
+        cartItemId,
+        cart,
+      };
+    } catch (error) {
+      return rejectWithValue(
+        normalizeApiError(error, 'Unable to update this cart quantity.'),
+      );
+    }
+  },
+
+  {
+    condition: ({ customerId, cartItemId, quantity }, { getState }) => {
+      const state = getState();
+
+      return (
+        Boolean(customerId) &&
+        Boolean(cartItemId) &&
+        Number.isSafeInteger(quantity) &&
+        quantity > 0 &&
+        state.auth.user?.id === customerId &&
+        state.auth.user?.role === 'customer' &&
+        state.cart.actionStatus !== 'loading'
+      );
+    },
+  },
+);
+
 const cartSlice = createSlice({
   name: 'cart',
 
@@ -158,6 +202,26 @@ const cartSlice = createSlice({
       state.guestItems.push(incomingItem);
     },
 
+    updateGuestCartItemQuantity(state, action) {
+      const incomingItem = sanitizeGuestCartItem(action.payload);
+
+      if (!incomingItem) {
+        return;
+      }
+
+      const existingItem = state.guestItems.find(
+        (item) =>
+          item.productId === incomingItem.productId &&
+          (item.variantId ?? null) === (incomingItem.variantId ?? null),
+      );
+
+      if (!existingItem) {
+        return;
+      }
+
+      existingItem.quantity = incomingItem.quantity;
+    },
+
     clearAuthenticatedCart(state) {
       /*
        * Reset only the backend-authoritative Customer Cart.
@@ -173,6 +237,7 @@ const cartSlice = createSlice({
 
     clearCartActionError(state) {
       state.actionError = null;
+      state.actionItemId = null;
     },
   },
 
@@ -223,6 +288,7 @@ const cartSlice = createSlice({
 
         state.actionStatus = 'loading';
         state.actionError = null;
+        state.actionItemId = null;
 
         state.actionRequestId = action.meta.requestId;
       })
@@ -245,6 +311,7 @@ const cartSlice = createSlice({
 
         state.actionStatus = 'idle';
         state.actionError = null;
+        state.actionItemId = null;
 
         state.actionRequestId = null;
       })
@@ -257,13 +324,61 @@ const cartSlice = createSlice({
         state.actionStatus = 'idle';
         state.actionError = action.payload;
 
+        state.actionItemId = null;
+
         state.actionRequestId = null;
+      })
+
+      .addCase(updateCartItemQuantity.pending, (state, action) => {
+        state.ownerId = action.meta.arg.customerId;
+
+        state.actionStatus = 'loading';
+        state.actionError = null;
+
+        state.actionRequestId = action.meta.requestId;
+        state.actionItemId = action.meta.arg.cartItemId;
+      })
+
+      .addCase(updateCartItemQuantity.fulfilled, (state, action) => {
+        if (
+          state.actionRequestId !== action.meta.requestId ||
+          state.ownerId !== action.payload.customerId
+        ) {
+          return;
+        }
+
+        /*
+         * Customer Cart remains backend-authoritative.
+         * Never calculate the successful Customer quantity or totals locally.
+         */
+        state.cart = action.payload.cart;
+
+        state.initialized = true;
+
+        state.actionStatus = 'idle';
+        state.actionError = null;
+
+        state.actionRequestId = null;
+        state.actionItemId = null;
+      })
+
+      .addCase(updateCartItemQuantity.rejected, (state, action) => {
+        if (state.actionRequestId !== action.meta.requestId) {
+          return;
+        }
+
+        state.actionStatus = 'idle';
+        state.actionError = action.payload;
+
+        state.actionRequestId = null;
+        state.actionItemId = action.meta.arg.cartItemId;
       });
   },
 });
 
 export const {
   addGuestCartItem,
+  updateGuestCartItemQuantity,
   clearAuthenticatedCart,
   clearCartActionError,
 } = cartSlice.actions;

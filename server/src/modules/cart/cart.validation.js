@@ -4,6 +4,8 @@ import { AppError } from '../../utils/AppError.js';
 
 const ADD_CART_ITEM_FIELDS = ['productId', 'variantId', 'quantity'];
 
+const UPDATE_CART_ITEM_FIELDS = ['quantity'];
+
 function throwValidationError(fields) {
   throw new AppError(
     422,
@@ -35,6 +37,39 @@ function rejectUnexpectedFields(input, allowedFields) {
 
 export function isPositiveCartQuantity(value) {
   return Number.isSafeInteger(value) && value > 0;
+}
+
+export function validateCartItemId(cartItemId) {
+  if (
+    typeof cartItemId !== 'string' ||
+    !mongoose.isValidObjectId(cartItemId.trim())
+  ) {
+    throwValidationError({
+      cartItemId: 'A valid Cart Item ID is required.',
+    });
+  }
+
+  return cartItemId.trim();
+}
+
+export function validateUpdateCartItemInput(input) {
+  validateObject(input);
+
+  rejectUnexpectedFields(input, UPDATE_CART_ITEM_FIELDS);
+
+  const fields = {};
+
+  if (!isPositiveCartQuantity(input.quantity)) {
+    fields.quantity = 'Quantity must be a positive integer.';
+  }
+
+  if (Object.keys(fields).length > 0) {
+    throwValidationError(fields);
+  }
+
+  return {
+    quantity: input.quantity,
+  };
 }
 
 export function validateAddCartItemInput(input) {

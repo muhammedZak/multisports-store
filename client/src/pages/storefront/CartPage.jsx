@@ -4,7 +4,11 @@ import { useDispatch, useSelector } from 'react-redux';
 
 import { normalizeApiError } from '../../api/errors.js';
 import { fetchPublicProduct } from '../../api/productApi.js';
-import { loadCustomerCart } from '../../features/cart/cartSlice.js';
+import {
+  loadCustomerCart,
+  updateCartItemQuantity,
+  updateGuestCartItemQuantity,
+} from '../../features/cart/cartSlice.js';
 import { formatInrFromPaise } from '../../utils/money.js';
 
 const STOCK_LABELS = {
@@ -114,11 +118,27 @@ function resolveGuestItem(item, product, requestError) {
   };
 }
 
-function CartItemRow({ item }) {
+function CartItemRow({
+  item,
+  canEditQuantity,
+  isUpdatingQuantity,
+  quantityError,
+  onQuantityChange,
+}) {
   const productName = item.product?.name ?? 'Unavailable product';
   const image = item.product?.primaryImage ?? null;
   const options = Object.entries(item.variant?.options ?? {});
   const stockLabel = STOCK_LABELS[item.availability?.stockState];
+
+  const canDecrease =
+    canEditQuantity && !isUpdatingQuantity && item.quantity > 1;
+
+  const canIncrease =
+    canEditQuantity &&
+    !isUpdatingQuantity &&
+    item.product?.name &&
+    item.unitPrice !== null &&
+    item.availability?.stockState !== 'out_of_stock';
 
   return (
     <article className='border-b border-neutral-200 py-6 first:pt-0 last:border-0 last:pb-0'>
@@ -180,7 +200,36 @@ function CartItemRow({ item }) {
           <div className='mt-5 grid gap-3 text-sm sm:grid-cols-3'>
             <div>
               <p className='text-neutral-500'>Quantity</p>
-              <p className='mt-1 font-medium'>{item.quantity}</p>
+
+              <div className='mt-1 inline-flex items-center border border-neutral-300'>
+                <button
+                  type='button'
+                  aria-label={`Decrease quantity for ${productName}`}
+                  disabled={!canDecrease}
+                  onClick={() => onQuantityChange(item, item.quantity - 1)}
+                  className='h-9 w-9 text-lg disabled:cursor-not-allowed disabled:text-neutral-300'>
+                  −
+                </button>
+
+                <span
+                  aria-live='polite'
+                  className='min-w-10 border-x border-neutral-300 px-2 text-center font-medium'>
+                  {item.quantity}
+                </span>
+
+                <button
+                  type='button'
+                  aria-label={`Increase quantity for ${productName}`}
+                  disabled={!canIncrease}
+                  onClick={() => onQuantityChange(item, item.quantity + 1)}
+                  className='h-9 w-9 text-lg disabled:cursor-not-allowed disabled:text-neutral-300'>
+                  +
+                </button>
+              </div>
+
+              {isUpdatingQuantity && (
+                <p className='mt-2 text-xs text-neutral-500'>Updating...</p>
+              )}
             </div>
             <div>
               <p className='text-neutral-500'>Unit price</p>
@@ -195,6 +244,14 @@ function CartItemRow({ item }) {
               </p>
             </div>
           </div>
+
+          {quantityError && (
+            <p
+              role='alert'
+              className='mt-3 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700'>
+              {quantityError.message ?? 'Unable to update this cart quantity.'}
+            </p>
+          )}
 
           {item.issues?.map((issue, index) => (
             <p
@@ -214,13 +271,16 @@ function CartPage() {
   const { initialized: authInitialized, user } = useSelector(
     (state) => state.auth,
   );
-  const {
-    cart: customerCart,
-    guestItems,
-    initialized: customerCartInitialized,
-    loadStatus,
-    loadError,
-  } = useSelector((state) => state.cart);
+const {
+  cart: customerCart,
+  guestItems,
+  initialized: customerCartInitialized,
+  loadStatus,
+  loadError,
+  actionStatus,
+  actionError,
+  actionItemId,
+} = useSelector((state) => state.cart);
 
   const [guestProducts, setGuestProducts] = useState({});
   const [guestErrors, setGuestErrors] = useState({});
@@ -324,6 +384,38 @@ function CartPage() {
       ),
     [guestResolvedItems],
   );
+
+  function handleQuantityChange(item, nextQuantity) {
+    if (!Number.isSafeInteger(nextQuantity) || nextQuantity < 1) {
+      return;
+    }
+
+    if (isCustomer) {
+      dispatch(
+        updateCartItemQuantity({
+          customerId: user.id,
+          cartItemId: item.id,
+          quantity: nextQuantity,
+        }),
+      );
+
+      return;
+    }
+
+    if (isGuest) {
+      dispatch(
+        updateGuestCartItemQuantity({
+          productId: item.product.id,
+          ...(item.variant?.id
+            ? {
+                variantId: item.variant.id,
+              }
+            : {}),
+          quantity: nextQuantity,
+        }),
+      );
+    }
+  }
 
   if (!authInitialized) {
     return (
@@ -432,7 +524,24 @@ function CartPage() {
         <div className='mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start'>
           <section className='border-y border-neutral-200 py-6'>
             {items.map((item) => (
-              <CartItemRow key={item.id} item={item} />
+              <CartItemRow
+                key={item.id}
+                item={item}
+                canEditQuantity={isGuest || actionStatus !== 'loading'}
+                isUpdatingQuantity={
+                  isCustomer &&
+                  actionStatus === 'loading' &&
+                  actionItemId === item.id
+                }
+                quantityError={
+                  isCustomer &&
+                  actionStatus !== 'loading' &&
+                  actionItemId === item.id
+                    ? actionError
+                    : null
+                }
+                onQuantityChange={handleQuantityChange}
+              />
             ))}
           </section>
 

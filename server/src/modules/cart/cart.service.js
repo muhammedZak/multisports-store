@@ -60,6 +60,18 @@ function throwOutOfStock(message) {
   });
 }
 
+function throwCartItemNotFound() {
+  throw new AppError(404, 'CART_ITEM_NOT_FOUND', 'Cart Item not found.');
+}
+
+function throwCartUpdateConflict() {
+  throw new AppError(
+    409,
+    'CART_ITEM_UNAVAILABLE',
+    'The Cart changed while this item was being updated. Please try again.',
+  );
+}
+
 function createCartIssue(code, message) {
   return {
     code,
@@ -756,6 +768,100 @@ export async function addItemToCustomerCart({
   }
 
   throwCartWriteConflict();
+}
+
+export async function updateCustomerCartItemQuantity({
+  customerId,
+  cartItemId,
+  quantity,
+}) {
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw new TypeError('A valid Customer ID is required.');
+  }
+
+  if (!mongoose.isValidObjectId(cartItemId)) {
+    throw new TypeError('A valid Cart Item ID is required.');
+  }
+
+  if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+    throw new TypeError('Cart quantity must be a positive integer.');
+  }
+
+  for (let attempt = 0; attempt < CART_WRITE_MAX_ATTEMPTS; attempt += 1) {
+    const existingCart = await Cart.findOne({
+      customerId,
+    }).select('_id customerId items appliedCouponId createdAt updatedAt');
+
+    if (!existingCart) {
+      throwCartItemNotFound();
+    }
+
+    const existingItem = existingCart.items.id(cartItemId);
+
+    if (!existingItem) {
+      throwCartItemNotFound();
+    }
+
+    const existingQuantity = existingItem.quantity;
+
+    /*
+     * PATCH uses an absolute desired quantity.
+     *
+     * Reuse the existing Product/Variant/Inventory resolver with
+     * existingQuantity = 0 so `quantity` itself is validated against
+     * current authoritative Inventory.
+     */
+    const resolvedItem = await resolveCartItemForAdd({
+      productId: existingItem.productId,
+      variantId: existingItem.variantId ?? null,
+      quantity,
+      existingQuantity: 0,
+    });
+
+    /*
+     * Optimistic compare-and-set:
+     * update only if this exact Cart Item still has the quantity that
+     * was read and validated.
+     */
+    const updatedCart = await Cart.findOneAndUpdate(
+      {
+        _id: existingCart._id,
+        customerId,
+
+        items: {
+          $elemMatch: {
+            _id: existingItem._id,
+
+            ...getCartIdentityMatch(
+              resolvedItem.productId,
+              resolvedItem.variantId,
+            ),
+
+            quantity: existingQuantity,
+          },
+        },
+      },
+
+      {
+        $set: {
+          'items.$.quantity': quantity,
+        },
+      },
+
+      {
+        returnDocument: 'after',
+        runValidators: true,
+      },
+    );
+
+    if (!updatedCart) {
+      continue;
+    }
+
+    return resolveCustomerCart(updatedCart);
+  }
+
+  throwCartUpdateConflict();
 }
 
 export async function getResolvedCustomerCart(customerId) {

@@ -11,3 +11,9 @@ export async function addCustomerCartItem(payload) {
 
   return response.data.data.cart;
 }
+
+export async function updateCustomerCartItemQuantity(cartItemId, payload) {
+  const response = await apiClient.patch(`/cart/items/${cartItemId}`, payload);
+
+  return response.data.data.cart;
+}
