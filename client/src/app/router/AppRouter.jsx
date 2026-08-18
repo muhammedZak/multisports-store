@@ -27,6 +27,7 @@ import AdminInventoryDetailsPage from '../../pages/admin/AdminInventoryDetailsPa
 
 import CatalogPage from '../../pages/storefront/CatalogPage.jsx';
 import ProductDetailsPage from '../../pages/storefront/ProductDetailsPage.jsx';
+import CartPage from '../../pages/storefront/CartPage.jsx';
 
 import RequireAdmin from '../../features/auth/RequireAdmin.jsx';
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
@@ -41,6 +42,8 @@ function AppRouter() {
         <Route path='/search' element={<CatalogPage mode='search' />} />
 
         <Route path='/products/:productId' element={<ProductDetailsPage />} />
+
+        <Route path='/cart' element={<CartPage />} />
       </Route>
 
       <Route element={<AuthLayout />}>

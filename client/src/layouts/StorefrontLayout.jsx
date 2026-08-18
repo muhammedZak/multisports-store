@@ -57,6 +57,16 @@ function StorefrontLayout() {
                 Shop
               </NavLink>
 
+              <NavLink
+                to='/cart'
+                className={({ isActive }) =>
+                  isActive
+                    ? 'border-b border-black pb-1'
+                    : 'pb-1 text-neutral-600 hover:text-black'
+                }>
+                Cart
+              </NavLink>
+
               <Link to='/account' className='text-neutral-600 hover:text-black'>
                 Account
               </Link>
