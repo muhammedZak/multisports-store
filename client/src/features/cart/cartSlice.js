@@ -4,6 +4,11 @@ import { addCustomerCartItem, fetchCustomerCart } from '../../api/cartApi.js';
 
 import { normalizeApiError } from '../../api/errors.js';
 
+import {
+  loadGuestCartItems,
+  sanitizeGuestCartItem,
+} from './guestCartStorage.js';
+
 function createEmptyCart() {
   return {
     id: null,
@@ -20,7 +25,7 @@ function createEmptyCart() {
   };
 }
 
-function createInitialState() {
+function createAuthenticatedCartState() {
   return {
     cart: createEmptyCart(),
 
@@ -36,6 +41,14 @@ function createInitialState() {
 
     loadRequestId: null,
     actionRequestId: null,
+  };
+}
+
+function createInitialState() {
+  return {
+    ...createAuthenticatedCartState(),
+
+    guestItems: loadGuestCartItems(),
   };
 }
 
@@ -117,8 +130,45 @@ const cartSlice = createSlice({
   initialState,
 
   reducers: {
+    addGuestCartItem(state, action) {
+      const incomingItem = sanitizeGuestCartItem(action.payload);
+
+      if (!incomingItem) {
+        return;
+      }
+
+      const existingItem = state.guestItems.find(
+        (item) =>
+          item.productId === incomingItem.productId &&
+          (item.variantId ?? null) === (incomingItem.variantId ?? null),
+      );
+
+      if (existingItem) {
+        const mergedQuantity = existingItem.quantity + incomingItem.quantity;
+
+        if (!Number.isSafeInteger(mergedQuantity)) {
+          return;
+        }
+
+        existingItem.quantity = mergedQuantity;
+
+        return;
+      }
+
+      state.guestItems.push(incomingItem);
+    },
+
     clearAuthenticatedCart(state) {
-      Object.assign(state, createInitialState());
+      /*
+       * Reset only the backend-authoritative Customer Cart.
+       * Guest Cart must survive login/logout/session transitions until
+       * Task 6.5 explicitly performs Guest → Customer Cart merge.
+       */
+      const guestItems = state.guestItems;
+
+      Object.assign(state, createAuthenticatedCartState());
+
+      state.guestItems = guestItems;
     },
 
     clearCartActionError(state) {
@@ -186,7 +236,7 @@ const cartSlice = createSlice({
         }
 
         /*
-         * Never calculate Cart state locally.
+         * Never calculate Customer Cart state locally.
          * Replace it with the backend-authoritative Cart.
          */
         state.cart = action.payload.cart;
@@ -212,7 +262,10 @@ const cartSlice = createSlice({
   },
 });
 
-export const { clearAuthenticatedCart, clearCartActionError } =
-  cartSlice.actions;
+export const {
+  addGuestCartItem,
+  clearAuthenticatedCart,
+  clearCartActionError,
+} = cartSlice.actions;
 
 export default cartSlice.reducer;
