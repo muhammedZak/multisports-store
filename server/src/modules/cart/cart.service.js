@@ -220,6 +220,13 @@ function throwCartWriteConflict() {
   );
 }
 
+function throwCartMergeConflict(
+  message = 'The Guest Cart could not be merged safely.',
+  fields = null,
+) {
+  throw new AppError(409, 'CART_MERGE_CONFLICT', message, fields);
+}
+
 export async function resolveCartItemForAdd({
   productId,
   variantId = null,
@@ -332,6 +339,35 @@ export async function resolveCartItemForAdd({
 
     lineIdentity: getCartLineIdentity(product._id, variant?._id ?? null),
   };
+}
+
+async function resolveCartItemForMerge({
+  productId,
+  variantId = null,
+  quantity,
+  existingQuantity,
+}) {
+  try {
+    return await resolveCartItemForAdd({
+      productId,
+      variantId,
+      quantity,
+      existingQuantity,
+    });
+  } catch (error) {
+    /*
+     * Request-shape validation happens before the service.
+     *
+     * Once the request shape is valid, Product / Variant / Inventory /
+     * cumulative-stock failures mean that the proposed Guest Cart cannot
+     * be merged safely.
+     */
+    if (error instanceof AppError) {
+      throwCartMergeConflict(error.message, error.fields);
+    }
+
+    throw error;
+  }
 }
 
 async function resolveStoredCartItem(cartItem) {
@@ -937,6 +973,170 @@ export async function clearCustomerCart(customerId) {
   );
 
   return resolveCustomerCart(updatedCart);
+}
+
+export async function mergeGuestCartIntoCustomerCart({ customerId, items }) {
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw new TypeError('A valid Customer ID is required.');
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new TypeError('Guest Cart items are required.');
+  }
+
+  for (let attempt = 0; attempt < CART_WRITE_MAX_ATTEMPTS; attempt += 1) {
+    /*
+     * Read one authoritative Customer Cart snapshot.
+     *
+     * updatedAt will also be used as our optimistic concurrency guard.
+     */
+    const existingCart = await Cart.findOne({
+      customerId,
+    }).select('_id customerId items appliedCouponId createdAt updatedAt');
+
+    /*
+     * Build the proposed Cart completely in memory.
+     *
+     * Existing embedded Cart Item IDs are explicitly preserved.
+     * Nothing is written to MongoDB during validation.
+     */
+    const proposedItems = existingCart
+      ? existingCart.items.map((item) => ({
+          _id: item._id,
+          productId: item.productId,
+          variantId: item.variantId ?? null,
+          quantity: item.quantity,
+        }))
+      : [];
+
+    /*
+     * Validate EVERY Guest line before any database mutation.
+     */
+    for (const guestItem of items) {
+      const variantId = guestItem.variantId ?? null;
+
+      const existingItem =
+        proposedItems.find((item) => {
+          return (
+            sameObjectId(item.productId, guestItem.productId) &&
+            sameObjectId(item.variantId, variantId)
+          );
+        }) ?? null;
+
+      const existingQuantity = existingItem?.quantity ?? 0;
+
+      /*
+       * This validates:
+       *
+       * existing Customer quantity
+       *          +
+       * Guest quantity
+       *          ↓
+       * authoritative current Inventory
+       *
+       * It also re-resolves Product, Variant and current pricing.
+       */
+      const resolvedItem = await resolveCartItemForMerge({
+        productId: guestItem.productId,
+        variantId,
+        quantity: guestItem.quantity,
+        existingQuantity,
+      });
+
+      if (existingItem) {
+        /*
+         * Same Product + Variant identity:
+         *
+         * Keep the existing Cart Item _id and replace only its proposed
+         * quantity in memory.
+         */
+        existingItem.quantity = resolvedItem.finalQuantity;
+
+        continue;
+      }
+
+      /*
+       * New logical Cart line.
+       *
+       * Create its embedded ID now so the one final write produces a
+       * stable Cart Item identity.
+       */
+      proposedItems.push({
+        _id: new mongoose.Types.ObjectId(),
+        productId: resolvedItem.productId,
+        variantId: resolvedItem.variantId,
+        quantity: resolvedItem.finalQuantity,
+      });
+    }
+
+    /*
+     * Customer has no persisted Cart yet.
+     *
+     * All Guest items have already been validated, so create the whole
+     * Cart in one operation.
+     */
+    if (!existingCart) {
+      try {
+        const createdCart = await Cart.create({
+          customerId,
+          items: proposedItems,
+        });
+
+        return resolveCustomerCart(createdCart);
+      } catch (error) {
+        /*
+         * Another concurrent request may have created the Customer Cart
+         * after our initial read.
+         *
+         * The unique customerId index prevents two Cart documents.
+         * Retry against the newly created authoritative Cart.
+         */
+        if (isDuplicateKeyError(error)) {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    /*
+     * Existing Customer Cart:
+     *
+     * Apply the entire proposed item array in ONE guarded mutation.
+     *
+     * updatedAt must still equal the value we originally validated.
+     * If another Cart mutation happened meanwhile, this query matches
+     * nothing and we retry from fresh state.
+     *
+     * appliedCouponId is deliberately untouched.
+     */
+    const updatedCart = await Cart.findOneAndUpdate(
+      {
+        _id: existingCart._id,
+        customerId,
+        updatedAt: existingCart.updatedAt,
+      },
+      {
+        $set: {
+          items: proposedItems,
+        },
+      },
+      {
+        returnDocument: 'after',
+        runValidators: true,
+      },
+    );
+
+    if (!updatedCart) {
+      continue;
+    }
+
+    return resolveCustomerCart(updatedCart);
+  }
+
+  throwCartMergeConflict(
+    'The Cart changed while Guest items were being merged. Please try again.',
+  );
 }
 
 export async function getResolvedCustomerCart(customerId) {

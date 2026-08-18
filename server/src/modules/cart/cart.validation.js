@@ -6,6 +6,8 @@ const ADD_CART_ITEM_FIELDS = ['productId', 'variantId', 'quantity'];
 
 const UPDATE_CART_ITEM_FIELDS = ['quantity'];
 
+const MERGE_CART_FIELDS = ['items'];
+
 function throwValidationError(fields) {
   throw new AppError(
     422,
@@ -35,44 +37,7 @@ function rejectUnexpectedFields(input, allowedFields) {
   }
 }
 
-export function isPositiveCartQuantity(value) {
-  return Number.isSafeInteger(value) && value > 0;
-}
-
-export function validateCartItemId(cartItemId) {
-  if (
-    typeof cartItemId !== 'string' ||
-    !mongoose.isValidObjectId(cartItemId.trim())
-  ) {
-    throwValidationError({
-      cartItemId: 'A valid Cart Item ID is required.',
-    });
-  }
-
-  return cartItemId.trim();
-}
-
-export function validateUpdateCartItemInput(input) {
-  validateObject(input);
-
-  rejectUnexpectedFields(input, UPDATE_CART_ITEM_FIELDS);
-
-  const fields = {};
-
-  if (!isPositiveCartQuantity(input.quantity)) {
-    fields.quantity = 'Quantity must be a positive integer.';
-  }
-
-  if (Object.keys(fields).length > 0) {
-    throwValidationError(fields);
-  }
-
-  return {
-    quantity: input.quantity,
-  };
-}
-
-export function validateAddCartItemInput(input) {
+function validateCartLineInput(input) {
   validateObject(input);
 
   rejectUnexpectedFields(input, ADD_CART_ITEM_FIELDS);
@@ -121,5 +86,125 @@ export function validateAddCartItemInput(input) {
       : {}),
 
     quantity: input.quantity,
+  };
+}
+
+function getCartLineIdentity(item) {
+  return `${item.productId}:${item.variantId ?? 'simple'}`;
+}
+
+export function isPositiveCartQuantity(value) {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+export function validateCartItemId(cartItemId) {
+  if (
+    typeof cartItemId !== 'string' ||
+    !mongoose.isValidObjectId(cartItemId.trim())
+  ) {
+    throwValidationError({
+      cartItemId: 'A valid Cart Item ID is required.',
+    });
+  }
+
+  return cartItemId.trim();
+}
+
+export function validateUpdateCartItemInput(input) {
+  validateObject(input);
+
+  rejectUnexpectedFields(input, UPDATE_CART_ITEM_FIELDS);
+
+  const fields = {};
+
+  if (!isPositiveCartQuantity(input.quantity)) {
+    fields.quantity = 'Quantity must be a positive integer.';
+  }
+
+  if (Object.keys(fields).length > 0) {
+    throwValidationError(fields);
+  }
+
+  return {
+    quantity: input.quantity,
+  };
+}
+
+export function validateAddCartItemInput(input) {
+  return validateCartLineInput(input);
+}
+
+export function validateMergeCartInput(input) {
+  validateObject(input);
+
+  rejectUnexpectedFields(input, MERGE_CART_FIELDS);
+
+  if (!Array.isArray(input.items) || input.items.length === 0) {
+    throwValidationError({
+      items: 'At least one Guest Cart item is required.',
+    });
+  }
+
+  const mergedItems = [];
+
+  const itemsByIdentity = new Map();
+
+  for (const rawItem of input.items) {
+    /*
+     * Each Guest line accepts exactly the same trusted fields
+     * as normal Add to Cart:
+     *
+     * productId
+     * variantId (optional)
+     * quantity
+     *
+     * Browser-owned prices, stock and totals are rejected.
+     */
+    const item = validateCartLineInput(rawItem);
+
+    const lineIdentity = getCartLineIdentity(item);
+
+    const existingItem = itemsByIdentity.get(lineIdentity);
+
+    if (!existingItem) {
+      const normalizedItem = {
+        productId: item.productId,
+
+        ...(item.variantId
+          ? {
+              variantId: item.variantId,
+            }
+          : {}),
+
+        quantity: item.quantity,
+      };
+
+      mergedItems.push(normalizedItem);
+
+      itemsByIdentity.set(lineIdentity, normalizedItem);
+
+      continue;
+    }
+
+    /*
+     * A malformed/tampered Guest Cart could contain duplicate logical
+     * identities even though our normal Redux/localStorage code already
+     * merges them.
+     *
+     * Normalize them here before the service runs.
+     */
+    const mergedQuantity = existingItem.quantity + item.quantity;
+
+    if (!Number.isSafeInteger(mergedQuantity)) {
+      throwValidationError({
+        quantity: 'Merged Guest Cart quantity is too large.',
+      });
+    }
+
+    existingItem.quantity = mergedQuantity;
+  }
+
+  return {
+    items: mergedItems,
   };
 }
