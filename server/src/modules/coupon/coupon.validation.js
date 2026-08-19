@@ -1,5 +1,7 @@
 import { AppError } from '../../utils/AppError.js';
 
+import { validateMergeCartInput } from '../cart/cart.validation.js';
+
 const CREATE_COUPON_FIELDS = [
   'code',
   'discountType',
@@ -24,6 +26,8 @@ const UPDATE_COUPON_FIELDS = [
 ];
 
 const UPDATE_STATUS_FIELDS = ['isActive'];
+
+const PUBLIC_COUPON_VALIDATE_FIELDS = ['code', 'items'];
 
 const ADMIN_COUPON_QUERY_FIELDS = [
   'page',
@@ -358,4 +362,42 @@ export function validateAdminCouponQuery(query) {
   }
 
   return input;
+}
+
+export function validatePublicCouponInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, PUBLIC_COUPON_VALIDATE_FIELDS);
+
+  const code = normalizeCouponCode(body.code);
+
+  if (!code) {
+    throwValidationError({
+      code: 'Coupon code is required.',
+    });
+  }
+
+  /*
+   * Reuse the already verified Guest Cart validation.
+   *
+   * This ensures each item may contain only:
+   *
+   * productId
+   * variantId (optional)
+   * quantity
+   *
+   * Browser prices, stock, totals, Customer IDs and other commerce
+   * fields are rejected.
+   *
+   * It also safely merges duplicate logical Guest Cart lines before
+   * pricing.
+   */
+  const { items } = validateMergeCartInput({
+    items: body.items,
+  });
+
+  return {
+    code,
+    items,
+  };
 }

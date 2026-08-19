@@ -3,6 +3,7 @@ import {
   validateCouponUpdateInput,
   validateCouponStatusInput,
   validateAdminCouponQuery,
+  validatePublicCouponInput,
 } from './coupon.validation.js';
 
 import {
@@ -12,6 +13,8 @@ import {
   updateCoupon,
   updateCouponStatus,
 } from './coupon.service.js';
+
+import { resolveGuestCouponPreview } from './couponPreview.service.js';
 
 export async function getCouponsForAdmin(req, res) {
   const query = validateAdminCouponQuery(req.query);
@@ -80,5 +83,17 @@ export async function updateCouponStatusForAdmin(req, res) {
     data: {
       coupon,
     },
+  });
+}
+
+export async function validateCouponForGuest(req, res) {
+  const input = validatePublicCouponInput(req.body);
+
+  const preview = await resolveGuestCouponPreview(input);
+
+  res.status(200).json({
+    success: true,
+
+    data: preview,
   });
 }

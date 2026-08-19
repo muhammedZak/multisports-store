@@ -60,3 +60,9 @@ export async function updateAdminCouponStatus(couponId, isActive) {
 
   return response.data.data.coupon;
 }
+
+export async function validateGuestCoupon(payload) {
+  const response = await apiClient.post('/coupons/validate', payload);
+
+  return response.data.data;
+}

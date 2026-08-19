@@ -18,6 +18,7 @@ import adminProductRouter from './modules/catalog/adminProduct.routes.js';
 import publicCatalogRouter from './modules/catalog/publicCatalog.routes.js';
 import adminInventoryRouter from './modules/inventory/adminInventory.routes.js';
 import adminCouponRouter from './modules/coupon/adminCoupon.routes.js';
+import couponRouter from './modules/coupon/coupon.routes.js';
 
 import cartRouter from './modules/cart/cart.routes.js';
 
@@ -49,6 +50,8 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', userRouter);
 app.use('/api/v1', categoryRouter);
 app.use('/api/v1', publicCatalogRouter);
+
+app.use('/api/v1/coupons', couponRouter);
 
 app.use('/api/v1/cart', cartRouter);
 

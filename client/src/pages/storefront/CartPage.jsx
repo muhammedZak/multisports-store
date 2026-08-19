@@ -4,6 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 
 import { normalizeApiError } from '../../api/errors.js';
 import { fetchPublicProduct } from '../../api/productApi.js';
+import { validateGuestCoupon } from '../../api/couponApi.js';
 import {
   clearCart,
   clearGuestCart,
@@ -335,6 +336,16 @@ function CartPage() {
 
   const [guestPriceChanges, setGuestPriceChanges] = useState([]);
 
+  const [guestCouponCode, setGuestCouponCode] = useState('');
+
+  const [guestCouponPreview, setGuestCouponPreview] = useState(null);
+
+  const [guestCouponStatus, setGuestCouponStatus] = useState('idle');
+
+  const [guestCouponError, setGuestCouponError] = useState(null);
+
+  const guestCouponRequestRef = useRef(0);
+
   const guestProductsRef = useRef({});
   const guestHasResolvedOnceRef = useRef(false);
 
@@ -353,6 +364,36 @@ function CartPage() {
       [...new Set(guestItems.map((item) => item.productId))].sort().join('|'),
     [guestItems],
   );
+
+  const guestCouponCartKey = useMemo(
+    () =>
+      guestItems
+        .map(
+          (item) =>
+            `${item.productId}:${item.variantId ?? 'simple'}:${item.quantity}`,
+        )
+        .sort()
+        .join('|'),
+    [guestItems],
+  );
+
+  useEffect(() => {
+    /*
+     * Any Guest Cart identity/quantity change or explicit
+     * pricing refresh invalidates the previous Coupon preview.
+     *
+     * Never continue displaying totals calculated against an older Cart.
+     */
+    guestCouponRequestRef.current += 1;
+
+    setGuestCouponPreview(null);
+    setGuestCouponError(null);
+    setGuestCouponStatus('idle');
+
+    if (!isGuest || !guestCouponCartKey) {
+      setGuestCouponCode('');
+    }
+  }, [guestCouponCartKey, guestReloadKey, isGuest]);
 
   useEffect(() => {
     if (!authInitialized || hasAuthenticatedUser) {
@@ -487,6 +528,115 @@ function CartPage() {
     guestReloadKey,
     hasAuthenticatedUser,
   ]);
+
+  function handleGuestCouponCodeChange(event) {
+    setGuestCouponCode(event.target.value.toUpperCase());
+
+    /*
+     * The displayed preview belongs to the previously
+     * validated code. Editing the code invalidates it.
+     */
+    if (guestCouponPreview || guestCouponError) {
+      guestCouponRequestRef.current += 1;
+
+      setGuestCouponPreview(null);
+      setGuestCouponError(null);
+      setGuestCouponStatus('idle');
+    }
+  }
+
+  async function handleGuestCouponSubmit(event) {
+    event.preventDefault();
+
+    if (
+      !isGuest ||
+      guestItems.length === 0 ||
+      guestCouponStatus === 'loading'
+    ) {
+      return;
+    }
+
+    const code = guestCouponCode.trim().toUpperCase();
+
+    if (!code) {
+      setGuestCouponError({
+        code: 'VALIDATION_ERROR',
+
+        message: 'Enter a Coupon code.',
+
+        fields: {
+          code: 'Coupon code is required.',
+        },
+      });
+
+      return;
+    }
+
+    const requestId = guestCouponRequestRef.current + 1;
+
+    guestCouponRequestRef.current = requestId;
+
+    setGuestCouponStatus('loading');
+    setGuestCouponError(null);
+    setGuestCouponPreview(null);
+
+    try {
+      /*
+       * Send only Guest Cart identities + quantities.
+       *
+       * No browser-owned prices or totals.
+       */
+      const items = guestItems.map((item) => ({
+        productId: item.productId,
+
+        ...(item.variantId
+          ? {
+              variantId: item.variantId,
+            }
+          : {}),
+
+        quantity: item.quantity,
+      }));
+
+      const preview = await validateGuestCoupon({
+        code,
+        items,
+      });
+
+      /*
+       * Ignore a stale response if the Cart was changed
+       * while validation was in flight.
+       */
+      if (guestCouponRequestRef.current !== requestId) {
+        return;
+      }
+
+      setGuestCouponPreview(preview);
+
+      setGuestCouponCode(preview.coupon.code);
+
+      setGuestCouponStatus('succeeded');
+    } catch (requestError) {
+      if (guestCouponRequestRef.current !== requestId) {
+        return;
+      }
+
+      setGuestCouponError(
+        normalizeApiError(requestError, 'Unable to validate this Coupon.'),
+      );
+
+      setGuestCouponStatus('failed');
+    }
+  }
+
+  function handleClearGuestCouponPreview() {
+    guestCouponRequestRef.current += 1;
+
+    setGuestCouponCode('');
+    setGuestCouponPreview(null);
+    setGuestCouponError(null);
+    setGuestCouponStatus('idle');
+  }
 
   function handleCustomerCartRefresh() {
     if (!isCustomer || !user?.id) {
@@ -692,6 +842,16 @@ function CartPage() {
   const subtotal = isCustomer
     ? (customerCart.pricing?.subtotal ?? 0)
     : guestSubtotal;
+
+    const guestCouponPricing = isGuest
+      ? (guestCouponPreview?.pricing ?? null)
+      : null;
+
+    const summarySubtotal = guestCouponPricing?.subtotal ?? subtotal;
+
+    const guestCouponDiscount = guestCouponPricing?.discountAmount ?? 0;
+
+    const summaryTotalAmount = guestCouponPricing?.totalAmount ?? subtotal;
 
   const isClearingCart =
     isCustomer && actionStatus === 'loading' && actionOperation === 'clear';
@@ -915,11 +1075,106 @@ function CartPage() {
 
           <aside className='border border-neutral-200 p-6 lg:sticky lg:top-6'>
             <h2 className='text-lg font-semibold'>Order Summary</h2>
-            <div className='mt-5 flex justify-between border-b border-neutral-200 pb-5'>
-              <span className='text-sm text-neutral-600'>Subtotal</span>
-              <span className='font-semibold'>
-                {formatInrFromPaise(subtotal)}
-              </span>
+            <div className='mt-5 border-b border-neutral-200 pb-5'>
+              <div className='flex justify-between gap-4'>
+                <span className='text-sm text-neutral-600'>Subtotal</span>
+
+                <span className='font-semibold'>
+                  {formatInrFromPaise(summarySubtotal)}
+                </span>
+              </div>
+
+              {isGuest && (
+                <div className='mt-5 border-t border-neutral-200 pt-5'>
+                  <p className='text-sm font-medium'>Coupon</p>
+
+                  <form
+                    onSubmit={handleGuestCouponSubmit}
+                    className='mt-3 flex gap-2'>
+                    <input
+                      type='text'
+                      value={guestCouponCode}
+                      disabled={guestCouponStatus === 'loading'}
+                      onChange={handleGuestCouponCodeChange}
+                      placeholder='Coupon code'
+                      aria-label='Coupon code'
+                      className='min-w-0 flex-1 border border-neutral-300 px-3 py-2.5 uppercase outline-none focus:border-black disabled:bg-neutral-100'
+                    />
+
+                    <button
+                      type='submit'
+                      disabled={
+                        guestCouponStatus === 'loading' ||
+                        guestItems.length === 0 ||
+                        guestLoadStatus === 'loading' ||
+                        guestLoadStatus === 'refreshing'
+                      }
+                      className='bg-black px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50'>
+                      {guestCouponStatus === 'loading'
+                        ? 'Applying...'
+                        : 'Apply'}
+                    </button>
+                  </form>
+
+                  {guestCouponError && (
+                    <p role='alert' className='mt-3 text-sm text-red-700'>
+                      {guestCouponError.fields?.code ??
+                        guestCouponError.message}
+                    </p>
+                  )}
+
+                  {guestCouponPreview && (
+                    <div className='mt-3 border border-green-200 bg-green-50 p-3'>
+                      <div className='flex items-start justify-between gap-3'>
+                        <div>
+                          <p className='text-sm font-medium text-green-800'>
+                            {guestCouponPreview.coupon.code} applied
+                          </p>
+
+                          <p className='mt-1 text-xs leading-5 text-green-700'>
+                            This is a pricing preview calculated from current
+                            server pricing.
+                          </p>
+                        </div>
+
+                        <button
+                          type='button'
+                          onClick={handleClearGuestCouponPreview}
+                          className='text-xs font-medium text-green-800 underline underline-offset-4'>
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {isGuest && guestCouponPreview && (
+                <div className='mt-5 space-y-3 border-t border-neutral-200 pt-5'>
+                  <div className='flex justify-between gap-4'>
+                    <span className='text-sm text-neutral-600'>
+                      Coupon discount
+                    </span>
+
+                    <span className='font-medium text-green-700'>
+                      −{formatInrFromPaise(guestCouponDiscount)}
+                    </span>
+                  </div>
+
+                  <div className='flex justify-between gap-4'>
+                    <span className='font-medium'>Preview total</span>
+
+                    <span className='text-lg font-semibold'>
+                      {formatInrFromPaise(summaryTotalAmount)}
+                    </span>
+                  </div>
+
+                  <p className='text-xs leading-5 text-neutral-500'>
+                    Guest Coupon validation is temporary. It does not reserve
+                    stock, save the Coupon, or consume Coupon usage.
+                  </p>
+                </div>
+              )}
             </div>
             <p className='mt-4 text-xs leading-5 text-neutral-500'>
               Prices shown use the latest product pricing successfully resolved
