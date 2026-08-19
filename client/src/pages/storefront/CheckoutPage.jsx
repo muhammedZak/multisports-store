@@ -336,7 +336,7 @@ function CheckoutPage() {
        */
       dispatch(revalidateCustomerCart(user.id));
 
-      navigate('/checkout/confirmation', {
+      navigate(`/checkout/confirmation/${result.order.id}`, {
         replace: true,
 
         state: {

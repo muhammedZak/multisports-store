@@ -32,6 +32,8 @@ import ProductDetailsPage from '../../pages/storefront/ProductDetailsPage.jsx';
 import CartPage from '../../pages/storefront/CartPage.jsx';
 import CheckoutPage from '../../pages/storefront/CheckoutPage.jsx';
 import OrderConfirmationPage from '../../pages/storefront/OrderConfirmationPage.jsx';
+import OrdersPage from '../../pages/account/OrdersPage.jsx';
+import OrderDetailsPage from '../../pages/account/OrderDetailsPage.jsx';
 
 import RequireAdmin from '../../features/auth/RequireAdmin.jsx';
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
@@ -53,7 +55,7 @@ function AppRouter() {
           <Route path='/checkout' element={<CheckoutPage />} />
 
           <Route
-            path='/checkout/confirmation'
+            path='/checkout/confirmation/:orderId'
             element={<OrderConfirmationPage />}
           />
         </Route>
@@ -95,6 +97,10 @@ function AppRouter() {
           path='/account/addresses/:addressId/edit'
           element={<AddressFormPage />}
         />
+
+        <Route path='/account/orders' element={<OrdersPage />} />
+
+        <Route path='/account/orders/:orderId' element={<OrderDetailsPage />} />
       </Route>
 
       <Route element={<RequireAdmin />}>

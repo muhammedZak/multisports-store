@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router';
+import { Link, Navigate, useLocation, useParams } from 'react-router';
 
 import { formatInrFromPaise } from '../../utils/money.js';
 
@@ -17,6 +17,8 @@ function formatOptionName(name) {
 function OrderConfirmationPage() {
   const location = useLocation();
 
+  const { orderId } = useParams();
+
   const order = location.state?.order ?? null;
 
   const payment = location.state?.payment ?? null;
@@ -32,35 +34,7 @@ function OrderConfirmationPage() {
    * Customer Order history remains later work.
    */
   if (!order) {
-    return (
-      <main className='mx-auto max-w-3xl px-5 py-12'>
-        <section className='border border-neutral-200 p-8 text-center'>
-          <h1 className='text-2xl font-semibold'>
-            Order confirmation unavailable
-          </h1>
-
-          <p className='mx-auto mt-3 max-w-lg text-sm leading-6 text-neutral-600'>
-            This confirmation page is displayed immediately after a verified
-            Order is placed. The confirmation data is no longer available in
-            this browser navigation state.
-          </p>
-
-          <div className='mt-6 flex flex-col justify-center gap-3 sm:flex-row'>
-            <Link
-              to='/shop'
-              className='bg-black px-5 py-3 text-sm font-medium text-white'>
-              Continue shopping
-            </Link>
-
-            <Link
-              to='/cart'
-              className='border border-neutral-300 px-5 py-3 text-sm font-medium'>
-              View cart
-            </Link>
-          </div>
-        </section>
-      </main>
-    );
+    return <Navigate to={`/account/orders/${orderId}`} replace />;
   }
 
   return (
@@ -240,6 +214,12 @@ function OrderConfirmationPage() {
             to='/shop'
             className='mt-6 inline-flex w-full justify-center bg-black px-5 py-3 text-sm font-medium text-white'>
             Continue shopping
+          </Link>
+
+          <Link
+            to={`/account/orders/${order.id}`}
+            className='mt-3 inline-flex w-full justify-center border border-neutral-300 px-5 py-3 text-sm font-medium'>
+            View order details
           </Link>
         </aside>
       </div>

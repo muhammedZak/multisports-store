@@ -247,6 +247,21 @@ function ProfilePage() {
       )}
 
       <section className='mt-8 border border-neutral-200 p-5'>
+        <h2 className='font-semibold'>Orders</h2>
+
+        <p className='mt-2 text-sm leading-6 text-neutral-600'>
+          View your order history, payment status, purchased items, and delivery
+          progress.
+        </p>
+
+        <Link
+          to='/account/orders'
+          className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
+          View my orders
+        </Link>
+      </section>
+
+      <section className='mt-8 border border-neutral-200 p-5'>
         <h2 className='font-semibold'>Saved addresses</h2>
 
         <p className='mt-2 text-sm leading-6 text-neutral-600'>
