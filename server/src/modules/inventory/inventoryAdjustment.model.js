@@ -152,6 +152,27 @@ inventoryAdjustmentSchema.index(
   },
 );
 
+inventoryAdjustmentSchema.index(
+  {
+    inventoryId: 1,
+    sourceType: 1,
+    sourceId: 1,
+    reason: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: {
+      sourceType: {
+        $type: 'string',
+      },
+      sourceId: {
+        $type: 'objectId',
+      },
+    },
+    name: 'inventory_adjustment_system_effect_unique',
+  },
+);
+
 export const InventoryAdjustment = mongoose.model(
   'InventoryAdjustment',
   inventoryAdjustmentSchema,
