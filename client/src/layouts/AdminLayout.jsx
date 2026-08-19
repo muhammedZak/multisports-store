@@ -89,6 +89,19 @@ function AdminLayout() {
               }>
               Inventory
             </NavLink>
+
+            <NavLink
+              to='/admin/coupons'
+              className={({ isActive }) =>
+                [
+                  'block px-3 py-2 text-sm font-medium transition',
+                  isActive
+                    ? 'bg-black text-white'
+                    : 'text-neutral-700 hover:bg-neutral-100',
+                ].join(' ')
+              }>
+              Coupons
+            </NavLink>
           </nav>
         </aside>
 

@@ -24,6 +24,8 @@ import AdminProductDetailsPage from '../../pages/admin/AdminProductDetailsPage.j
 import AdminProductFormPage from '../../pages/admin/AdminProductFormPage.jsx';
 import AdminInventoryPage from '../../pages/admin/AdminInventoryPage.jsx';
 import AdminInventoryDetailsPage from '../../pages/admin/AdminInventoryDetailsPage.jsx';
+import AdminCouponsPage from '../../pages/admin/AdminCouponsPage.jsx';
+import AdminCouponFormPage from '../../pages/admin/AdminCouponFormPage.jsx';
 
 import CatalogPage from '../../pages/storefront/CatalogPage.jsx';
 import ProductDetailsPage from '../../pages/storefront/ProductDetailsPage.jsx';
@@ -115,6 +117,15 @@ function AppRouter() {
           <Route
             path='/admin/inventory/:inventoryId'
             element={<AdminInventoryDetailsPage />}
+          />
+
+          <Route path='/admin/coupons' element={<AdminCouponsPage />} />
+
+          <Route path='/admin/coupons/new' element={<AdminCouponFormPage />} />
+
+          <Route
+            path='/admin/coupons/:couponId/edit'
+            element={<AdminCouponFormPage />}
           />
         </Route>
       </Route>
