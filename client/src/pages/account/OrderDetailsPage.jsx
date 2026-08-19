@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 
 import { normalizeApiError } from '../../api/errors.js';
-import { fetchMyOrder } from '../../api/orderApi.js';
+import { cancelMyOrder, fetchMyOrder } from '../../api/orderApi.js';
 
 import { formatInrFromPaise } from '../../utils/money.js';
 
@@ -47,6 +47,12 @@ function OrderDetailsPage() {
 
   const [error, setError] = useState(null);
 
+  const [actionError, setActionError] = useState(null);
+
+  const [message, setMessage] = useState('');
+
+  const [cancelling, setCancelling] = useState(false);
+
   const loadOrder = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -72,6 +78,52 @@ function OrderDetailsPage() {
   useEffect(() => {
     loadOrder();
   }, [loadOrder]);
+
+  async function handleCancelOrder() {
+    if (!order || order.orderStatus !== 'placed' || cancelling) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Cancel order ${order.orderNumber}? This action cannot be undone.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setCancelling(true);
+    setActionError(null);
+    setMessage('');
+
+    try {
+      const updatedOrder = await cancelMyOrder(order.id);
+
+      setOrder(updatedOrder);
+
+      setMessage('Order cancelled successfully.');
+    } catch (requestError) {
+      const normalizedError = normalizeApiError(
+        requestError,
+        'Unable to cancel this order. Please try again.',
+      );
+
+      setActionError(normalizedError);
+
+      /*
+       * Another process may have changed the Order
+       * between the initial page load and this click.
+       *
+       * Refresh backend authority rather than leaving
+       * a stale "placed" Order on screen.
+       */
+      if (normalizedError.code === 'ORDER_NOT_CANCELLABLE') {
+        await loadOrder();
+      }
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -180,6 +232,22 @@ function OrderDetailsPage() {
             ? ` on ${dateFormatter.format(new Date(order.cancelledAt))}.`
             : '.'}
         </section>
+      )}
+
+      {message && (
+        <div
+          role='status'
+          className='mt-6 border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'>
+          {message}
+        </div>
+      )}
+
+      {actionError && (
+        <div
+          role='alert'
+          className='mt-6 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
+          {actionError.message}
+        </div>
       )}
 
       <div className='mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start'>
@@ -373,6 +441,25 @@ function OrderDetailsPage() {
             className='mt-6 inline-flex w-full justify-center border border-neutral-300 px-5 py-3 text-sm font-medium'>
             Continue shopping
           </Link>
+
+          {order.orderStatus === 'placed' && (
+            <div className='mt-6 border-t border-neutral-200 pt-6'>
+              <h3 className='font-semibold'>Need to cancel?</h3>
+
+              <p className='mt-2 text-sm leading-6 text-neutral-600'>
+                This order can still be cancelled because fulfillment has not
+                started.
+              </p>
+
+              <button
+                type='button'
+                disabled={cancelling}
+                onClick={handleCancelOrder}
+                className='mt-4 w-full border border-red-300 px-5 py-3 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50'>
+                {cancelling ? 'Cancelling order...' : 'Cancel order'}
+              </button>
+            </div>
+          )}
         </aside>
       </div>
     </main>

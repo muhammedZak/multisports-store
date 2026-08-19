@@ -1,6 +1,13 @@
-import { validateCustomerOrderQuery } from './order.validation.js';
+import {
+  validateCustomerOrderCancellationInput,
+  validateCustomerOrderQuery,
+} from './order.validation.js';
 
-import { getCustomerOrder, getCustomerOrders } from './order.service.js';
+import {
+  cancelCustomerOrder,
+  getCustomerOrder,
+  getCustomerOrders,
+} from './order.service.js';
 
 export async function getOrdersForCustomer(req, res) {
   const query = validateCustomerOrderQuery(req.query);
@@ -24,6 +31,24 @@ export async function getOrdersForCustomer(req, res) {
 
 export async function getOrderForCustomer(req, res) {
   const order = await getCustomerOrder({
+    customerId: req.user.id,
+
+    orderId: req.params.orderId,
+  });
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      order,
+    },
+  });
+}
+
+export async function cancelOrderForCustomer(req, res) {
+  validateCustomerOrderCancellationInput(req.body);
+
+  const order = await cancelCustomerOrder({
     customerId: req.user.id,
 
     orderId: req.params.orderId,

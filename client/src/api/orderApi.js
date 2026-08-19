@@ -33,3 +33,9 @@ export async function fetchMyOrder(orderId) {
 
   return response.data.data.order;
 }
+
+export async function cancelMyOrder(orderId) {
+  const response = await apiClient.post(`/orders/${orderId}/cancel`);
+
+  return response.data.data.order;
+}

@@ -15,6 +15,90 @@ import { Payment, PAYMENT_STATUSES } from '../payment/payment.model.js';
 
 import { Order, ORDER_STATUSES } from './order.model.js';
 
+function throwCustomerOrderNotCancellable() {
+  throw new AppError(
+    409,
+    'ORDER_NOT_CANCELLABLE',
+    'Only a placed Order can be cancelled by the Customer.',
+  );
+}
+
+function getInventoryCancellationFilter(item) {
+  const filter = {
+    productId: item.productId,
+  };
+
+  if (item.variantId) {
+    filter.variantId = item.variantId;
+  } else {
+    /*
+     * Existing simple Product convention:
+     * variantId is omitted rather than null.
+     */
+    filter.variantId = {
+      $exists: false,
+    };
+  }
+
+  return filter;
+}
+
+async function restoreInventoryForCancelledOrderItem({
+  item,
+  orderId,
+  session,
+}) {
+  const updatedInventory = await Inventory.findOneAndUpdate(
+    getInventoryCancellationFilter(item),
+
+    {
+      $inc: {
+        quantity: item.quantity,
+      },
+    },
+
+    {
+      session,
+      returnDocument: 'after',
+    },
+  )
+    .select('_id quantity')
+    .lean();
+
+  /*
+   * A placed Order previously decremented this Inventory position.
+   *
+   * If that Inventory position is now missing, this is corrupted
+   * commerce state. Throwing aborts the entire cancellation
+   * transaction rather than cancelling without restoring stock.
+   */
+  if (!updatedInventory) {
+    throw new Error(
+      'Order cancellation could not restore a required Inventory position.',
+    );
+  }
+
+  const newQuantity = updatedInventory.quantity;
+
+  const previousQuantity = newQuantity - item.quantity;
+
+  return {
+    inventoryId: updatedInventory._id,
+
+    reason: INVENTORY_ADJUSTMENT_REASONS.ORDER_CANCELLATION,
+
+    quantityChange: item.quantity,
+
+    previousQuantity,
+
+    newQuantity,
+
+    sourceType: 'order',
+
+    sourceId: orderId,
+  };
+}
+
 function throwPaymentNotFound() {
   throw new AppError(404, 'PAYMENT_NOT_FOUND', 'Payment not found.');
 }
@@ -870,4 +954,142 @@ export async function getCustomerOrder({ customerId, orderId }) {
   }
 
   return toCustomerOrderDetailResource(order);
+}
+
+export async function cancelCustomerOrder({ customerId, orderId }) {
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw new TypeError(
+      'A valid Customer ID is required for Order cancellation.',
+    );
+  }
+
+  if (!mongoose.isValidObjectId(orderId)) {
+    throwCustomerOrderNotFound();
+  }
+
+  /*
+   * Generate once outside the retryable transaction.
+   *
+   * If MongoDB retries the transaction, the logical
+   * cancellation time remains stable.
+   */
+  const cancelledAt = new Date();
+
+  await mongoose.connection.transaction(
+    async (session) => {
+      /*
+       * Ownership-safe lookup.
+       *
+       * Another Customer's Order behaves exactly like
+       * a nonexistent Order.
+       */
+      const order = await Order.findOne({
+        _id: orderId,
+        customerId,
+      })
+        .select('_id items orderStatus')
+        .session(session)
+        .lean();
+
+      if (!order) {
+        throwCustomerOrderNotFound();
+      }
+
+      /*
+       * Customer cancellation rule is intentionally narrow.
+       */
+      if (order.orderStatus !== ORDER_STATUSES.PLACED) {
+        throwCustomerOrderNotCancellable();
+      }
+
+      /*
+       * Compare-and-set transition.
+       *
+       * Do not blindly overwrite orderStatus.
+       *
+       * This protects against another concurrent process
+       * changing the Order after our initial read.
+       */
+      const cancelledOrder = await Order.findOneAndUpdate(
+        {
+          _id: order._id,
+
+          customerId,
+
+          orderStatus: ORDER_STATUSES.PLACED,
+        },
+
+        {
+          $set: {
+            orderStatus: ORDER_STATUSES.CANCELLED,
+
+            cancelledAt,
+          },
+        },
+
+        {
+          session,
+
+          returnDocument: 'after',
+
+          runValidators: true,
+        },
+      )
+        .select('_id')
+        .lean();
+
+      if (!cancelledOrder) {
+        throwCustomerOrderNotCancellable();
+      }
+
+      /*
+       * Restore every purchased Inventory position.
+       *
+       * Order items are historical purchase snapshots,
+       * so quantity and Product/Variant identity come
+       * from the Order rather than current Cart state.
+       */
+      const inventoryAdjustments = [];
+
+      for (const item of order.items) {
+        const adjustment = await restoreInventoryForCancelledOrderItem({
+          item,
+
+          orderId: order._id,
+
+          session,
+        });
+
+        inventoryAdjustments.push(adjustment);
+      }
+
+      /*
+       * Stock restoration and adjustment history are
+       * part of the SAME transaction.
+       *
+       * If adjustment persistence fails,
+       * Order cancellation and Inventory restoration
+       * are rolled back together.
+       */
+      await InventoryAdjustment.create(inventoryAdjustments, {
+        session,
+      });
+    },
+
+    {
+      readPreference: 'primary',
+    },
+  );
+
+  /*
+   * Transaction has committed.
+   *
+   * Reload through the existing Customer detail service
+   * so the response uses the same authoritative resource
+   * shape as GET /orders/:orderId.
+   */
+  return getCustomerOrder({
+    customerId,
+    orderId,
+  });
 }

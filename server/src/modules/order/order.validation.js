@@ -141,3 +141,21 @@ export function validateCustomerOrderQuery(query) {
 
   return input;
 }
+
+export function validateCustomerOrderCancellationInput(input) {
+  if (input === undefined) {
+    return;
+  }
+
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throwValidationError({
+      request: 'Order cancellation does not accept request fields.',
+    });
+  }
+
+  if (Object.keys(input).length > 0) {
+    throwValidationError({
+      request: 'Order cancellation does not accept request fields.',
+    });
+  }
+}
