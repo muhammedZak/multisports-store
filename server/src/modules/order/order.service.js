@@ -623,3 +623,251 @@ export async function finalizeOrderForSucceededPayment({ paymentId }) {
 
   return toOrderPlacementResource(placedOrder);
 }
+
+function throwCustomerOrderNotFound() {
+  throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found.');
+}
+
+function getOrderItemCount(items) {
+  return items.reduce((total, item) => total + item.quantity, 0);
+}
+
+function toCustomerOrderListPaymentResource(payment) {
+  if (!payment?._id) {
+    return null;
+  }
+
+  return {
+    id: payment._id.toString(),
+    status: payment.status,
+  };
+}
+
+function toCustomerOrderDetailPaymentResource(payment) {
+  if (!payment?._id) {
+    return null;
+  }
+
+  return {
+    id: payment._id.toString(),
+
+    provider: payment.provider,
+
+    status: payment.status,
+
+    providerOrderId: payment.providerOrderId,
+
+    providerPaymentId: payment.providerPaymentId ?? null,
+
+    amount: payment.amount,
+
+    currency: payment.currency,
+
+    verifiedAt: payment.verifiedAt ?? null,
+  };
+}
+
+function toCustomerOrderListResource(order) {
+  return {
+    id: order._id.toString(),
+
+    orderNumber: order.orderNumber,
+
+    placedAt: order.placedAt,
+
+    orderStatus: order.orderStatus,
+
+    itemCount: getOrderItemCount(order.items),
+
+    payment: toCustomerOrderListPaymentResource(order.paymentId),
+
+    pricing: {
+      totalAmount: order.totalAmount,
+    },
+  };
+}
+
+function toCustomerOrderItemResource(item) {
+  return {
+    id: item._id.toString(),
+
+    product: {
+      id: item.productId.toString(),
+
+      name: item.productName,
+
+      brand: item.brand,
+
+      sport: item.sport,
+
+      category: {
+        id: item.categoryId.toString(),
+
+        name: item.categoryName,
+      },
+    },
+
+    variant: item.variantId
+      ? {
+          id: item.variantId.toString(),
+
+          options: item.variantOptions ?? {},
+        }
+      : null,
+
+    quantity: item.quantity,
+
+    pricing: {
+      basePrice: item.unitPrice,
+
+      itemDiscount: item.itemDiscount,
+
+      unitPrice: item.unitPrice - item.itemDiscount,
+
+      lineTotal: item.lineTotal,
+    },
+  };
+}
+
+function toCustomerOrderCouponResource(coupon) {
+  if (!coupon) {
+    return null;
+  }
+
+  return {
+    id: coupon.couponId.toString(),
+
+    code: coupon.code,
+
+    discountType: coupon.discountType,
+
+    discountValue: coupon.discountValue,
+
+    discountAmount: coupon.discountAmount,
+  };
+}
+
+function toCustomerOrderDetailResource(order) {
+  return {
+    id: order._id.toString(),
+
+    orderNumber: order.orderNumber,
+
+    orderStatus: order.orderStatus,
+
+    placedAt: order.placedAt,
+
+    cancelledAt: order.cancelledAt ?? null,
+
+    items: order.items.map(toCustomerOrderItemResource),
+
+    shippingAddress: {
+      ...order.shippingAddress,
+    },
+
+    coupon: toCustomerOrderCouponResource(order.coupon),
+
+    pricing: {
+      subtotal: order.subtotal,
+
+      discountAmount: order.discountAmount,
+
+      totalAmount: order.totalAmount,
+    },
+
+    payment: toCustomerOrderDetailPaymentResource(order.paymentId),
+  };
+}
+
+export async function getCustomerOrders({
+  customerId,
+  page,
+  limit,
+  status,
+  sort,
+  order,
+}) {
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw new TypeError('A valid Customer ID is required for Order history.');
+  }
+
+  const filter = {
+    customerId,
+  };
+
+  if (status) {
+    filter.orderStatus = status;
+  }
+
+  const direction = order === 'asc' ? 1 : -1;
+
+  const sortDefinition = {
+    [sort]: direction,
+    _id: direction,
+  };
+
+  const skip = (page - 1) * limit;
+
+  const [orders, totalItems] = await Promise.all([
+    Order.find(filter)
+      .select(
+        '_id orderNumber paymentId items totalAmount orderStatus placedAt',
+      )
+      .populate({
+        path: 'paymentId',
+        select: '_id status',
+      })
+      .sort(sortDefinition)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    Order.countDocuments(filter),
+  ]);
+
+  return {
+    items: orders.map(toCustomerOrderListResource),
+
+    meta: {
+      page,
+
+      limit,
+
+      totalItems,
+
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+}
+
+export async function getCustomerOrder({ customerId, orderId }) {
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw new TypeError('A valid Customer ID is required for Order details.');
+  }
+
+  if (!mongoose.isValidObjectId(orderId)) {
+    throwCustomerOrderNotFound();
+  }
+
+  const order = await Order.findOne({
+    _id: orderId,
+
+    customerId,
+  })
+    .select(
+      '_id orderNumber paymentId items shippingAddress coupon subtotal discountAmount totalAmount orderStatus placedAt cancelledAt',
+    )
+    .populate({
+      path: 'paymentId',
+
+      select:
+        '_id provider status providerOrderId providerPaymentId amount currency verifiedAt',
+    })
+    .lean();
+
+  if (!order) {
+    throwCustomerOrderNotFound();
+  }
+
+  return toCustomerOrderDetailResource(order);
+}
