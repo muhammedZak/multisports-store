@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router';
 
 import { normalizeApiError } from '../../api/errors.js';
 
-import { fetchAdminOrder } from '../../api/orderApi.js';
+import { fetchAdminOrder, updateAdminOrderStatus } from '../../api/orderApi.js';
 
 import { formatInrFromPaise } from '../../utils/money.js';
 
@@ -83,6 +83,22 @@ function getCouponValueLabel(coupon) {
   return formatInrFromPaise(coupon.discountValue);
 }
 
+function getTransitionActionLabel(status) {
+  const labels = {
+    confirmed: 'Confirm order',
+
+    processing: 'Start processing',
+
+    shipped: 'Mark as shipped',
+
+    delivered: 'Mark as delivered',
+
+    cancelled: 'Cancel order',
+  };
+
+  return labels[status] ?? `Move to ${formatStatus(status)}`;
+}
+
 function AdminOrderDetailsPage() {
   const { orderId } = useParams();
 
@@ -91,6 +107,12 @@ function AdminOrderDetailsPage() {
   const [loading, setLoading] = useState(true);
 
   const [error, setError] = useState(null);
+
+  const [statusUpdating, setStatusUpdating] = useState(null);
+
+  const [actionError, setActionError] = useState(null);
+
+  const [message, setMessage] = useState('');
 
   const loadOrder = useCallback(async () => {
     setLoading(true);
@@ -117,6 +139,63 @@ function AdminOrderDetailsPage() {
   useEffect(() => {
     loadOrder();
   }, [loadOrder]);
+
+  async function handleStatusUpdate(nextStatus) {
+    if (
+      !order ||
+      statusUpdating ||
+      !order.allowedNextStatuses.includes(nextStatus)
+    ) {
+      return;
+    }
+
+    if (nextStatus === 'cancelled') {
+      const confirmed = window.confirm(
+        `Cancel order ${order.orderNumber}? Inventory will be restored and this action cannot be undone.`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setStatusUpdating(nextStatus);
+
+    setActionError(null);
+
+    setMessage('');
+
+    try {
+      const updatedOrder = await updateAdminOrderStatus(order.id, nextStatus);
+
+      setOrder(updatedOrder);
+
+      setMessage(
+        nextStatus === 'cancelled'
+          ? 'Order cancelled successfully.'
+          : `Order status updated to ${formatStatus(nextStatus)}.`,
+      );
+    } catch (requestError) {
+      const normalizedError = normalizeApiError(
+        requestError,
+        'Unable to update this Order.',
+      );
+
+      setActionError(normalizedError);
+
+      /*
+       * Another Admin/process may have changed the
+       * Order since this page was loaded.
+       *
+       * Reload backend authority after a CAS conflict.
+       */
+      if (normalizedError.code === 'INVALID_STATE_TRANSITION') {
+        await loadOrder();
+      }
+    } finally {
+      setStatusUpdating(null);
+    }
+  }
 
   if (loading) {
     return (
@@ -198,6 +277,22 @@ function AdminOrderDetailsPage() {
         <div className='mt-6 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
           Order cancelled
           {order.cancelledAt ? ` on ${formatDate(order.cancelledAt)}.` : '.'}
+        </div>
+      )}
+
+      {message && (
+        <div
+          role='status'
+          className='mt-6 border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'>
+          {message}
+        </div>
+      )}
+
+      {actionError && (
+        <div
+          role='alert'
+          className='mt-6 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
+          {actionError.message}
         </div>
       )}
 
@@ -527,18 +622,44 @@ function AdminOrderDetailsPage() {
         </p>
 
         {order.allowedNextStatuses.length > 0 ? (
-          <div className='mt-4'>
-            <p className='text-sm text-neutral-500'>Permitted next statuses</p>
+          <div className='mt-5'>
+            <p className='text-sm text-neutral-500'>Available actions</p>
 
-            <div className='mt-3 flex flex-wrap gap-2'>
-              {order.allowedNextStatuses.map((status) => (
-                <span
-                  key={status}
-                  className='border border-neutral-300 px-3 py-1.5 text-sm font-medium'>
-                  {formatStatus(status)}
-                </span>
-              ))}
+            <div className='mt-3 flex flex-wrap gap-3'>
+              {order.allowedNextStatuses.map((status) => {
+                const cancelling = status === 'cancelled';
+
+                const updating = statusUpdating === status;
+
+                return (
+                  <button
+                    key={status}
+                    type='button'
+                    disabled={Boolean(statusUpdating)}
+                    onClick={() => handleStatusUpdate(status)}
+                    className={[
+                      'px-4 py-2.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50',
+
+                      cancelling
+                        ? 'border border-red-300 text-red-700 hover:bg-red-50'
+                        : 'bg-black text-white',
+                    ].join(' ')}>
+                    {updating
+                      ? cancelling
+                        ? 'Cancelling...'
+                        : 'Updating...'
+                      : getTransitionActionLabel(status)}
+                  </button>
+                );
+              })}
             </div>
+
+            {order.allowedNextStatuses.includes('cancelled') && (
+              <p className='mt-4 max-w-2xl text-xs leading-5 text-neutral-500'>
+                Cancelling restores the purchased Inventory. Payment and refund
+                processing are managed separately.
+              </p>
+            )}
           </div>
         ) : (
           <p className='mt-4 text-sm text-neutral-600'>

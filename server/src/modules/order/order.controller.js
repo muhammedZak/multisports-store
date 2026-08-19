@@ -1,5 +1,6 @@
 import {
   validateAdminOrderQuery,
+  validateAdminOrderStatusUpdateInput,
   validateCustomerOrderCancellationInput,
   validateCustomerOrderQuery,
 } from './order.validation.js';
@@ -10,6 +11,7 @@ import {
   getAdminOrders,
   getCustomerOrder,
   getCustomerOrders,
+  updateAdminOrderStatus,
 } from './order.service.js';
 
 export async function getOrdersForCustomer(req, res) {
@@ -84,6 +86,24 @@ export async function getOrdersForAdmin(req, res) {
 
 export async function getOrderForAdmin(req, res) {
   const order = await getAdminOrder(req.params.orderId);
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      order,
+    },
+  });
+}
+
+export async function updateOrderStatusForAdmin(req, res) {
+  const input = validateAdminOrderStatusUpdateInput(req.body);
+
+  const order = await updateAdminOrderStatus({
+    orderId: req.params.orderId,
+
+    status: input.status,
+  });
 
   res.status(200).json({
     success: true,

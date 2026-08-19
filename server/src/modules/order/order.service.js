@@ -121,6 +121,18 @@ function throwAdminOrderNotFound() {
   throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found.');
 }
 
+function throwInvalidAdminOrderStateTransition() {
+  throw new AppError(
+    409,
+    'INVALID_STATE_TRANSITION',
+    'The requested Order status transition is not allowed.',
+    {
+      status:
+        'Refresh the Order and choose one of its currently permitted next statuses.',
+    },
+  );
+}
+
 function throwCustomerOrderNotCancellable() {
   throw new AppError(
     409,
@@ -203,6 +215,105 @@ async function restoreInventoryForCancelledOrderItem({
 
     sourceId: orderId,
   };
+}
+
+
+async function cancelOrderWithInventoryRestoration({
+  orderId,
+  customerId = null,
+  allowedCurrentStatuses,
+  throwNotFound,
+  throwNotCancellable,
+}) {
+  const cancelledAt = new Date();
+
+  await mongoose.connection.transaction(
+    async (session) => {
+      const orderFilter = {
+        _id: orderId,
+      };
+
+      /*
+       * Customer cancellation adds ownership to the filter.
+       *
+       * Admin cancellation intentionally does not.
+       */
+      if (customerId) {
+        orderFilter.customerId = customerId;
+      }
+
+      const order = await Order.findOne(orderFilter)
+        .select('_id items orderStatus')
+        .session(session)
+        .lean();
+
+      if (!order) {
+        throwNotFound();
+      }
+
+      if (!allowedCurrentStatuses.includes(order.orderStatus)) {
+        throwNotCancellable();
+      }
+
+      /*
+       * Compare-and-set.
+       *
+       * The status observed above must still be current
+       * when cancellation is claimed.
+       */
+      const cancelledOrder = await Order.findOneAndUpdate(
+        {
+          ...orderFilter,
+
+          orderStatus: order.orderStatus,
+        },
+
+        {
+          $set: {
+            orderStatus: ORDER_STATUSES.CANCELLED,
+
+            cancelledAt,
+          },
+        },
+
+        {
+          session,
+
+          returnDocument: 'after',
+
+          runValidators: true,
+        },
+      )
+        .select('_id')
+        .lean();
+
+      if (!cancelledOrder) {
+        throwNotCancellable();
+      }
+
+      const inventoryAdjustments = [];
+
+      for (const item of order.items) {
+        const adjustment = await restoreInventoryForCancelledOrderItem({
+          item,
+
+          orderId: order._id,
+
+          session,
+        });
+
+        inventoryAdjustments.push(adjustment);
+      }
+
+      await InventoryAdjustment.create(inventoryAdjustments, {
+        session,
+      });
+    },
+
+    {
+      readPreference: 'primary',
+    },
+  );
 }
 
 function throwPaymentNotFound() {
@@ -1073,127 +1184,18 @@ export async function cancelCustomerOrder({ customerId, orderId }) {
     throwCustomerOrderNotFound();
   }
 
-  /*
-   * Generate once outside the retryable transaction.
-   *
-   * If MongoDB retries the transaction, the logical
-   * cancellation time remains stable.
-   */
-  const cancelledAt = new Date();
+  await cancelOrderWithInventoryRestoration({
+    orderId,
 
-  await mongoose.connection.transaction(
-    async (session) => {
-      /*
-       * Ownership-safe lookup.
-       *
-       * Another Customer's Order behaves exactly like
-       * a nonexistent Order.
-       */
-      const order = await Order.findOne({
-        _id: orderId,
-        customerId,
-      })
-        .select('_id items orderStatus')
-        .session(session)
-        .lean();
+    customerId,
 
-      if (!order) {
-        throwCustomerOrderNotFound();
-      }
+    allowedCurrentStatuses: [ORDER_STATUSES.PLACED],
 
-      /*
-       * Customer cancellation rule is intentionally narrow.
-       */
-      if (order.orderStatus !== ORDER_STATUSES.PLACED) {
-        throwCustomerOrderNotCancellable();
-      }
+    throwNotFound: throwCustomerOrderNotFound,
 
-      /*
-       * Compare-and-set transition.
-       *
-       * Do not blindly overwrite orderStatus.
-       *
-       * This protects against another concurrent process
-       * changing the Order after our initial read.
-       */
-      const cancelledOrder = await Order.findOneAndUpdate(
-        {
-          _id: order._id,
+    throwNotCancellable: throwCustomerOrderNotCancellable,
+  });
 
-          customerId,
-
-          orderStatus: ORDER_STATUSES.PLACED,
-        },
-
-        {
-          $set: {
-            orderStatus: ORDER_STATUSES.CANCELLED,
-
-            cancelledAt,
-          },
-        },
-
-        {
-          session,
-
-          returnDocument: 'after',
-
-          runValidators: true,
-        },
-      )
-        .select('_id')
-        .lean();
-
-      if (!cancelledOrder) {
-        throwCustomerOrderNotCancellable();
-      }
-
-      /*
-       * Restore every purchased Inventory position.
-       *
-       * Order items are historical purchase snapshots,
-       * so quantity and Product/Variant identity come
-       * from the Order rather than current Cart state.
-       */
-      const inventoryAdjustments = [];
-
-      for (const item of order.items) {
-        const adjustment = await restoreInventoryForCancelledOrderItem({
-          item,
-
-          orderId: order._id,
-
-          session,
-        });
-
-        inventoryAdjustments.push(adjustment);
-      }
-
-      /*
-       * Stock restoration and adjustment history are
-       * part of the SAME transaction.
-       *
-       * If adjustment persistence fails,
-       * Order cancellation and Inventory restoration
-       * are rolled back together.
-       */
-      await InventoryAdjustment.create(inventoryAdjustments, {
-        session,
-      });
-    },
-
-    {
-      readPreference: 'primary',
-    },
-  );
-
-  /*
-   * Transaction has committed.
-   *
-   * Reload through the existing Customer detail service
-   * so the response uses the same authoritative resource
-   * shape as GET /orders/:orderId.
-   */
   return getCustomerOrder({
     customerId,
     orderId,
@@ -1300,6 +1302,93 @@ export async function getAdminOrders({
       totalPages: Math.ceil(totalItems / limit),
     },
   };
+}
+
+export async function updateAdminOrderStatus({ orderId, status }) {
+  if (!mongoose.isValidObjectId(orderId)) {
+    throwAdminOrderNotFound();
+  }
+
+  if (!Object.values(ORDER_STATUSES).includes(status)) {
+    throw new TypeError(
+      'A valid Order status is required for Admin status update.',
+    );
+  }
+
+  /*
+   * Cancellation is different from normal fulfillment.
+   *
+   * It changes Inventory and audit history, so it must
+   * use the shared transaction.
+   */
+  if (status === ORDER_STATUSES.CANCELLED) {
+    await cancelOrderWithInventoryRestoration({
+      orderId,
+
+      allowedCurrentStatuses: [ORDER_STATUSES.PLACED, ORDER_STATUSES.CONFIRMED],
+
+      throwNotFound: throwAdminOrderNotFound,
+
+      throwNotCancellable: throwInvalidAdminOrderStateTransition,
+    });
+
+    return getAdminOrder(orderId);
+  }
+
+  /*
+   * Normal fulfillment transitions affect only Order.
+   *
+   * No MongoDB transaction is needed.
+   */
+  const order = await Order.findById(orderId).select('_id orderStatus').lean();
+
+  if (!order) {
+    throwAdminOrderNotFound();
+  }
+
+  const allowedNextStatuses = getAdminOrderAllowedNextStatuses(
+    order.orderStatus,
+  );
+
+  if (!allowedNextStatuses.includes(status)) {
+    throwInvalidAdminOrderStateTransition();
+  }
+
+  /*
+   * Compare-and-set prevents blindly overwriting a
+   * status that another Admin/process has changed.
+   */
+  const updatedOrder = await Order.findOneAndUpdate(
+    {
+      _id: order._id,
+
+      orderStatus: order.orderStatus,
+    },
+
+    {
+      $set: {
+        orderStatus: status,
+      },
+    },
+
+    {
+      returnDocument: 'after',
+
+      runValidators: true,
+    },
+  )
+    .select('_id')
+    .lean();
+
+  if (!updatedOrder) {
+    throwInvalidAdminOrderStateTransition();
+  }
+
+  /*
+   * Return the same authoritative resource shape
+   * used by GET /admin/orders/:orderId.
+   */
+  return getAdminOrder(orderId);
 }
 
 export async function getAdminOrder(orderId) {

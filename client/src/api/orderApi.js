@@ -82,3 +82,11 @@ export async function cancelMyOrder(orderId) {
 
   return response.data.data.order;
 }
+
+export async function updateAdminOrderStatus(orderId, status) {
+  const response = await apiClient.patch(`/admin/orders/${orderId}/status`, {
+    status,
+  });
+
+  return response.data.data.order;
+}

@@ -24,6 +24,8 @@ const ADMIN_ORDER_QUERY_FIELDS = [
   'order',
 ];
 
+const ADMIN_ORDER_STATUS_UPDATE_FIELDS = ['status'];
+
 const ADMIN_ORDER_SORT_VALUES = ['placedAt'];
 
 const ADMIN_ORDER_DIRECTION_VALUES = ['asc', 'desc'];
@@ -368,4 +370,41 @@ export function validateAdminOrderQuery(query) {
   }
 
   return input;
+}
+
+export function validateAdminOrderStatusUpdateInput(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throwValidationError({
+      request: 'A valid request body is required.',
+    });
+  }
+
+  const unexpectedFields = Object.keys(input).filter(
+    (field) => !ADMIN_ORDER_STATUS_UPDATE_FIELDS.includes(field),
+  );
+
+  if (unexpectedFields.length > 0) {
+    throwValidationError({
+      request: 'Unsupported Order status update fields were provided.',
+    });
+  }
+
+  if (typeof input.status !== 'string' || !input.status.trim()) {
+    throwValidationError({
+      status: 'Order status is required.',
+    });
+  }
+
+  const status = input.status.trim().toLowerCase();
+
+  if (!CUSTOMER_ORDER_STATUS_VALUES.includes(status)) {
+    throwValidationError({
+      status:
+        'Order status must be placed, confirmed, processing, shipped, delivered, or cancelled.',
+    });
+  }
+
+  return {
+    status,
+  };
 }
