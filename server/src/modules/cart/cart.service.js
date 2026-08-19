@@ -12,6 +12,7 @@ import {
 } from '../inventory/inventory.service.js';
 
 import { Cart } from './cart.model.js';
+import { Order } from '../order/order.model.js';
 
 import {
   resolveCouponByIdForSubtotal,
@@ -229,6 +230,100 @@ function sameObjectId(left, right) {
   }
 
   return left.toString() === right.toString();
+}
+
+function throwOrderNotFound() {
+  throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found.');
+}
+
+function toPersistedCartItem(item, quantity = item.quantity) {
+  return {
+    _id: item._id,
+
+    productId: item.productId,
+
+    variantId: item.variantId ?? null,
+
+    quantity,
+  };
+}
+
+function buildPostOrderCartItems(cartItems, orderItems) {
+  /*
+   * Track how much purchased quantity remains
+   * to be removed for each Product + Variant
+   * identity.
+   */
+  const remainingPurchasedQuantity = new Map();
+
+  for (const item of orderItems) {
+    const identity = getCartLineIdentity(
+      item.productId,
+      item.variantId ?? null,
+    );
+
+    remainingPurchasedQuantity.set(
+      identity,
+
+      (remainingPurchasedQuantity.get(identity) ?? 0) + item.quantity,
+    );
+  }
+
+  const nextItems = [];
+
+  for (const cartItem of cartItems) {
+    const identity = getCartLineIdentity(
+      cartItem.productId,
+      cartItem.variantId ?? null,
+    );
+
+    const quantityStillToRemove = remainingPurchasedQuantity.get(identity) ?? 0;
+
+    /*
+     * This Cart line was not part of the
+     * completed Order.
+     *
+     * Preserve it completely.
+     */
+    if (quantityStillToRemove <= 0) {
+      nextItems.push(toPersistedCartItem(cartItem));
+
+      continue;
+    }
+
+    /*
+     * Never make Cart quantity negative.
+     *
+     * Examples:
+     *
+     * Order purchased 2
+     * Current Cart = 5
+     * → leave 3
+     *
+     * Order purchased 2
+     * Current Cart = 2
+     * → remove line
+     *
+     * Order purchased 2
+     * Current Cart = 1
+     * → remove line
+     */
+    const quantityToRemove = Math.min(cartItem.quantity, quantityStillToRemove);
+
+    const remainingQuantity = cartItem.quantity - quantityToRemove;
+
+    remainingPurchasedQuantity.set(
+      identity,
+
+      quantityStillToRemove - quantityToRemove,
+    );
+
+    if (remainingQuantity > 0) {
+      nextItems.push(toPersistedCartItem(cartItem, remainingQuantity));
+    }
+  }
+
+  return nextItems;
 }
 
 function findCartItemByIdentity(cart, productId, variantId = null) {
@@ -1481,4 +1576,135 @@ export async function removeCouponFromCustomerCart(customerId) {
   );
 
   return resolveCustomerCart(updatedCart);
+}
+
+export async function reconcileCustomerCartAfterPlacedOrder({ orderId }) {
+  if (!mongoose.isValidObjectId(orderId)) {
+    throw new TypeError(
+      'A valid Order ID is required for Cart reconciliation.',
+    );
+  }
+
+  /*
+   * Generate once outside the retryable
+   * transaction callback.
+   */
+  const reconciledAt = new Date();
+
+  let customerId = null;
+
+  /*
+   * IMPORTANT:
+   *
+   * This is a completely separate transaction
+   * from Task 8.5 Order placement.
+   *
+   * Therefore failure here cannot roll back:
+   *
+   * Order
+   * Inventory
+   * InventoryAdjustment
+   * Coupon redemption
+   * Payment success
+   */
+  await mongoose.connection.transaction(async (session) => {
+    const order = await Order.findById(orderId).session(session);
+
+    if (!order) {
+      throwOrderNotFound();
+    }
+
+    customerId = order.customerId;
+
+    /*
+     * Idempotency guard.
+     *
+     * Browser retries and later webhook retries
+     * must not subtract purchased quantities
+     * again.
+     */
+    if (order.cartReconciledAt) {
+      return;
+    }
+
+    const cart = await Cart.findOne({
+      customerId: order.customerId,
+    }).session(session);
+
+    /*
+     * Cart may have been cleared or otherwise
+     * removed before reconciliation.
+     *
+     * That is not an Order failure.
+     *
+     * We still mark this Order reconciled so
+     * a future new Cart is never accidentally
+     * modified by this old Order.
+     */
+    if (cart) {
+      cart.items = buildPostOrderCartItems(cart.items, order.items);
+
+      /*
+       * Clear only the Coupon belonging to
+       * the completed Order.
+       *
+       * If the Customer applied a DIFFERENT
+       * Coupon after payment initiation,
+       * preserve it here.
+       */
+      if (
+        order.coupon?.couponId &&
+        sameObjectId(cart.appliedCouponId, order.coupon.couponId)
+      ) {
+        cart.appliedCouponId = null;
+      }
+
+      /*
+       * Preserve the Cart document itself.
+       *
+       * We replace only its current line state.
+       */
+      await cart.save({
+        session,
+      });
+    }
+
+    /*
+     * Cart mutation and idempotency marker
+     * commit together.
+     *
+     * Therefore:
+     *
+     * Cart changed + marker failed
+     *
+     * cannot happen.
+     */
+    order.cartReconciledAt = reconciledAt;
+
+    await order.save({
+      session,
+    });
+  });
+
+  /*
+   * Read fresh authority after the cleanup
+   * transaction commits.
+   */
+  const currentCart = await Cart.findOne({
+    customerId,
+  });
+
+  if (!currentCart) {
+    return resolveCustomerCart(null);
+  }
+
+  /*
+   * Reuse existing Cart mutation cleanup.
+   *
+   * If a different currently-applied Coupon
+   * became invalid after purchased quantities
+   * were removed, the existing Cart logic can
+   * safely remove it.
+   */
+  return resolveCustomerCartAfterMutation(currentCart);
 }

@@ -8,7 +8,7 @@ import {
   getRazorpayPublicKeyId,
   verifyRazorpayPaymentSignature,
 } from '../../integrations/razorpay.js';
-
+import { reconcileCustomerCartAfterPlacedOrder } from '../cart/cart.service.js';
 import { resolveCheckoutForCustomer } from '../checkout/checkout.service.js';
 import { finalizeOrderForSucceededPayment } from '../order/order.service.js';
 
@@ -529,6 +529,45 @@ export async function verifyRazorpayPaymentForCustomer({
   const order = await finalizeOrderForSucceededPayment({
     paymentId: reconciledPayment._id,
   });
+
+  /*
+   * Task 8.6:
+   *
+   * Order placement has ALREADY committed.
+   *
+   * Cart reconciliation is post-commit
+   * best-effort work and must never turn a
+   * valid Order into an API failure.
+   */
+  try {
+    await reconcileCustomerCartAfterPlacedOrder({
+      orderId: order.id,
+    });
+  } catch (error) {
+    console.error('Post-commit Cart reconciliation failed:', {
+      orderId: order.id,
+
+      paymentId: reconciledPayment._id.toString(),
+
+      message: error?.message ?? null,
+    });
+
+    /*
+     * Deliberately continue.
+     *
+     * Payment is succeeded.
+     * Order exists.
+     * Inventory/Coupon effects committed.
+     *
+     * Cart cleanup failure is not commerce
+     * failure.
+     *
+     * A later verification/webhook retry can
+     * safely attempt reconciliation again
+     * because Order.cartReconciledAt remains
+     * unset when its cleanup transaction fails.
+     */
+  }
 
   return {
     result: 'order_placed',

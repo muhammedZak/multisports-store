@@ -108,6 +108,11 @@ const orderSchema = new mongoose.Schema(
       type: Date,
       default: undefined,
     },
+
+    cartReconciledAt: {
+      type: Date,
+      default: undefined,
+    },
   },
   {
     timestamps: true,
