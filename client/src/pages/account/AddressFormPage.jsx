@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 
 import {
   createMyAddress,
@@ -95,6 +95,12 @@ function validateForm(form) {
 
 function AddressFormPage() {
   const navigate = useNavigate();
+
+  const location = useLocation();
+
+  const returnTo =
+    location.state?.from === '/checkout' ? '/checkout' : '/account/addresses';
+
   const { addressId } = useParams();
 
   const editMode = Boolean(addressId);
@@ -191,9 +197,9 @@ function AddressFormPage() {
         });
       }
 
-      navigate('/account/addresses', {
-        replace: true,
-      });
+     navigate(returnTo, {
+       replace: true,
+     });
     } catch (requestError) {
       setError(
         normalizeApiError(
@@ -220,7 +226,7 @@ function AddressFormPage() {
     return (
       <main className='mx-auto max-w-2xl p-6'>
         <Link
-          to='/account/addresses'
+          to={returnTo}
           className='text-sm font-medium underline underline-offset-4'>
           Back to addresses
         </Link>
@@ -239,7 +245,7 @@ function AddressFormPage() {
   return (
     <main className='mx-auto max-w-2xl p-6'>
       <Link
-        to='/account/addresses'
+        to={returnTo}
         className='text-sm font-medium underline underline-offset-4'>
         Back to addresses
       </Link>

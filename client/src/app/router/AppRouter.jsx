@@ -30,6 +30,8 @@ import AdminCouponFormPage from '../../pages/admin/AdminCouponFormPage.jsx';
 import CatalogPage from '../../pages/storefront/CatalogPage.jsx';
 import ProductDetailsPage from '../../pages/storefront/ProductDetailsPage.jsx';
 import CartPage from '../../pages/storefront/CartPage.jsx';
+import CheckoutPage from '../../pages/storefront/CheckoutPage.jsx';
+import OrderConfirmationPage from '../../pages/storefront/OrderConfirmationPage.jsx';
 
 import RequireAdmin from '../../features/auth/RequireAdmin.jsx';
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
@@ -46,6 +48,15 @@ function AppRouter() {
         <Route path='/products/:productId' element={<ProductDetailsPage />} />
 
         <Route path='/cart' element={<CartPage />} />
+
+        <Route element={<RequireCustomer />}>
+          <Route path='/checkout' element={<CheckoutPage />} />
+
+          <Route
+            path='/checkout/confirmation'
+            element={<OrderConfirmationPage />}
+          />
+        </Route>
       </Route>
 
       <Route element={<AuthLayout />}>

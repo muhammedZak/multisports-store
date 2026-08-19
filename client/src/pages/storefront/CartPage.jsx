@@ -1482,6 +1482,39 @@ function CartPage() {
               Prices shown use the latest product pricing successfully resolved
               for this cart view. Refresh any item that needs attention.
             </p>
+            {isCustomer && (
+              <>
+                {customerCart.canCheckout && !customerCartHasIssues ? (
+                  <Link
+                    to='/checkout'
+                    className='mt-6 inline-flex w-full justify-center bg-black px-5 py-3 text-sm font-medium text-white transition hover:bg-neutral-800'>
+                    Checkout
+                  </Link>
+                ) : (
+                  <div className='mt-6'>
+                    <button
+                      type='button'
+                      disabled
+                      className='w-full cursor-not-allowed bg-neutral-300 px-5 py-3 text-sm font-medium text-neutral-600'>
+                      Checkout
+                    </button>
+
+                    <p className='mt-2 text-xs leading-5 text-neutral-500'>
+                      Resolve any unavailable items or Cart issues before
+                      checkout.
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {isGuest && (
+              <Link
+                to='/checkout'
+                className='mt-6 inline-flex w-full justify-center bg-black px-5 py-3 text-sm font-medium text-white transition hover:bg-neutral-800'>
+                Sign in to checkout
+              </Link>
+            )}
             <Link
               to='/shop'
               className='mt-6 inline-flex w-full justify-center border border-neutral-300 px-5 py-3 text-sm font-medium hover:border-black'>
