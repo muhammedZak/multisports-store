@@ -565,99 +565,12 @@ export async function verifyRazorpayPaymentForCustomer({
     );
   }
 
-  // let reconciledPayment;
-
-  // /*
-  //  * Task 8.4 idempotent Payment success.
-  //  */
-  // if (payment.status === PAYMENT_STATUSES.SUCCEEDED) {
-  //   if (payment.providerPaymentId !== razorpayPaymentId) {
-  //     throwPaymentAlreadyProcessed();
-  //   }
-
-  //   reconciledPayment = payment;
-  // } else {
-  //   /*
-  //    * Provider verification happens FIRST.
-  //    *
-  //    * After this returns successfully:
-  //    *
-  //    * Payment.status = succeeded
-  //    *
-  //    * That status remains true even if
-  //    * Order finalization later fails.
-  //    */
-  //   reconciledPayment = await reconcileCapturedRazorpayPayment({
-  //     payment,
-
-  //     providerPaymentId: razorpayPaymentId,
-  //   });
-  // }
-
   const { payment: reconciledPayment, order } =
     await completeCapturedRazorpayPaymentCommerce({
       payment,
 
       providerPaymentId: razorpayPaymentId,
     });
-
-  return {
-    result: 'order_placed',
-
-    payment: toPaymentVerificationResource(reconciledPayment),
-
-    order,
-  };
-
-  /*
-   * Task 8.5:
-   *
-   * short deterministic MongoDB transaction.
-   *
-   * No Razorpay call happens inside it.
-   */
-  const order = await finalizeOrderForSucceededPayment({
-    paymentId: reconciledPayment._id,
-  });
-
-  /*
-   * Task 8.6:
-   *
-   * Order placement has ALREADY committed.
-   *
-   * Cart reconciliation is post-commit
-   * best-effort work and must never turn a
-   * valid Order into an API failure.
-   */
-  try {
-    await reconcileCustomerCartAfterPlacedOrder({
-      orderId: order.id,
-    });
-  } catch (error) {
-    console.error('Post-commit Cart reconciliation failed:', {
-      orderId: order.id,
-
-      paymentId: reconciledPayment._id.toString(),
-
-      message: error?.message ?? null,
-    });
-
-    /*
-     * Deliberately continue.
-     *
-     * Payment is succeeded.
-     * Order exists.
-     * Inventory/Coupon effects committed.
-     *
-     * Cart cleanup failure is not commerce
-     * failure.
-     *
-     * A later verification/webhook retry can
-     * safely attempt reconciliation again
-     * because Order.cartReconciledAt remains
-     * unset when its cleanup transaction fails.
-     */
-  }
 
   return {
     result: 'order_placed',
