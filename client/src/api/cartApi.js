@@ -35,3 +35,15 @@ export async function clearCustomerCart() {
 
   return response.data.data.cart;
 }
+
+export async function applyCustomerCartCoupon(payload) {
+  const response = await apiClient.post('/cart/coupon', payload);
+
+  return response.data.data.cart;
+}
+
+export async function removeCustomerCartCoupon() {
+  const response = await apiClient.delete('/cart/coupon');
+
+  return response.data.data.cart;
+}

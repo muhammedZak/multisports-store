@@ -2,9 +2,11 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
 import {
   addCustomerCartItem,
+  applyCustomerCartCoupon,
   clearCustomerCart,
   fetchCustomerCart,
   mergeCustomerCart,
+  removeCustomerCartCoupon,
   removeCustomerCartItem,
   updateCustomerCartItemQuantity,
 } from '../../api/cartApi.js';
@@ -47,11 +49,17 @@ function createEmptyCart() {
 
     items: [],
 
+    coupon: null,
+
     pricing: {
       subtotal: 0,
+      discountAmount: 0,
+      totalAmount: 0,
     },
 
     issues: [],
+
+    warnings: [],
 
     canCheckout: false,
   };
@@ -326,6 +334,82 @@ export const removeCartItem = createAsyncThunk(
         state.auth.user?.id === customerId &&
         state.auth.user?.role === 'customer' &&
         state.cart.actionStatus !== 'loading'
+      );
+    },
+  },
+);
+
+export const applyCartCoupon = createAsyncThunk(
+  'cart/applyCartCoupon',
+
+  async ({ customerId, code }, { rejectWithValue }) => {
+    try {
+      const cart = await applyCustomerCartCoupon({
+        code,
+      });
+
+      return {
+        customerId,
+        cart,
+      };
+    } catch (error) {
+      return rejectWithValue(
+        normalizeApiError(error, 'Unable to apply this Coupon.'),
+      );
+    }
+  },
+
+  {
+    condition: ({ customerId, code }, { getState }) => {
+      const state = getState();
+
+      return (
+        Boolean(customerId) &&
+        typeof code === 'string' &&
+        Boolean(code.trim()) &&
+        state.auth.user?.id === customerId &&
+        state.auth.user?.role === 'customer' &&
+        state.cart.ownerId === customerId &&
+        state.cart.initialized &&
+        state.cart.actionStatus !== 'loading' &&
+        state.cart.mergeStatus !== 'loading' &&
+        state.cart.revalidationStatus !== 'loading'
+      );
+    },
+  },
+);
+
+export const removeCartCoupon = createAsyncThunk(
+  'cart/removeCartCoupon',
+
+  async (customerId, { rejectWithValue }) => {
+    try {
+      const cart = await removeCustomerCartCoupon();
+
+      return {
+        customerId,
+        cart,
+      };
+    } catch (error) {
+      return rejectWithValue(
+        normalizeApiError(error, 'Unable to remove this Coupon.'),
+      );
+    }
+  },
+
+  {
+    condition: (customerId, { getState }) => {
+      const state = getState();
+
+      return (
+        Boolean(customerId) &&
+        state.auth.user?.id === customerId &&
+        state.auth.user?.role === 'customer' &&
+        state.cart.ownerId === customerId &&
+        state.cart.initialized &&
+        state.cart.actionStatus !== 'loading' &&
+        state.cart.mergeStatus !== 'loading' &&
+        state.cart.revalidationStatus !== 'loading'
       );
     },
   },
@@ -777,6 +861,110 @@ const cartSlice = createSlice({
         state.actionRequestId = null;
         state.actionItemId = action.meta.arg.cartItemId;
         state.actionOperation = 'remove';
+      })
+
+      .addCase(applyCartCoupon.pending, (state, action) => {
+        state.ownerId = action.meta.arg.customerId;
+
+        state.actionStatus = 'loading';
+        state.actionError = null;
+
+        state.actionRequestId = action.meta.requestId;
+
+        state.actionItemId = null;
+
+        state.actionOperation = 'coupon-apply';
+      })
+
+      .addCase(applyCartCoupon.fulfilled, (state, action) => {
+        if (
+          state.actionRequestId !== action.meta.requestId ||
+          state.ownerId !== action.payload.customerId
+        ) {
+          return;
+        }
+
+        /*
+         * Coupon + pricing come entirely
+         * from the backend-authoritative Cart.
+         */
+        state.cart = action.payload.cart;
+
+        state.initialized = true;
+
+        state.actionStatus = 'idle';
+        state.actionError = null;
+
+        state.actionRequestId = null;
+        state.actionItemId = null;
+        state.actionOperation = null;
+      })
+
+      .addCase(applyCartCoupon.rejected, (state, action) => {
+        if (state.actionRequestId !== action.meta.requestId) {
+          return;
+        }
+
+        state.actionStatus = 'idle';
+
+        state.actionError = action.payload ?? {
+          message: 'Unable to apply this Coupon.',
+        };
+
+        state.actionRequestId = null;
+        state.actionItemId = null;
+
+        state.actionOperation = 'coupon-apply';
+      })
+
+      .addCase(removeCartCoupon.pending, (state, action) => {
+        state.ownerId = action.meta.arg;
+
+        state.actionStatus = 'loading';
+        state.actionError = null;
+
+        state.actionRequestId = action.meta.requestId;
+
+        state.actionItemId = null;
+
+        state.actionOperation = 'coupon-remove';
+      })
+
+      .addCase(removeCartCoupon.fulfilled, (state, action) => {
+        if (
+          state.actionRequestId !== action.meta.requestId ||
+          state.ownerId !== action.payload.customerId
+        ) {
+          return;
+        }
+
+        state.cart = action.payload.cart;
+
+        state.initialized = true;
+
+        state.actionStatus = 'idle';
+        state.actionError = null;
+
+        state.actionRequestId = null;
+        state.actionItemId = null;
+        state.actionOperation = null;
+      })
+
+      .addCase(removeCartCoupon.rejected, (state, action) => {
+        if (state.actionRequestId !== action.meta.requestId) {
+          return;
+        }
+
+        state.actionStatus = 'idle';
+
+        state.actionError = action.payload ?? {
+          message: 'Unable to remove this Coupon.',
+        };
+
+        state.actionRequestId = null;
+        state.actionItemId = null;
+
+        state.actionOperation = 'coupon-remove';
       })
 
       .addCase(clearCart.pending, (state, action) => {

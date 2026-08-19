@@ -6,10 +6,13 @@ import { normalizeApiError } from '../../api/errors.js';
 import { fetchPublicProduct } from '../../api/productApi.js';
 import { validateGuestCoupon } from '../../api/couponApi.js';
 import {
+  applyCartCoupon,
   clearCart,
+  clearCartActionError,
   clearGuestCart,
   loadCustomerCart,
   revalidateCustomerCart,
+  removeCartCoupon,
   removeCartItem,
   removeGuestCartItem,
   updateCartItemQuantity,
@@ -22,6 +25,15 @@ const STOCK_LABELS = {
   low_stock: 'Low stock',
   out_of_stock: 'Out of stock',
 };
+
+const CUSTOMER_COUPON_WARNING_CODES = new Set([
+  'INVALID_COUPON',
+  'COUPON_INACTIVE',
+  'COUPON_NOT_STARTED',
+  'COUPON_EXPIRED',
+  'COUPON_MINIMUM_NOT_MET',
+  'COUPON_USAGE_LIMIT_REACHED',
+]);
 
 function formatOptionName(name) {
   return name
@@ -344,6 +356,11 @@ function CartPage() {
 
   const [guestCouponError, setGuestCouponError] = useState(null);
 
+  const [customerCouponCode, setCustomerCouponCode] = useState('');
+
+  const [customerCouponInputError, setCustomerCouponInputError] =
+    useState(null);
+
   const guestCouponRequestRef = useRef(0);
 
   const guestProductsRef = useRef({});
@@ -376,6 +393,24 @@ function CartPage() {
         .join('|'),
     [guestItems],
   );
+
+  useEffect(() => {
+    if (!isCustomer) {
+      setCustomerCouponCode('');
+      setCustomerCouponInputError(null);
+
+      return;
+    }
+
+    /*
+     * Successful apply/remove, Cart reload,
+     * or automatic backend removal updates
+     * the form from authoritative Cart state.
+     */
+    setCustomerCouponCode(customerCart.coupon?.code ?? '');
+
+    setCustomerCouponInputError(null);
+  }, [isCustomer, customerCart.coupon?.code]);
 
   useEffect(() => {
     /*
@@ -638,6 +673,65 @@ function CartPage() {
     setGuestCouponStatus('idle');
   }
 
+  function handleCustomerCouponCodeChange(event) {
+    setCustomerCouponCode(event.target.value.toUpperCase());
+
+    setCustomerCouponInputError(null);
+
+    if (
+      actionOperation === 'coupon-apply' &&
+      actionStatus !== 'loading' &&
+      actionError
+    ) {
+      dispatch(clearCartActionError());
+    }
+  }
+
+  function handleCustomerCouponSubmit(event) {
+    event.preventDefault();
+
+    if (
+      !isCustomer ||
+      !user?.id ||
+      actionStatus === 'loading' ||
+      isCustomerCartRevalidating
+    ) {
+      return;
+    }
+
+    const code = customerCouponCode.trim().toUpperCase();
+
+    if (!code) {
+      setCustomerCouponInputError('Coupon code is required.');
+
+      return;
+    }
+
+    setCustomerCouponInputError(null);
+
+    dispatch(
+      applyCartCoupon({
+        customerId: user.id,
+        code,
+      }),
+    );
+  }
+
+  function handleCustomerCouponRemove() {
+    if (
+      !isCustomer ||
+      !user?.id ||
+      actionStatus === 'loading' ||
+      isCustomerCartRevalidating
+    ) {
+      return;
+    }
+
+    setCustomerCouponInputError(null);
+
+    dispatch(removeCartCoupon(user.id));
+  }
+
   function handleCustomerCartRefresh() {
     if (!isCustomer || !user?.id) {
       return;
@@ -839,19 +933,65 @@ function CartPage() {
   }
 
   const items = isCustomer ? (customerCart.items ?? []) : guestResolvedItems;
+
   const subtotal = isCustomer
     ? (customerCart.pricing?.subtotal ?? 0)
     : guestSubtotal;
 
-    const guestCouponPricing = isGuest
-      ? (guestCouponPreview?.pricing ?? null)
+  const guestCouponPricing = isGuest
+    ? (guestCouponPreview?.pricing ?? null)
+    : null;
+
+  const customerCoupon = isCustomer ? (customerCart.coupon ?? null) : null;
+
+  const customerCartWarnings = isCustomer ? (customerCart.warnings ?? []) : [];
+
+  const customerHasInvalidSavedCoupon =
+    isCustomer &&
+    !customerCoupon &&
+    customerCartWarnings.some((warning) =>
+      CUSTOMER_COUPON_WARNING_CODES.has(warning.code),
+    );
+
+  const summarySubtotal = isCustomer
+    ? (customerCart.pricing?.subtotal ?? 0)
+    : (guestCouponPricing?.subtotal ?? subtotal);
+
+  const summaryDiscountAmount = isCustomer
+    ? (customerCart.pricing?.discountAmount ?? 0)
+    : (guestCouponPricing?.discountAmount ?? 0);
+
+  const summaryTotalAmount = isCustomer
+    ? (customerCart.pricing?.totalAmount ?? summarySubtotal)
+    : (guestCouponPricing?.totalAmount ?? subtotal);
+
+  const hasCouponPricing = isCustomer
+    ? Boolean(customerCoupon)
+    : Boolean(guestCouponPreview);
+
+  const isApplyingCustomerCoupon =
+    isCustomer &&
+    actionStatus === 'loading' &&
+    actionOperation === 'coupon-apply';
+
+  const isRemovingCustomerCoupon =
+    isCustomer &&
+    actionStatus === 'loading' &&
+    actionOperation === 'coupon-remove';
+
+  const customerCouponApplyError =
+    isCustomer &&
+    actionStatus !== 'loading' &&
+    actionOperation === 'coupon-apply'
+      ? actionError
       : null;
 
-    const summarySubtotal = guestCouponPricing?.subtotal ?? subtotal;
-
-    const guestCouponDiscount = guestCouponPricing?.discountAmount ?? 0;
-
-    const summaryTotalAmount = guestCouponPricing?.totalAmount ?? subtotal;
+  const customerCouponRemoveError =
+    isCustomer &&
+    actionStatus !== 'loading' &&
+    actionOperation === 'coupon-remove'
+      ? actionError
+      : null;
 
   const isClearingCart =
     isCustomer && actionStatus === 'loading' && actionOperation === 'clear';
@@ -963,6 +1103,24 @@ function CartPage() {
             Review the highlighted items below. Unavailable items can still be
             removed from your cart.
           </p>
+        </div>
+      )}
+
+      {isCustomer && customerCartWarnings.length > 0 && (
+        <div
+          role='status'
+          className='mt-6 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800'>
+          <p className='font-medium'>Coupon update</p>
+
+          <div className='mt-1 space-y-1'>
+            {customerCartWarnings.map((warning, index) => (
+              <p key={`${warning.code}-${index}`}>
+                {warning.message}
+
+                {warning.reasonMessage && ` ${warning.reasonMessage}`}
+              </p>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1084,6 +1242,131 @@ function CartPage() {
                 </span>
               </div>
 
+              {isCustomer && (
+                <div className='mt-5 border-t border-neutral-200 pt-5'>
+                  <p className='text-sm font-medium'>Coupon</p>
+
+                  {customerCoupon ? (
+                    <div className='mt-3 border border-green-200 bg-green-50 p-3'>
+                      <div className='flex items-start justify-between gap-3'>
+                        <div>
+                          <p className='text-sm font-medium text-green-800'>
+                            {customerCoupon.code} applied
+                          </p>
+
+                          <p className='mt-1 text-xs leading-5 text-green-700'>
+                            This Coupon is saved to your Customer Cart and
+                            recalculated using current server pricing.
+                          </p>
+                        </div>
+
+                        <button
+                          type='button'
+                          disabled={
+                            isRemovingCustomerCoupon ||
+                            isApplyingCustomerCoupon ||
+                            isCustomerCartRevalidating
+                          }
+                          onClick={handleCustomerCouponRemove}
+                          className='text-xs font-medium text-green-800 underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-50'>
+                          {isRemovingCustomerCoupon ? 'Removing...' : 'Remove'}
+                        </button>
+                      </div>
+
+                      {customerCouponRemoveError && (
+                        <p role='alert' className='mt-3 text-sm text-red-700'>
+                          {customerCouponRemoveError.message}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      {customerHasInvalidSavedCoupon && (
+                        <div className='mt-3 border border-amber-200 bg-amber-50 p-3'>
+                          <p className='text-sm font-medium text-amber-800'>
+                            Your saved Coupon needs attention.
+                          </p>
+
+                          <p className='mt-1 text-xs leading-5 text-amber-700'>
+                            It is no longer being used for the current Cart
+                            total.
+                          </p>
+
+                          <button
+                            type='button'
+                            disabled={
+                              isRemovingCustomerCoupon ||
+                              isApplyingCustomerCoupon ||
+                              isCustomerCartRevalidating
+                            }
+                            onClick={handleCustomerCouponRemove}
+                            className='mt-2 text-xs font-medium text-amber-800 underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-50'>
+                            {isRemovingCustomerCoupon
+                              ? 'Removing...'
+                              : 'Remove saved Coupon'}
+                          </button>
+
+                          {customerCouponRemoveError && (
+                            <p
+                              role='alert'
+                              className='mt-3 text-sm text-red-700'>
+                              {customerCouponRemoveError.message}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      <form
+                        onSubmit={handleCustomerCouponSubmit}
+                        className='mt-3 flex gap-2'>
+                        <input
+                          type='text'
+                          value={customerCouponCode}
+                          disabled={
+                            isApplyingCustomerCoupon ||
+                            isRemovingCustomerCoupon ||
+                            isCustomerCartRevalidating
+                          }
+                          onChange={handleCustomerCouponCodeChange}
+                          placeholder='Coupon code'
+                          aria-label='Coupon code'
+                          className='min-w-0 flex-1 border border-neutral-300 px-3 py-2.5 uppercase outline-none focus:border-black disabled:bg-neutral-100'
+                        />
+
+                        <button
+                          type='submit'
+                          disabled={
+                            isApplyingCustomerCoupon ||
+                            isRemovingCustomerCoupon ||
+                            isCustomerCartRevalidating ||
+                            items.length === 0 ||
+                            customerCartHasIssues
+                          }
+                          className='bg-black px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50'>
+                          {isApplyingCustomerCoupon ? 'Applying...' : 'Apply'}
+                        </button>
+                      </form>
+
+                      {(customerCouponInputError ||
+                        customerCouponApplyError) && (
+                        <p role='alert' className='mt-3 text-sm text-red-700'>
+                          {customerCouponInputError ??
+                            customerCouponApplyError?.fields?.code ??
+                            customerCouponApplyError?.message}
+                        </p>
+                      )}
+
+                      {customerCartHasIssues && (
+                        <p className='mt-3 text-xs leading-5 text-neutral-500'>
+                          Resolve unavailable Cart items before applying a
+                          Coupon.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
               {isGuest && (
                 <div className='mt-5 border-t border-neutral-200 pt-5'>
                   <p className='text-sm font-medium'>Coupon</p>
@@ -1149,7 +1432,7 @@ function CartPage() {
                 </div>
               )}
 
-              {isGuest && guestCouponPreview && (
+              {hasCouponPricing && (
                 <div className='mt-5 space-y-3 border-t border-neutral-200 pt-5'>
                   <div className='flex justify-between gap-4'>
                     <span className='text-sm text-neutral-600'>
@@ -1157,22 +1440,41 @@ function CartPage() {
                     </span>
 
                     <span className='font-medium text-green-700'>
-                      −{formatInrFromPaise(guestCouponDiscount)}
+                      −{formatInrFromPaise(summaryDiscountAmount)}
                     </span>
                   </div>
 
                   <div className='flex justify-between gap-4'>
-                    <span className='font-medium'>Preview total</span>
+                    <span className='font-medium'>
+                      {isGuest ? 'Preview total' : 'Cart total'}
+                    </span>
 
                     <span className='text-lg font-semibold'>
                       {formatInrFromPaise(summaryTotalAmount)}
                     </span>
                   </div>
 
-                  <p className='text-xs leading-5 text-neutral-500'>
-                    Guest Coupon validation is temporary. It does not reserve
-                    stock, save the Coupon, or consume Coupon usage.
-                  </p>
+                  {isGuest ? (
+                    <p className='text-xs leading-5 text-neutral-500'>
+                      Guest Coupon validation is temporary. It does not reserve
+                      stock, save the Coupon, or consume Coupon usage.
+                    </p>
+                  ) : (
+                    <p className='text-xs leading-5 text-neutral-500'>
+                      Coupon pricing is recalculated from current server-side
+                      Product, Inventory, and Coupon state.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {isCustomer && !customerCoupon && (
+                <div className='mt-5 flex justify-between gap-4 border-t border-neutral-200 pt-5'>
+                  <span className='font-medium'>Cart total</span>
+
+                  <span className='text-lg font-semibold'>
+                    {formatInrFromPaise(summaryTotalAmount)}
+                  </span>
                 </div>
               )}
             </div>
