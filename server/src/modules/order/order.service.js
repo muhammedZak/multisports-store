@@ -1,0 +1,625 @@
+import mongoose from 'mongoose';
+
+import { AppError } from '../../utils/AppError.js';
+
+import { Product } from '../catalog/product.model.js';
+import { Coupon } from '../coupon/coupon.model.js';
+
+import { INVENTORY_ADJUSTMENT_REASONS } from '../inventory/inventory.constants.js';
+
+import { Inventory } from '../inventory/inventory.model.js';
+
+import { InventoryAdjustment } from '../inventory/inventoryAdjustment.model.js';
+
+import { Payment, PAYMENT_STATUSES } from '../payment/payment.model.js';
+
+import { Order, ORDER_STATUSES } from './order.model.js';
+
+function throwPaymentNotFound() {
+  throw new AppError(404, 'PAYMENT_NOT_FOUND', 'Payment not found.');
+}
+
+function throwOrderFinalizationFailed(
+  message = 'Payment succeeded, but the Order could not be finalized safely.',
+) {
+  throw new AppError(409, 'ORDER_FINALIZATION_FAILED', message);
+}
+
+function isDuplicateKeyError(error) {
+  return error?.code === 11000;
+}
+
+function sameObjectId(left, right) {
+  if (!left || !right) {
+    return false;
+  }
+
+  return left.toString() === right.toString();
+}
+
+function getSnapshotLineIdentity(item) {
+  return `${item.productId.toString()}:${
+    item.variantId?.toString() ?? 'simple'
+  }`;
+}
+
+function assertUniqueSnapshotLines(items) {
+  const identities = new Set();
+
+  for (const item of items) {
+    const identity = getSnapshotLineIdentity(item);
+
+    if (identities.has(identity)) {
+      throwOrderFinalizationFailed(
+        'The approved Checkout snapshot contains duplicate purchasable items.',
+      );
+    }
+
+    identities.add(identity);
+  }
+}
+
+async function assertSnapshotItemPurchasable(item, session) {
+  const product = await Product.findById(item.productId)
+    .select('_id variants isActive')
+    .session(session)
+    .lean();
+
+  if (!product || !product.isActive) {
+    throwOrderFinalizationFailed(
+      'A paid Product is no longer available for Order placement.',
+    );
+  }
+
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+
+  /*
+   * Simple Product.
+   */
+  if (!item.variantId) {
+    if (variants.length > 0) {
+      throwOrderFinalizationFailed(
+        'A paid Cart line no longer matches the Product variant structure.',
+      );
+    }
+
+    return;
+  }
+
+  /*
+   * Snapshot says Variant Product,
+   * but the live Product is now simple.
+   */
+  if (variants.length === 0) {
+    throwOrderFinalizationFailed(
+      'A paid Variant no longer matches the Product variant structure.',
+    );
+  }
+
+  const variant = variants.find((candidate) =>
+    sameObjectId(candidate._id, item.variantId),
+  );
+
+  if (!variant || !variant.isActive) {
+    throwOrderFinalizationFailed(
+      'A paid Product variant is no longer available for Order placement.',
+    );
+  }
+}
+
+function getInventoryPurchaseFilter(item) {
+  const filter = {
+    productId: item.productId,
+
+    /*
+     * CRITICAL:
+     *
+     * Stock validation is part of the write.
+     *
+     * We never:
+     *
+     * read quantity
+     * → compare
+     * → save
+     */
+    quantity: {
+      $gte: item.quantity,
+    },
+  };
+
+  if (item.variantId) {
+    filter.variantId = item.variantId;
+  } else {
+    /*
+     * Existing Inventory convention:
+     * simple Product Inventory omits variantId.
+     */
+    filter.variantId = {
+      $exists: false,
+    };
+  }
+
+  return filter;
+}
+
+async function decrementInventoryForOrderItem({ item, orderId, session }) {
+  /*
+   * Product / Variant must still be purchasable.
+   *
+   * Current Product PRICE is deliberately not
+   * recalculated here because the Customer has
+   * already paid the immutable Payment snapshot.
+   */
+  await assertSnapshotItemPurchasable(item, session);
+
+  const updatedInventory = await Inventory.findOneAndUpdate(
+    getInventoryPurchaseFilter(item),
+
+    {
+      $inc: {
+        quantity: -item.quantity,
+      },
+    },
+
+    {
+      session,
+      returnDocument: 'after',
+    },
+  )
+    .select('_id quantity')
+    .lean();
+
+  if (!updatedInventory) {
+    throwOrderFinalizationFailed(
+      'A paid item no longer has enough stock for Order placement.',
+    );
+  }
+
+  /*
+   * updatedInventory is AFTER decrement.
+   *
+   * Example:
+   *
+   * before = 10
+   * purchase = 3
+   * after = 7
+   *
+   * previous = 7 + 3 = 10
+   */
+  const previousQuantity = updatedInventory.quantity + item.quantity;
+
+  return {
+    inventoryId: updatedInventory._id,
+
+    reason: INVENTORY_ADJUSTMENT_REASONS.ORDER_PURCHASE,
+
+    quantityChange: -item.quantity,
+
+    previousQuantity,
+
+    newQuantity: updatedInventory.quantity,
+
+    /*
+     * System source identity.
+     *
+     * Task 8.1 already created the
+     * unique idempotency index for this.
+     */
+    sourceType: 'order',
+
+    sourceId: orderId,
+  };
+}
+
+async function consumeCheckoutCoupon({ checkoutSnapshot, session, now }) {
+  if (!checkoutSnapshot.coupon) {
+    return;
+  }
+
+  const couponId = checkoutSnapshot.coupon.couponId;
+
+  /*
+   * Do NOT recalculate the discount here.
+   *
+   * The Customer already paid the amount
+   * approved inside checkoutSnapshot.
+   *
+   * We only revalidate whether the Coupon
+   * may still be consumed as a redemption.
+   */
+  const consumedCoupon = await Coupon.findOneAndUpdate(
+    {
+      _id: couponId,
+
+      isActive: true,
+
+      minimumOrderAmount: {
+        $lte: checkoutSnapshot.subtotal,
+      },
+
+      $and: [
+        {
+          $or: [
+            {
+              startsAt: null,
+            },
+            {
+              startsAt: {
+                $lte: now,
+              },
+            },
+          ],
+        },
+
+        {
+          $or: [
+            {
+              expiresAt: null,
+            },
+            {
+              expiresAt: {
+                $gt: now,
+              },
+            },
+          ],
+        },
+
+        /*
+         * Unlimited Coupon
+         *
+         * OR
+         *
+         * usedCount < usageLimit
+         */
+        {
+          $or: [
+            {
+              usageLimit: null,
+            },
+
+            {
+              $expr: {
+                $lt: ['$usedCount', '$usageLimit'],
+              },
+            },
+          ],
+        },
+      ],
+    },
+
+    {
+      $inc: {
+        usedCount: 1,
+      },
+    },
+
+    {
+      session,
+      returnDocument: 'after',
+    },
+  )
+    .select('_id usedCount usageLimit')
+    .lean();
+
+  if (!consumedCoupon) {
+    throwOrderFinalizationFailed(
+      'The paid Coupon can no longer be redeemed for Order placement.',
+    );
+  }
+}
+
+function createOrderNumber(orderId) {
+  /*
+   * Deterministic from the MongoDB Order ID.
+   *
+   * Avoid random generation inside a
+   * retryable Mongo transaction.
+   */
+  return `MS-${orderId.toString().toUpperCase()}`;
+}
+
+function toOrderPlacementResource(order) {
+  return {
+    id: order._id.toString(),
+
+    orderNumber: order.orderNumber,
+
+    orderStatus: order.orderStatus,
+
+    placedAt: order.placedAt,
+
+    items: order.items.map((item) => ({
+      id: item._id.toString(),
+
+      product: {
+        id: item.productId.toString(),
+
+        name: item.productName,
+
+        brand: item.brand,
+
+        sport: item.sport,
+
+        category: {
+          id: item.categoryId.toString(),
+
+          name: item.categoryName,
+        },
+      },
+
+      variant: item.variantId
+        ? {
+            id: item.variantId.toString(),
+
+            options: item.variantOptions ?? {},
+          }
+        : null,
+
+      quantity: item.quantity,
+
+      /*
+       * Historical snapshot semantics:
+       *
+       * item.unitPrice =
+       * pre-Product-discount price.
+       */
+      pricing: {
+        basePrice: item.unitPrice,
+
+        itemDiscount: item.itemDiscount,
+
+        unitPrice: item.unitPrice - item.itemDiscount,
+
+        lineTotal: item.lineTotal,
+      },
+    })),
+
+    shippingAddress: {
+      ...order.shippingAddress,
+    },
+
+    coupon: order.coupon
+      ? {
+          id: order.coupon.couponId.toString(),
+
+          code: order.coupon.code,
+
+          discountType: order.coupon.discountType,
+
+          discountValue: order.coupon.discountValue,
+
+          discountAmount: order.coupon.discountAmount,
+        }
+      : null,
+
+    pricing: {
+      subtotal: order.subtotal,
+
+      discountAmount: order.discountAmount,
+
+      totalAmount: order.totalAmount,
+    },
+  };
+}
+
+export async function finalizeOrderForSucceededPayment({ paymentId }) {
+  if (!mongoose.isValidObjectId(paymentId)) {
+    throw new TypeError(
+      'A valid Payment ID is required for Order finalization.',
+    );
+  }
+
+  /*
+   * Generate these ONCE outside the retryable
+   * transaction callback.
+   *
+   * If MongoDB retries the transaction,
+   * the logical Order identity stays stable.
+   */
+  const proposedOrderId = new mongoose.Types.ObjectId();
+
+  const proposedOrderNumber = createOrderNumber(proposedOrderId);
+
+  const placedAt = new Date();
+
+  let placedOrder = null;
+
+  try {
+    await mongoose.connection.transaction(
+      async (session) => {
+        placedOrder = null;
+
+        /*
+         * 1. Re-read Payment inside transaction.
+         */
+        const payment = await Payment.findById(paymentId)
+          .session(session)
+          .lean();
+
+        if (!payment) {
+          throwPaymentNotFound();
+        }
+
+        /*
+         * 2. Idempotency check BEFORE
+         *    any commerce effects.
+         */
+        const existingOrder = await Order.findOne({
+          paymentId: payment._id,
+        })
+          .session(session)
+          .lean();
+
+        if (existingOrder) {
+          placedOrder = existingOrder;
+
+          return;
+        }
+
+        /*
+         * Payment provider truth must already
+         * be persisted before Order work.
+         */
+        if (
+          payment.status !== PAYMENT_STATUSES.SUCCEEDED ||
+          !payment.providerPaymentId ||
+          !payment.verifiedAt
+        ) {
+          throwOrderFinalizationFailed(
+            'Only a backend-verified successful Payment can create an Order.',
+          );
+        }
+
+        const checkoutSnapshot = payment.checkoutSnapshot;
+
+        /*
+         * Defensive historical-integrity check.
+         */
+        if (
+          !checkoutSnapshot ||
+          !Array.isArray(checkoutSnapshot.items) ||
+          checkoutSnapshot.items.length === 0 ||
+          payment.amount !== checkoutSnapshot.totalAmount ||
+          payment.currency !== 'INR'
+        ) {
+          throwOrderFinalizationFailed(
+            'The verified Payment does not contain a valid Checkout snapshot.',
+          );
+        }
+
+        assertUniqueSnapshotLines(checkoutSnapshot.items);
+
+        /*
+         * 3. Inventory decrements.
+         *
+         * 4. Prepare matching adjustment history.
+         *
+         * Do this sequentially inside the
+         * transaction rather than Promise.all().
+         */
+        const inventoryAdjustments = [];
+
+        for (const item of checkoutSnapshot.items) {
+          const adjustment = await decrementInventoryForOrderItem({
+            item,
+
+            orderId: proposedOrderId,
+
+            session,
+          });
+
+          inventoryAdjustments.push(adjustment);
+        }
+
+        /*
+         * 5. Persist audit history.
+         *
+         * Failure here rolls Inventory back.
+         */
+        await InventoryAdjustment.create(inventoryAdjustments, {
+          session,
+        });
+
+        /*
+         * 6. Consume Coupon.
+         *
+         * Failure here rolls back Inventory
+         * and InventoryAdjustment records.
+         */
+        await consumeCheckoutCoupon({
+          checkoutSnapshot,
+          session,
+          now: placedAt,
+        });
+
+        /*
+         * 7. Create immutable Order from
+         *    Payment.checkoutSnapshot.
+         *
+         * Do not re-read current Product prices
+         * or shipping address.
+         */
+        const [createdOrder] = await Order.create(
+          [
+            {
+              _id: proposedOrderId,
+
+              orderNumber: proposedOrderNumber,
+
+              customerId: payment.customerId,
+
+              paymentId: payment._id,
+
+              items: checkoutSnapshot.items,
+
+              shippingAddress: checkoutSnapshot.shippingAddress,
+
+              coupon: checkoutSnapshot.coupon ?? null,
+
+              subtotal: checkoutSnapshot.subtotal,
+
+              discountAmount: checkoutSnapshot.discountAmount,
+
+              totalAmount: checkoutSnapshot.totalAmount,
+
+              orderStatus: ORDER_STATUSES.PLACED,
+
+              placedAt,
+            },
+          ],
+
+          {
+            session,
+          },
+        );
+
+        placedOrder = createdOrder.toObject({
+          depopulate: true,
+        });
+
+        /*
+         * Successful callback:
+         *
+         * MongoDB commits:
+         *
+         * Inventory
+         * InventoryAdjustments
+         * Coupon usedCount
+         * Order
+         *
+         * together.
+         */
+      },
+
+      {
+        readPreference: 'primary',
+      },
+    );
+  } catch (error) {
+    /*
+     * The unique Order.paymentId index
+     * remains the final race-condition guard.
+     *
+     * If another concurrent finalizer committed
+     * first, return the existing Order instead
+     * of treating the retry as another purchase.
+     */
+    if (isDuplicateKeyError(error)) {
+      const existingOrder = await Order.findOne({
+        paymentId,
+      }).lean();
+
+      if (existingOrder) {
+        return toOrderPlacementResource(existingOrder);
+      }
+    }
+
+    throw error;
+  }
+
+  if (!placedOrder) {
+    throwOrderFinalizationFailed();
+  }
+
+  return toOrderPlacementResource(placedOrder);
+}

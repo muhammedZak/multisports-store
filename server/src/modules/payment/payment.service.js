@@ -10,6 +10,7 @@ import {
 } from '../../integrations/razorpay.js';
 
 import { resolveCheckoutForCustomer } from '../checkout/checkout.service.js';
+import { finalizeOrderForSucceededPayment } from '../order/order.service.js';
 
 import { Payment, PAYMENT_STATUSES } from './payment.model.js';
 
@@ -456,10 +457,7 @@ export async function verifyRazorpayPaymentForCustomer({
   }
 
   /*
-   * Ownership-safe resolution.
-   *
-   * Another Customer's providerOrderId behaves exactly
-   * like a missing Payment.
+   * Ownership-safe Payment resolution.
    */
   const payment = await Payment.findOne({
     customerId,
@@ -471,12 +469,8 @@ export async function verifyRazorpayPaymentForCustomer({
   }
 
   /*
-   * CRITICAL:
-   *
-   * Use payment.providerOrderId loaded from MongoDB when
-   * calculating the HMAC.
-   *
-   * Never use the browser value as cryptographic authority.
+   * Continue using the provider Order ID
+   * stored in our database as HMAC authority.
    */
   const signatureIsValid = verifyRazorpayPaymentSignature({
     providerOrderId: payment.providerOrderId,
@@ -488,47 +482,59 @@ export async function verifyRazorpayPaymentForCustomer({
 
   if (!signatureIsValid) {
     /*
-     * Do NOT mutate Payment here.
-     *
-     * A malicious browser must not be able to poison a
-     * legitimate Payment by sending an invalid signature.
+     * Invalid browser callback remains
+     * completely non-mutating.
      */
     throwPaymentVerificationFailed(
       'The Razorpay payment signature is invalid.',
     );
   }
 
+  let reconciledPayment;
+
   /*
-   * The same successfully reconciled Payment is idempotent.
-   *
-   * Because we have already verified the callback HMAC,
-   * persisted succeeded state is enough for this retry.
+   * Task 8.4 idempotent Payment success.
    */
   if (payment.status === PAYMENT_STATUSES.SUCCEEDED) {
     if (payment.providerPaymentId !== razorpayPaymentId) {
       throwPaymentAlreadyProcessed();
     }
 
-    return {
-      result: 'payment_verified',
+    reconciledPayment = payment;
+  } else {
+    /*
+     * Provider verification happens FIRST.
+     *
+     * After this returns successfully:
+     *
+     * Payment.status = succeeded
+     *
+     * That status remains true even if
+     * Order finalization later fails.
+     */
+    reconciledPayment = await reconcileCapturedRazorpayPayment({
+      payment,
 
-      payment: toPaymentVerificationResource(payment),
-    };
+      providerPaymentId: razorpayPaymentId,
+    });
   }
 
-  const reconciledPayment = await reconcileCapturedRazorpayPayment({
-    payment,
-
-    providerPaymentId: razorpayPaymentId,
+  /*
+   * Task 8.5:
+   *
+   * short deterministic MongoDB transaction.
+   *
+   * No Razorpay call happens inside it.
+   */
+  const order = await finalizeOrderForSucceededPayment({
+    paymentId: reconciledPayment._id,
   });
 
   return {
-    /*
-     * Task 8.5 will continue from this authoritative success
-     * into transactional Order finalization.
-     */
-    result: 'payment_verified',
+    result: 'order_placed',
 
     payment: toPaymentVerificationResource(reconciledPayment),
+
+    order,
   };
 }
