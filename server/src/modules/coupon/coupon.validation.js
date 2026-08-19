@@ -39,6 +39,8 @@ const ADMIN_COUPON_QUERY_FIELDS = [
   'order',
 ];
 
+const CART_COUPON_FIELDS = ['code'];
+
 const ADMIN_COUPON_SORT_VALUES = ['createdAt', 'code', 'expiresAt'];
 
 const ADMIN_COUPON_ORDER_VALUES = ['asc', 'desc'];
@@ -399,5 +401,23 @@ export function validatePublicCouponInput(body) {
   return {
     code,
     items,
+  };
+}
+
+export function validateCartCouponInput(body) {
+  validateObject(body);
+
+  rejectUnexpectedFields(body, CART_COUPON_FIELDS);
+
+  const code = normalizeCouponCode(body.code);
+
+  if (!code) {
+    throwValidationError({
+      code: 'Coupon code is required.',
+    });
+  }
+
+  return {
+    code,
   };
 }

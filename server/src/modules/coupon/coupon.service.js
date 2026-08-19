@@ -341,6 +341,35 @@ export async function resolveCouponForSubtotal({
   });
 }
 
+export async function resolveCouponByIdForSubtotal({
+  couponId,
+  subtotal,
+  now = new Date(),
+}) {
+  if (!mongoose.isValidObjectId(couponId)) {
+    throwInvalidCoupon();
+  }
+
+  const coupon = await Coupon.findById(couponId);
+
+  /*
+   * A Cart may theoretically retain a reference whose Coupon
+   * was removed outside normal application workflows.
+   *
+   * Customer-facing behavior remains INVALID_COUPON rather
+   * than exposing an internal persistence condition.
+   */
+  if (!coupon) {
+    throwInvalidCoupon();
+  }
+
+  return validateCouponForSubtotal({
+    coupon,
+    subtotal,
+    now,
+  });
+}
+
 export async function getAdminCoupons({
   page,
   limit,

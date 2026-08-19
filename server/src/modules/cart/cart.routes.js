@@ -14,6 +14,8 @@ import {
   updateCartItemQuantityForCustomer,
   removeCartItemForCustomer,
   clearCartForCustomer,
+  applyCartCouponForCustomer,
+  removeCartCouponForCustomer,
 } from './cart.controller.js';
 
 const router = Router();
@@ -25,6 +27,10 @@ router.get('/', getCartForCustomer);
 router.post('/items', requireCsrf, addCartItemForCustomer);
 
 router.post('/merge', requireCsrf, mergeGuestCartForCustomer);
+
+router.post('/coupon', requireCsrf, applyCartCouponForCustomer);
+
+router.delete('/coupon', requireCsrf, removeCartCouponForCustomer);
 
 router.patch(
   '/items/:cartItemId',

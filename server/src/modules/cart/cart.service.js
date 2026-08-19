@@ -13,12 +13,53 @@ import {
 
 import { Cart } from './cart.model.js';
 
+import {
+  resolveCouponByIdForSubtotal,
+  resolveCouponForSubtotal,
+} from '../coupon/coupon.service.js';
+
 const INVENTORY_INTEGRITY_ERROR_CODES = new Set([
   'INVENTORY_MODE_CONFLICT',
   'INVENTORY_NOT_FOUND',
 ]);
 
+const COUPON_RUNTIME_ERROR_CODES = new Set([
+  'INVALID_COUPON',
+  'COUPON_INACTIVE',
+  'COUPON_NOT_STARTED',
+  'COUPON_EXPIRED',
+  'COUPON_MINIMUM_NOT_MET',
+  'COUPON_USAGE_LIMIT_REACHED',
+]);
+
 const CART_WRITE_MAX_ATTEMPTS = 5;
+
+function isCouponRuntimeError(error) {
+  return (
+    error instanceof AppError && COUPON_RUNTIME_ERROR_CODES.has(error.code)
+  );
+}
+
+function throwCartEmpty() {
+  throw new AppError(409, 'CART_EMPTY', 'Your Cart is empty.');
+}
+
+function throwCartCouponConflict() {
+  throw new AppError(
+    409,
+    'CART_ITEM_UNAVAILABLE',
+    'The Cart changed while the Coupon was being applied. Please try again.',
+  );
+}
+
+function createCartWarning(code, message, details = null) {
+  return {
+    code,
+    message,
+
+    ...(details ?? {}),
+  };
+}
 
 function throwProductNotFound() {
   throw new AppError(404, 'PRODUCT_NOT_FOUND', 'Product not found.');
@@ -556,20 +597,30 @@ async function resolveStoredCartItem(cartItem) {
   };
 }
 
-export async function resolveCustomerCart(cart) {
+async function resolveCustomerCartState(cart) {
   if (!cart) {
     return {
-      id: null,
+      resource: {
+        id: null,
 
-      items: [],
+        items: [],
 
-      pricing: {
-        subtotal: 0,
+        coupon: null,
+
+        pricing: {
+          subtotal: 0,
+          discountAmount: 0,
+          totalAmount: 0,
+        },
+
+        issues: [],
+
+        warnings: [],
+
+        canCheckout: false,
       },
 
-      issues: [],
-
-      canCheckout: false,
+      couponValidationError: null,
     };
   }
 
@@ -580,35 +631,193 @@ export async function resolveCustomerCart(cart) {
   }
 
   /*
-   * Resolved/priced lines contribute to the current subtotal.
-   * A completely missing Product has lineTotal = null.
+   * Current Product pricing is authoritative.
    *
-   * Such a Cart cannot proceed because the line has an issue.
+   * Persisted Cart lines contain identities + quantities,
+   * never historical pricing.
    */
-  const subtotal = items.reduce((total, item) => {
-    return total + (item.lineTotal ?? 0);
-  }, 0);
+  const subtotal = items.reduce(
+    (total, item) => total + (item.lineTotal ?? 0),
+    0,
+  );
 
-  const issues = items.flatMap((item) => {
-    return item.issues.map((issue) => ({
+  const issues = items.flatMap((item) =>
+    item.issues.map((issue) => ({
       cartItemId: item.id,
       ...issue,
-    }));
-  });
+    })),
+  );
+
+  let coupon = null;
+
+  let discountAmount = 0;
+
+  let totalAmount = subtotal;
+
+  const warnings = [];
+
+  let couponValidationError = null;
+
+  if (cart.appliedCouponId) {
+    try {
+      const couponResult = await resolveCouponByIdForSubtotal({
+        couponId: cart.appliedCouponId,
+
+        subtotal,
+      });
+
+      coupon = couponResult.coupon;
+
+      discountAmount = couponResult.discountAmount;
+
+      totalAmount = couponResult.totalAmount;
+    } catch (error) {
+      /*
+       * An applied Coupon becoming invalid must not make
+       * GET /cart unusable.
+       *
+       * Examples:
+       * - Coupon expired
+       * - Admin deactivated it
+       * - usage limit reached
+       * - minimum subtotal no longer met
+       *
+       * The Cart stays readable with zero Coupon discount.
+       */
+      if (!isCouponRuntimeError(error)) {
+        throw error;
+      }
+
+      couponValidationError = error;
+
+      warnings.push(createCartWarning(error.code, error.message));
+    }
+  }
 
   return {
-    id: cart._id.toString(),
+    resource: {
+      id: cart._id.toString(),
 
-    items,
+      items,
 
-    pricing: {
-      subtotal,
+      coupon,
+
+      pricing: {
+        subtotal,
+        discountAmount,
+        totalAmount,
+      },
+
+      issues,
+
+      warnings,
+
+      canCheckout: items.length > 0 && issues.length === 0,
     },
 
-    issues,
-
-    canCheckout: items.length > 0 && issues.length === 0,
+    couponValidationError,
   };
+}
+
+export async function resolveCustomerCart(cart) {
+  const { resource } = await resolveCustomerCartState(cart);
+
+  return resource;
+}
+
+async function resolveCustomerCartAfterMutation(cart) {
+  if (!cart) {
+    return resolveCustomerCart(null);
+  }
+
+  let currentCart = cart;
+
+  for (let attempt = 0; attempt < CART_WRITE_MAX_ATTEMPTS; attempt += 1) {
+    const { resource, couponValidationError } =
+      await resolveCustomerCartState(currentCart);
+
+    /*
+     * No Coupon, or the applied Coupon is
+     * still valid after the mutation.
+     */
+    if (!currentCart.appliedCouponId || !couponValidationError) {
+      return resource;
+    }
+
+    /*
+     * A Cart mutation has left the persisted Coupon
+     * invalid.
+     *
+     * Clear only the exact Coupon/state we just
+     * evaluated. updatedAt prevents overwriting a
+     * concurrent Cart change.
+     */
+    const clearedCart = await Cart.findOneAndUpdate(
+      {
+        _id: currentCart._id,
+
+        customerId: currentCart.customerId,
+
+        appliedCouponId: currentCart.appliedCouponId,
+
+        updatedAt: currentCart.updatedAt,
+      },
+
+      {
+        $set: {
+          appliedCouponId: null,
+        },
+      },
+
+      {
+        returnDocument: 'after',
+        runValidators: true,
+      },
+    );
+
+    if (clearedCart) {
+      const repairedCart = await resolveCustomerCart(clearedCart);
+
+      return {
+        ...repairedCart,
+
+        warnings: [
+          createCartWarning(
+            'COUPON_REMOVED',
+            'The applied Coupon is no longer valid and was removed.',
+            {
+              reasonCode: couponValidationError.code,
+
+              reasonMessage: couponValidationError.message,
+            },
+          ),
+
+          ...(repairedCart.warnings ?? []),
+        ],
+      };
+    }
+
+    /*
+     * Another request changed the Cart while we
+     * were clearing the stale Coupon.
+     *
+     * Re-read authority and evaluate again.
+     */
+    currentCart = await Cart.findOne({
+      customerId: currentCart.customerId,
+    });
+
+    if (!currentCart) {
+      return resolveCustomerCart(null);
+    }
+  }
+
+  /*
+   * Very unusual sustained concurrent writes.
+   * Return the newest authoritative state instead
+   * of performing an unsafe blind update.
+   */
+  return resolveCustomerCart(currentCart);
 }
 
 export async function addItemToCustomerCart({
@@ -739,7 +948,7 @@ export async function addItemToCustomerCart({
         continue;
       }
 
-      return resolveCustomerCart(updatedCart);
+      return resolveCustomerCartAfterMutation(updatedCart);
     }
 
     /*
@@ -800,7 +1009,7 @@ export async function addItemToCustomerCart({
       continue;
     }
 
-    return resolveCustomerCart(updatedCart);
+    return resolveCustomerCartAfterMutation(updatedCart);
   }
 
   throwCartWriteConflict();
@@ -894,7 +1103,7 @@ export async function updateCustomerCartItemQuantity({
       continue;
     }
 
-    return resolveCustomerCart(updatedCart);
+    return resolveCustomerCartAfterMutation(updatedCart);
   }
 
   throwCartUpdateConflict();
@@ -940,7 +1149,7 @@ export async function removeItemFromCustomerCart({ customerId, cartItemId }) {
     throwCartItemNotFound();
   }
 
-  return resolveCustomerCart(updatedCart);
+  return resolveCustomerCartAfterMutation(updatedCart);
 }
 
 export async function clearCustomerCart(customerId) {
@@ -1131,7 +1340,7 @@ export async function mergeGuestCartIntoCustomerCart({ customerId, items }) {
       continue;
     }
 
-    return resolveCustomerCart(updatedCart);
+    return resolveCustomerCartAfterMutation(updatedCart);
   }
 
   throwCartMergeConflict(
@@ -1149,4 +1358,127 @@ export async function getResolvedCustomerCart(customerId) {
   });
 
   return resolveCustomerCart(cart);
+}
+
+export async function applyCouponToCustomerCart({ customerId, code }) {
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw new TypeError('A valid Customer ID is required.');
+  }
+
+  for (let attempt = 0; attempt < CART_WRITE_MAX_ATTEMPTS; attempt += 1) {
+    const existingCart = await Cart.findOne({
+      customerId,
+    }).select('_id customerId items appliedCouponId createdAt updatedAt');
+
+    if (!existingCart || existingCart.items.length === 0) {
+      throwCartEmpty();
+    }
+
+    /*
+     * Re-resolve the complete Customer Cart.
+     *
+     * Never accept a client subtotal.
+     */
+    const { resource: resolvedCart } =
+      await resolveCustomerCartState(existingCart);
+
+    /*
+     * Do not attach a Coupon to a Cart whose
+     * Product / Variant / Inventory state is
+     * currently unsafe.
+     */
+    if (resolvedCart.issues.length > 0) {
+      throwCartItemUnavailable(
+        'Resolve unavailable Cart items before applying a Coupon.',
+      );
+    }
+
+    /*
+     * Coupon domain service validates:
+     *
+     * existence
+     * active status
+     * startsAt / expiresAt
+     * minimum order
+     * global usage limit
+     * percentage/fixed calculation
+     */
+    const couponResult = await resolveCouponForSubtotal({
+      code,
+
+      subtotal: resolvedCart.pricing.subtotal,
+    });
+
+    /*
+     * Persist only appliedCouponId.
+     *
+     * updatedAt is an optimistic concurrency
+     * guard: do not attach pricing validated
+     * against an older Cart snapshot.
+     */
+    const updatedCart = await Cart.findOneAndUpdate(
+      {
+        _id: existingCart._id,
+        customerId,
+        updatedAt: existingCart.updatedAt,
+      },
+
+      {
+        $set: {
+          appliedCouponId: couponResult.coupon.id,
+        },
+      },
+
+      {
+        returnDocument: 'after',
+        runValidators: true,
+      },
+    );
+
+    if (!updatedCart) {
+      continue;
+    }
+
+    /*
+     * Revalidate once more after persistence.
+     *
+     * If an Admin changed the Coupon between
+     * validation and persistence, the mutation
+     * resolver safely removes it.
+     */
+    return resolveCustomerCartAfterMutation(updatedCart);
+  }
+
+  throwCartCouponConflict();
+}
+
+export async function removeCouponFromCustomerCart(customerId) {
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw new TypeError('A valid Customer ID is required.');
+  }
+
+  /*
+   * Removal is intentionally idempotent.
+   *
+   * No Cart yet / no Coupon already produces the
+   * normal authoritative Cart response.
+   */
+  const updatedCart = await Cart.findOneAndUpdate(
+    {
+      customerId,
+    },
+
+    {
+      $set: {
+        appliedCouponId: null,
+      },
+    },
+
+    {
+      returnDocument: 'after',
+      runValidators: true,
+    },
+  );
+
+  return resolveCustomerCart(updatedCart);
 }

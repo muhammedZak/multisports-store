@@ -5,6 +5,8 @@ import {
   validateUpdateCartItemInput,
 } from './cart.validation.js';
 
+import { validateCartCouponInput } from '../coupon/coupon.validation.js';
+
 import {
   addItemToCustomerCart,
   clearCustomerCart,
@@ -12,6 +14,8 @@ import {
   mergeGuestCartIntoCustomerCart,
   removeItemFromCustomerCart,
   updateCustomerCartItemQuantity,
+  applyCouponToCustomerCart,
+  removeCouponFromCustomerCart,
 } from './cart.service.js';
 
 export async function updateCartItemQuantityForCustomer(req, res) {
@@ -100,6 +104,36 @@ export async function mergeGuestCartForCustomer(req, res) {
     customerId: req.user.id,
     items: input.items,
   });
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      cart,
+    },
+  });
+}
+
+export async function applyCartCouponForCustomer(req, res) {
+  const input = validateCartCouponInput(req.body);
+
+  const cart = await applyCouponToCustomerCart({
+    customerId: req.user.id,
+
+    code: input.code,
+  });
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      cart,
+    },
+  });
+}
+
+export async function removeCartCouponForCustomer(req, res) {
+  const cart = await removeCouponFromCustomerCart(req.user.id);
 
   res.status(200).json({
     success: true,
