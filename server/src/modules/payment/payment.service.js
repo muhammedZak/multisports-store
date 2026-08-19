@@ -317,6 +317,7 @@ export async function createRazorpayPaymentOrderForCustomer({
 export async function reconcileCapturedRazorpayPayment({
   payment,
   providerPaymentId,
+  providerPayment = null,
 }) {
   if (!payment?._id) {
     throw new TypeError(
@@ -353,11 +354,22 @@ export async function reconcileCapturedRazorpayPayment({
     throwPaymentAlreadyProcessed();
   }
 
-  const providerPayment = await fetchRazorpayPayment(providerPaymentId);
+  /*
+   * Browser verification:
+   * fetch current provider authority.
+   *
+   * Webhook:
+   * the provider Payment came from an already
+   * authenticated raw Razorpay event.
+   */
+  const authoritativeProviderPayment =
+    providerPayment ?? (await fetchRazorpayPayment(providerPaymentId));
 
   assertRazorpayPaymentMatches({
     payment,
-    providerPayment,
+
+    providerPayment: authoritativeProviderPayment,
+
     providerPaymentId,
   });
 
@@ -446,6 +458,69 @@ export async function reconcileCapturedRazorpayPayment({
   throwPaymentAlreadyProcessed();
 }
 
+export async function completeCapturedRazorpayPaymentCommerce({
+  payment,
+  providerPaymentId,
+  providerPayment = null,
+}) {
+  /*
+   * Shared authority path:
+   *
+   * browser /verify
+   *        OR
+   * authenticated Razorpay webhook
+   *             ↓
+   * Payment reconciliation
+   *             ↓
+   * Order finalization
+   *             ↓
+   * post-commit Cart reconciliation
+   */
+
+  const reconciledPayment = await reconcileCapturedRazorpayPayment({
+    payment,
+
+    providerPaymentId,
+
+    providerPayment,
+  });
+
+  /*
+   * Task 8.5:
+   *
+   * Idempotent transactional commerce effects.
+   */
+  const order = await finalizeOrderForSucceededPayment({
+    paymentId: reconciledPayment._id,
+  });
+
+  /*
+   * Task 8.6:
+   *
+   * Post-commit Cart reconciliation remains
+   * non-fatal to the valid Order.
+   */
+  try {
+    await reconcileCustomerCartAfterPlacedOrder({
+      orderId: order.id,
+    });
+  } catch (error) {
+    console.error('Post-commit Cart reconciliation failed:', {
+      orderId: order.id,
+
+      paymentId: reconciledPayment._id.toString(),
+
+      message: error?.message ?? null,
+    });
+  }
+
+  return {
+    payment: reconciledPayment,
+
+    order,
+  };
+}
+
 export async function verifyRazorpayPaymentForCustomer({
   customerId,
   razorpayOrderId,
@@ -490,34 +565,49 @@ export async function verifyRazorpayPaymentForCustomer({
     );
   }
 
-  let reconciledPayment;
+  // let reconciledPayment;
 
-  /*
-   * Task 8.4 idempotent Payment success.
-   */
-  if (payment.status === PAYMENT_STATUSES.SUCCEEDED) {
-    if (payment.providerPaymentId !== razorpayPaymentId) {
-      throwPaymentAlreadyProcessed();
-    }
+  // /*
+  //  * Task 8.4 idempotent Payment success.
+  //  */
+  // if (payment.status === PAYMENT_STATUSES.SUCCEEDED) {
+  //   if (payment.providerPaymentId !== razorpayPaymentId) {
+  //     throwPaymentAlreadyProcessed();
+  //   }
 
-    reconciledPayment = payment;
-  } else {
-    /*
-     * Provider verification happens FIRST.
-     *
-     * After this returns successfully:
-     *
-     * Payment.status = succeeded
-     *
-     * That status remains true even if
-     * Order finalization later fails.
-     */
-    reconciledPayment = await reconcileCapturedRazorpayPayment({
+  //   reconciledPayment = payment;
+  // } else {
+  //   /*
+  //    * Provider verification happens FIRST.
+  //    *
+  //    * After this returns successfully:
+  //    *
+  //    * Payment.status = succeeded
+  //    *
+  //    * That status remains true even if
+  //    * Order finalization later fails.
+  //    */
+  //   reconciledPayment = await reconcileCapturedRazorpayPayment({
+  //     payment,
+
+  //     providerPaymentId: razorpayPaymentId,
+  //   });
+  // }
+
+  const { payment: reconciledPayment, order } =
+    await completeCapturedRazorpayPaymentCommerce({
       payment,
 
       providerPaymentId: razorpayPaymentId,
     });
-  }
+
+  return {
+    result: 'order_placed',
+
+    payment: toPaymentVerificationResource(reconciledPayment),
+
+    order,
+  };
 
   /*
    * Task 8.5:

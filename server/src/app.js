@@ -23,6 +23,7 @@ import couponRouter from './modules/coupon/coupon.routes.js';
 import cartRouter from './modules/cart/cart.routes.js';
 import checkoutRouter from './modules/checkout/checkout.routes.js';
 import paymentRouter from './modules/payment/payment.routes.js';
+import paymentWebhookRouter from './modules/payment/paymentWebhook.routes.js';
 
 const app = express();
 
@@ -34,8 +35,23 @@ if (env.nodeEnv === 'development') {
   app.use(morgan('dev'));
 }
 
+/*
+ * Razorpay webhook MUST receive raw bytes.
+ *
+ * Mount before:
+ * express.json()
+ * express.urlencoded()
+ * session middleware
+ */
+app.use('/api/v1/webhooks', paymentWebhookRouter);
+
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+app.use(
+  express.urlencoded({
+    extended: true,
+  }),
+);
 
 app.use(sessionMiddleware);
 

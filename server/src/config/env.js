@@ -75,6 +75,10 @@ if (!process.env.RAZORPAY_KEY_SECRET) {
   throw new Error('RAZORPAY_KEY_SECRET is required');
 }
 
+if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
+  throw new Error('RAZORPAY_WEBHOOK_SECRET is required');
+}
+
 export const env = Object.freeze({
   nodeEnv,
   port,
@@ -97,4 +101,5 @@ export const env = Object.freeze({
 
   razorpayKeyId: process.env.RAZORPAY_KEY_ID,
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET,
+  razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
 });

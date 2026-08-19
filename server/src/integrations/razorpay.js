@@ -115,3 +115,35 @@ export function verifyRazorpayPaymentSignature({
 export function getRazorpayPublicKeyId() {
   return env.razorpayKeyId;
 }
+
+export function verifyRazorpayWebhookSignature({ rawBody, signature }) {
+  if (
+    !Buffer.isBuffer(rawBody) ||
+    typeof signature !== 'string' ||
+    !/^[a-fA-F0-9]{64}$/.test(signature)
+  ) {
+    return false;
+  }
+
+  /*
+   * Razorpay webhook HMAC:
+   *
+   * key     = webhook secret
+   * message = exact raw HTTP request body
+   *
+   * Never JSON.parse() / JSON.stringify()
+   * before this verification.
+   */
+  const expectedSignature = crypto
+    .createHmac('sha256', env.razorpayWebhookSecret)
+    .update(rawBody)
+    .digest();
+
+  const receivedSignature = Buffer.from(signature, 'hex');
+
+  if (receivedSignature.length !== expectedSignature.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(expectedSignature, receivedSignature);
+}
