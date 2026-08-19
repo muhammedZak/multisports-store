@@ -22,6 +22,7 @@ import couponRouter from './modules/coupon/coupon.routes.js';
 
 import cartRouter from './modules/cart/cart.routes.js';
 import checkoutRouter from './modules/checkout/checkout.routes.js';
+import paymentRouter from './modules/payment/payment.routes.js';
 
 const app = express();
 
@@ -57,6 +58,7 @@ app.use('/api/v1/coupons', couponRouter);
 app.use('/api/v1/cart', cartRouter);
 
 app.use('/api/v1/checkout', checkoutRouter);
+app.use('/api/v1/payments', paymentRouter);
 
 app.use('/api/v1/admin/categories', adminCategoryRouter);
 app.use('/api/v1/admin/products', adminProductRouter);
