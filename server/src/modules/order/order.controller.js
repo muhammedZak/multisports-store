@@ -1,10 +1,13 @@
 import {
+  validateAdminOrderQuery,
   validateCustomerOrderCancellationInput,
   validateCustomerOrderQuery,
 } from './order.validation.js';
 
 import {
   cancelCustomerOrder,
+  getAdminOrder,
+  getAdminOrders,
   getCustomerOrder,
   getCustomerOrders,
 } from './order.service.js';
@@ -53,6 +56,34 @@ export async function cancelOrderForCustomer(req, res) {
 
     orderId: req.params.orderId,
   });
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      order,
+    },
+  });
+}
+
+export async function getOrdersForAdmin(req, res) {
+  const query = validateAdminOrderQuery(req.query);
+
+  const result = await getAdminOrders(query);
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      items: result.items,
+    },
+
+    meta: result.meta,
+  });
+}
+
+export async function getOrderForAdmin(req, res) {
+  const order = await getAdminOrder(req.params.orderId);
 
   res.status(200).json({
     success: true,

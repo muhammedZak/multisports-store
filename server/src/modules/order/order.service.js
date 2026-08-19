@@ -15,6 +15,112 @@ import { Payment, PAYMENT_STATUSES } from '../payment/payment.model.js';
 
 import { Order, ORDER_STATUSES } from './order.model.js';
 
+function toAdminOrderCustomerResource(customer) {
+  if (!customer?._id) {
+    return null;
+  }
+
+  return {
+    id: customer._id.toString(),
+
+    name: customer.name,
+
+    email: customer.email,
+
+    phone: customer.phone ?? null,
+  };
+}
+
+const ADMIN_ORDER_ALLOWED_NEXT_STATUSES = Object.freeze({
+  [ORDER_STATUSES.PLACED]: Object.freeze([
+    ORDER_STATUSES.CONFIRMED,
+    ORDER_STATUSES.CANCELLED,
+  ]),
+
+  [ORDER_STATUSES.CONFIRMED]: Object.freeze([
+    ORDER_STATUSES.PROCESSING,
+    ORDER_STATUSES.CANCELLED,
+  ]),
+
+  [ORDER_STATUSES.PROCESSING]: Object.freeze([ORDER_STATUSES.SHIPPED]),
+
+  [ORDER_STATUSES.SHIPPED]: Object.freeze([ORDER_STATUSES.DELIVERED]),
+
+  [ORDER_STATUSES.DELIVERED]: Object.freeze([]),
+
+  [ORDER_STATUSES.CANCELLED]: Object.freeze([]),
+});
+
+function getAdminOrderAllowedNextStatuses(orderStatus) {
+  return [...(ADMIN_ORDER_ALLOWED_NEXT_STATUSES[orderStatus] ?? [])];
+}
+
+function toAdminOrderListResource(order) {
+  return {
+    id: order._id.toString(),
+
+    orderNumber: order.orderNumber,
+
+    placedAt: order.placedAt,
+
+    orderStatus: order.orderStatus,
+
+    itemCount: getOrderItemCount(order.items),
+
+    customer: toAdminOrderCustomerResource(order.customerId),
+
+    payment: toCustomerOrderListPaymentResource(order.paymentId),
+
+    pricing: {
+      totalAmount: order.totalAmount,
+    },
+  };
+}
+
+function toAdminOrderDetailResource(order) {
+  return {
+    id: order._id.toString(),
+
+    orderNumber: order.orderNumber,
+
+    orderStatus: order.orderStatus,
+
+    placedAt: order.placedAt,
+
+    cancelledAt: order.cancelledAt ?? null,
+
+    customer: toAdminOrderCustomerResource(order.customerId),
+
+    items: order.items.map(toCustomerOrderItemResource),
+
+    shippingAddress: {
+      ...order.shippingAddress,
+    },
+
+    coupon: toCustomerOrderCouponResource(order.coupon),
+
+    pricing: {
+      subtotal: order.subtotal,
+
+      discountAmount: order.discountAmount,
+
+      totalAmount: order.totalAmount,
+    },
+
+    payment: toCustomerOrderDetailPaymentResource(order.paymentId),
+
+    allowedNextStatuses: getAdminOrderAllowedNextStatuses(order.orderStatus),
+  };
+}
+
+function escapeRegularExpression(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function throwAdminOrderNotFound() {
+  throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found.');
+}
+
 function throwCustomerOrderNotCancellable() {
   throw new AppError(
     409,
@@ -1092,4 +1198,149 @@ export async function cancelCustomerOrder({ customerId, orderId }) {
     customerId,
     orderId,
   });
+}
+
+export async function getAdminOrders({
+  page,
+  limit,
+  q,
+  status,
+  customerId,
+  dateFrom,
+  dateTo,
+  sort,
+  order,
+}) {
+  const filter = {};
+
+  if (q) {
+    filter.orderNumber = {
+      $regex: escapeRegularExpression(q),
+
+      $options: 'i',
+    };
+  }
+
+  if (status) {
+    filter.orderStatus = status;
+  }
+
+  if (customerId) {
+    filter.customerId = customerId;
+  }
+
+  if (dateFrom || dateTo) {
+    filter.placedAt = {};
+
+    if (dateFrom) {
+      filter.placedAt.$gte = dateFrom;
+    }
+
+    if (dateTo) {
+      /*
+       * dateTo is inclusive for the Admin.
+       *
+       * Example:
+       * dateTo = 2026-08-19
+       *
+       * Query:
+       * placedAt < 2026-08-20T00:00:00.000Z
+       */
+      const dateToExclusive = new Date(dateTo);
+
+      dateToExclusive.setUTCDate(dateToExclusive.getUTCDate() + 1);
+
+      filter.placedAt.$lt = dateToExclusive;
+    }
+  }
+
+  const direction = order === 'asc' ? 1 : -1;
+
+  const sortDefinition = {
+    [sort]: direction,
+
+    _id: direction,
+  };
+
+  const skip = (page - 1) * limit;
+
+  const [orders, totalItems] = await Promise.all([
+    Order.find(filter)
+      .select(
+        '_id orderNumber customerId paymentId items totalAmount orderStatus placedAt',
+      )
+      .populate({
+        path: 'customerId',
+
+        select: '_id name email phone',
+      })
+      .populate({
+        path: 'paymentId',
+
+        select: '_id status',
+      })
+      .sort(sortDefinition)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    Order.countDocuments(filter),
+  ]);
+
+  return {
+    items: orders.map(toAdminOrderListResource),
+
+    meta: {
+      page,
+
+      limit,
+
+      totalItems,
+
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+}
+
+export async function getAdminOrder(orderId) {
+  if (!mongoose.isValidObjectId(orderId)) {
+    throwAdminOrderNotFound();
+  }
+
+  const order = await Order.findById(orderId)
+    .select(
+      [
+        '_id',
+        'orderNumber',
+        'customerId',
+        'paymentId',
+        'items',
+        'shippingAddress',
+        'coupon',
+        'subtotal',
+        'discountAmount',
+        'totalAmount',
+        'orderStatus',
+        'placedAt',
+        'cancelledAt',
+      ].join(' '),
+    )
+    .populate({
+      path: 'customerId',
+
+      select: '_id name email phone',
+    })
+    .populate({
+      path: 'paymentId',
+
+      select:
+        '_id provider status providerOrderId providerPaymentId amount currency verifiedAt',
+    })
+    .lean();
+
+  if (!order) {
+    throwAdminOrderNotFound();
+  }
+
+  return toAdminOrderDetailResource(order);
 }
