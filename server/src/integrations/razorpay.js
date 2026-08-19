@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 import Razorpay from 'razorpay';
 
 import { env } from '../config/env.js';
@@ -36,10 +38,6 @@ export async function createRazorpayOrder({ amount, receipt, notes = {} }) {
       partial_payment: false,
     });
   } catch (error) {
-    /*
-     * Do not expose provider internals or credentials
-     * through the public API.
-     */
     console.error('Razorpay order creation failed:', {
       statusCode: error?.statusCode ?? null,
       code: error?.error?.code ?? null,
@@ -47,6 +45,71 @@ export async function createRazorpayOrder({ amount, receipt, notes = {} }) {
 
     throwExternalServiceError();
   }
+}
+
+export async function fetchRazorpayPayment(providerPaymentId) {
+  if (typeof providerPaymentId !== 'string' || !providerPaymentId.trim()) {
+    throw new TypeError('A valid Razorpay Payment ID is required.');
+  }
+
+  try {
+    /*
+     * Official Razorpay Node SDK:
+     *
+     * instance.payments.fetch(paymentId)
+     */
+    return await razorpay.payments.fetch(providerPaymentId);
+  } catch (error) {
+    console.error('Razorpay payment fetch failed:', {
+      statusCode: error?.statusCode ?? null,
+      code: error?.error?.code ?? null,
+    });
+
+    /*
+     * The browser signature was already verified before this
+     * function is called.
+     *
+     * Therefore an upstream lookup failure must not falsely
+     * mutate our local Payment to failed.
+     */
+    throwExternalServiceError();
+  }
+}
+
+export function verifyRazorpayPaymentSignature({
+  providerOrderId,
+  providerPaymentId,
+  signature,
+}) {
+  if (
+    typeof providerOrderId !== 'string' ||
+    !providerOrderId ||
+    typeof providerPaymentId !== 'string' ||
+    !providerPaymentId ||
+    typeof signature !== 'string' ||
+    !/^[a-fA-F0-9]{64}$/.test(signature)
+  ) {
+    return false;
+  }
+
+  const message = `${providerOrderId}|${providerPaymentId}`;
+
+  const expectedSignature = crypto
+    .createHmac('sha256', env.razorpayKeySecret)
+    .update(message)
+    .digest();
+
+  const receivedSignature = Buffer.from(signature, 'hex');
+
+  if (receivedSignature.length !== expectedSignature.length) {
+    return false;
+  }
+
+  /*
+   * Timing-safe comparison avoids leaking partial
+   * signature-match information.
+   */
+  return crypto.timingSafeEqual(expectedSignature, receivedSignature);
 }
 
 export function getRazorpayPublicKeyId() {

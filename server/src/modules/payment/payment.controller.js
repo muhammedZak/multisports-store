@@ -1,6 +1,11 @@
 import { validateCheckoutAddressInput } from '../checkout/checkout.validation.js';
 
-import { createRazorpayPaymentOrderForCustomer } from './payment.service.js';
+import {
+  createRazorpayPaymentOrderForCustomer,
+  verifyRazorpayPaymentForCustomer,
+} from './payment.service.js';
+
+import { validateRazorpayVerificationInput } from './payment.validation.js';
 
 export async function createRazorpayOrderForCustomer(req, res) {
   /*
@@ -23,6 +28,22 @@ export async function createRazorpayOrderForCustomer(req, res) {
   });
 
   res.status(201).json({
+    success: true,
+
+    data: result,
+  });
+}
+
+export async function verifyRazorpayPaymentForCustomerController(req, res) {
+  const input = validateRazorpayVerificationInput(req.body);
+
+  const result = await verifyRazorpayPaymentForCustomer({
+    customerId: req.user.id,
+
+    ...input,
+  });
+
+  res.status(200).json({
     success: true,
 
     data: result,
