@@ -17,6 +17,7 @@ import adminCategoryRouter from './modules/catalog/adminCategory.routes.js';
 import adminProductRouter from './modules/catalog/adminProduct.routes.js';
 import publicCatalogRouter from './modules/catalog/publicCatalog.routes.js';
 import adminInventoryRouter from './modules/inventory/adminInventory.routes.js';
+import adminCouponRouter from './modules/coupon/adminCoupon.routes.js';
 
 import cartRouter from './modules/cart/cart.routes.js';
 
@@ -54,6 +55,7 @@ app.use('/api/v1/cart', cartRouter);
 app.use('/api/v1/admin/categories', adminCategoryRouter);
 app.use('/api/v1/admin/products', adminProductRouter);
 app.use('/api/v1/admin/inventory', adminInventoryRouter);
+app.use('/api/v1/admin/coupons', adminCouponRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
