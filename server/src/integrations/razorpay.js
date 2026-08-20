@@ -18,6 +18,19 @@ function throwExternalServiceError() {
   );
 }
 
+function assertProviderId(value, label) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new TypeError(`A valid Razorpay ${label} is required.`);
+  }
+}
+
+function logRazorpayFailure(operation, error) {
+  console.error(`Razorpay ${operation} failed:`, {
+    statusCode: error?.statusCode ?? error?.status ?? null,
+    code: error?.error?.code ?? error?.code ?? null,
+  });
+}
+
 export async function createRazorpayOrder({ amount, receipt, notes = {} }) {
   if (!Number.isSafeInteger(amount) || amount <= 0) {
     throw new TypeError('Razorpay order amount must be a positive integer.');
@@ -48,9 +61,7 @@ export async function createRazorpayOrder({ amount, receipt, notes = {} }) {
 }
 
 export async function fetchRazorpayPayment(providerPaymentId) {
-  if (typeof providerPaymentId !== 'string' || !providerPaymentId.trim()) {
-    throw new TypeError('A valid Razorpay Payment ID is required.');
-  }
+  assertProviderId(providerPaymentId, 'Payment ID');
 
   try {
     /*
@@ -146,4 +157,115 @@ export function verifyRazorpayWebhookSignature({ rawBody, signature }) {
   }
 
   return crypto.timingSafeEqual(expectedSignature, receivedSignature);
+}
+
+export async function fetchRazorpayRefund(
+  providerPaymentId,
+  providerRefundId,
+) {
+  assertProviderId(providerPaymentId, 'Payment ID');
+  assertProviderId(providerRefundId, 'Refund ID');
+
+  try {
+    return await razorpay.payments.fetchRefund(
+      providerPaymentId,
+      providerRefundId,
+    );
+  } catch (error) {
+    logRazorpayFailure('Refund fetch', error);
+    throwExternalServiceError();
+  }
+}
+
+export async function fetchRazorpayRefundsForPayment(providerPaymentId) {
+  assertProviderId(providerPaymentId, 'Payment ID');
+
+  const pageSize = 100;
+  const refunds = [];
+
+  try {
+    for (let skip = 0; ; skip += pageSize) {
+      const page = await razorpay.payments.fetchMultipleRefund(
+        providerPaymentId,
+        {
+          count: pageSize,
+          skip,
+        },
+      );
+
+      if (!page || !Array.isArray(page.items)) {
+        throw new Error('Razorpay returned an invalid Refund collection.');
+      }
+
+      const items = page.items;
+
+      refunds.push(...items);
+
+      if (items.length < pageSize) {
+        return refunds;
+      }
+    }
+  } catch (error) {
+    logRazorpayFailure('Refund-list fetch', error);
+    throwExternalServiceError();
+  }
+}
+
+export async function createRazorpayRefundIdempotently({
+  providerPaymentId,
+  body,
+  idempotencyKey,
+}) {
+  assertProviderId(providerPaymentId, 'Payment ID');
+
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new TypeError('A valid Razorpay Refund body is required.');
+  }
+
+  if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
+    throw new TypeError('A valid Razorpay Refund idempotency key is required.');
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.razorpay.com/v1/payments/${encodeURIComponent(providerPaymentId)}/refund`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${Buffer.from(
+            `${env.razorpayKeyId}:${env.razorpayKeySecret}`,
+          ).toString('base64')}`,
+          'Content-Type': 'application/json',
+          'X-Refund-Idempotency': idempotencyKey,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+
+    if (!response.ok) {
+      let providerError;
+
+      try {
+        providerError = await response.json();
+      } catch {
+        providerError = undefined;
+      }
+
+      logRazorpayFailure('Refund creation', {
+        status: response.status,
+        error: providerError?.error,
+      });
+      throwExternalServiceError();
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    logRazorpayFailure('Refund creation', error);
+    throwExternalServiceError();
+  }
 }

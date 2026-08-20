@@ -74,6 +74,22 @@ function getScopeSummary(refund) {
   return 'No Order scope';
 }
 
+function getApprovalResultMessage(status) {
+  if (status === 'processing') {
+    return 'Refund approved. Razorpay processing is pending.';
+  }
+
+  if (status === 'refunded') {
+    return 'Refund approved and completed by Razorpay.';
+  }
+
+  if (status === 'failed') {
+    return 'Refund approved, but Razorpay reported a terminal failure.';
+  }
+
+  return 'The business approval is saved. Provider processing is unconfirmed.';
+}
+
 function AdminRefundDetailsPage() {
   const { refundId } = useParams();
 
@@ -129,6 +145,31 @@ function AdminRefundDetailsPage() {
     }
   }
 
+  async function refreshAfterProviderUncertainty(normalizedError) {
+    try {
+      const authoritativeRefund = await fetchAdminRefund(refund.id);
+
+      setRefund(authoritativeRefund);
+
+      if (authoritativeRefund.status === 'approved') {
+        setDecisionError({
+          ...normalizedError,
+          message:
+            'The business approval is saved, but provider processing is unconfirmed. Retry Provider Processing when ready.',
+        });
+      } else {
+        setMessage(getApprovalResultMessage(authoritativeRefund.status));
+      }
+    } catch (refreshError) {
+      setDecisionError(
+        normalizeApiError(
+          refreshError,
+          'Provider processing is unconfirmed, and the authoritative Refund state could not be reloaded.',
+        ),
+      );
+    }
+  }
+
   async function submitDecision(payload, successMessage) {
     if (!refund || decisionLoading) {
       return;
@@ -145,7 +186,11 @@ function AdminRefundDetailsPage() {
       setApproveNote('');
       setApproveRestock('');
       setRejectNote('');
-      setMessage(successMessage);
+      setMessage(
+        typeof successMessage === 'function'
+          ? successMessage(updatedRefund)
+          : successMessage,
+      );
     } catch (requestError) {
       const normalizedError = normalizeApiError(
         requestError,
@@ -154,6 +199,11 @@ function AdminRefundDetailsPage() {
 
       if (normalizedError.code === 'REFUND_ALREADY_PROCESSED') {
         await refreshAfterStaleDecision(normalizedError);
+      } else if (
+        normalizedError.code === 'EXTERNAL_SERVICE_ERROR' &&
+        payload.decision === 'approve'
+      ) {
+        await refreshAfterProviderUncertainty(normalizedError);
       } else {
         setDecisionError(normalizedError);
       }
@@ -189,7 +239,28 @@ function AdminRefundDetailsPage() {
         restockOnCompletion: approveRestock === 'yes',
         ...(normalizedNote ? { adminDecisionNote: normalizedNote } : {}),
       },
-      'Refund request approved. Provider processing has not started.',
+      (updatedRefund) => getApprovalResultMessage(updatedRefund.status),
+    );
+  }
+
+  async function handleRetryProviderProcessing() {
+    const confirmed = window.confirm(
+      'Retry reconciliation for this already-approved Refund?',
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    await submitDecision(
+      {
+        decision: 'approve',
+        restockOnCompletion: refund.restockOnCompletion,
+        ...(refund.adminDecisionNote
+          ? { adminDecisionNote: refund.adminDecisionNote }
+          : {}),
+      },
+      (updatedRefund) => getApprovalResultMessage(updatedRefund.status),
     );
   }
 
@@ -263,6 +334,8 @@ function AdminRefundDetailsPage() {
 
   const canDecide =
     refund.status === 'requested' && refund.origin === 'customer_request';
+  const canRetryProvider =
+    refund.status === 'approved' && refund.origin === 'customer_request';
   const affectedItems = refund.affectedItems ?? [];
 
   return (
@@ -565,8 +638,8 @@ function AdminRefundDetailsPage() {
               className='border border-green-200 bg-green-50 p-5'>
               <h3 className='font-semibold text-green-900'>Approve request</h3>
               <p className='mt-2 text-sm leading-6 text-green-800'>
-                Approval records the business decision only. It does not call
-                the payment provider or restore Inventory.
+                Approval is saved before Razorpay Refund processing starts.
+                Inventory is not restored in this step.
               </p>
 
               <fieldset className='mt-5'>
@@ -670,10 +743,36 @@ function AdminRefundDetailsPage() {
               </button>
             </form>
           </div>
+        ) : canRetryProvider ? (
+          <div className='mt-5 border border-indigo-200 bg-indigo-50 p-5'>
+            <h3 className='font-semibold text-indigo-900'>
+              Provider processing unconfirmed
+            </h3>
+            <p className='mt-2 text-sm leading-6 text-indigo-800'>
+              The business approval and original restock decision are already
+              saved. This action reconciles the same Razorpay Refund operation
+              and cannot change the approval details.
+            </p>
+            <button
+              type='button'
+              disabled={decisionLoading}
+              onClick={handleRetryProviderProcessing}
+              className='mt-4 inline-flex items-center justify-center bg-black px-5 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-neutral-400'>
+              {decisionLoading
+                ? 'Reconciling provider Refund...'
+                : 'Retry Provider Processing'}
+            </button>
+          </div>
         ) : (
           <p className='mt-4 text-sm leading-6 text-neutral-600'>
-            This Refund is read-only. Only requested Customer Refunds await an
-            Admin approve or reject decision.
+            {refund.status === 'processing' &&
+              'Razorpay is processing this Refund. No duplicate initiation action is available.'}
+            {refund.status === 'refunded' &&
+              'This Refund completed successfully and is read-only.'}
+            {refund.status === 'failed' &&
+              'Razorpay reported a terminal Refund failure. This Refund is read-only.'}
+            {!['processing', 'refunded', 'failed'].includes(refund.status) &&
+              'This Refund is read-only. Only requested Customer Refunds await an Admin approve or reject decision.'}
           </p>
         )}
       </section>

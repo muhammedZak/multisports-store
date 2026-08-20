@@ -37,6 +37,13 @@ const razorpayWebhookEventSchema = new mongoose.Schema(
       immutable: true,
     },
 
+    providerRefundId: {
+      type: String,
+      trim: true,
+      default: undefined,
+      immutable: true,
+    },
+
     paymentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Payment',
@@ -46,6 +53,12 @@ const razorpayWebhookEventSchema = new mongoose.Schema(
     orderId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Order',
+      default: undefined,
+    },
+
+    refundId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Refund',
       default: undefined,
     },
 

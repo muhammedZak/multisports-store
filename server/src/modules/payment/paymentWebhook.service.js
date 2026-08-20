@@ -2,6 +2,8 @@ import { AppError } from '../../utils/AppError.js';
 
 import { verifyRazorpayWebhookSignature } from '../../integrations/razorpay.js';
 
+import { reconcileRazorpayRefundWebhook } from '../refund/refundProvider.service.js';
+
 import { Payment } from './payment.model.js';
 
 import {
@@ -12,6 +14,11 @@ import {
 import { completeCapturedRazorpayPaymentCommerce } from './payment.service.js';
 
 const SUPPORTED_CAPTURE_EVENTS = new Set(['payment.captured', 'order.paid']);
+const SUPPORTED_REFUND_EVENTS = new Set([
+  'refund.created',
+  'refund.processed',
+  'refund.failed',
+]);
 
 const TERMINAL_RECONCILIATION_ERRORS = new Set([
   'PAYMENT_AMOUNT_MISMATCH',
@@ -78,6 +85,10 @@ function getWebhookPaymentEntity(payload) {
   return payload?.payload?.payment?.entity ?? null;
 }
 
+function getWebhookRefundEntity(payload) {
+  return payload?.payload?.refund?.entity ?? null;
+}
+
 function assertCapturedPaymentEntity(providerPayment) {
   if (
     !providerPayment ||
@@ -96,6 +107,7 @@ async function claimWebhookEvent({
   eventId,
   eventType,
   providerPayment,
+  providerRefund,
   providerCreatedAt,
 }) {
   try {
@@ -104,9 +116,11 @@ async function claimWebhookEvent({
 
       eventType,
 
-      providerPaymentId: providerPayment?.id,
+      providerPaymentId: providerPayment?.id ?? providerRefund?.payment_id,
 
       providerOrderId: providerPayment?.order_id,
+
+      providerRefundId: providerRefund?.id,
 
       providerCreatedAt,
 
@@ -191,7 +205,7 @@ async function claimWebhookEvent({
   };
 }
 
-async function markWebhookIgnored({ eventId, result, paymentId }) {
+async function markWebhookIgnored({ eventId, result, paymentId, refundId }) {
   await RazorpayWebhookEvent.updateOne(
     {
       eventId,
@@ -210,6 +224,12 @@ async function markWebhookIgnored({ eventId, result, paymentId }) {
               paymentId,
             }
           : {}),
+
+        ...(refundId
+          ? {
+              refundId,
+            }
+          : {}),
       },
 
       $unset: {
@@ -225,6 +245,7 @@ async function markWebhookProcessed({
   result,
   paymentId,
   orderId,
+  refundId,
   failureCode,
   failureMessage,
 }) {
@@ -250,6 +271,12 @@ async function markWebhookProcessed({
         ...(orderId
           ? {
               orderId,
+            }
+          : {}),
+
+        ...(refundId
+          ? {
+              refundId,
             }
           : {}),
 
@@ -313,6 +340,8 @@ export async function processRazorpayWebhook({ rawBody, signature, eventId }) {
 
   const providerPayment = getWebhookPaymentEntity(payload);
 
+  const providerRefund = getWebhookRefundEntity(payload);
+
   const providerCreatedAt = getProviderCreatedAt(payload);
 
   const claim = await claimWebhookEvent({
@@ -321,6 +350,8 @@ export async function processRazorpayWebhook({ rawBody, signature, eventId }) {
     eventType,
 
     providerPayment,
+
+    providerRefund,
 
     providerCreatedAt,
   });
@@ -334,6 +365,45 @@ export async function processRazorpayWebhook({ rawBody, signature, eventId }) {
 
       eventId: normalizedEventId,
     };
+  }
+
+  if (SUPPORTED_REFUND_EVENTS.has(eventType)) {
+    try {
+      const reconciliation =
+        await reconcileRazorpayRefundWebhook(providerRefund);
+
+      if (!reconciliation.refund) {
+        await markWebhookIgnored({
+          eventId: normalizedEventId,
+          result: reconciliation.result,
+        });
+
+        return {
+          result: reconciliation.result,
+        };
+      }
+
+      const refund = reconciliation.refund;
+
+      await markWebhookProcessed({
+        eventId: normalizedEventId,
+        result: reconciliation.result,
+        paymentId: refund.paymentId?._id ?? refund.paymentId,
+        refundId: refund._id,
+      });
+
+      return {
+        result: reconciliation.result,
+        refundId: refund._id.toString(),
+      };
+    } catch (error) {
+      await markWebhookFailed({
+        eventId: normalizedEventId,
+        error,
+      });
+
+      throw error;
+    }
   }
 
   /*

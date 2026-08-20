@@ -22,6 +22,7 @@ import {
 } from './refund.domain.js';
 
 import { Refund } from './refund.model.js';
+import { processApprovedRazorpayRefund } from './refundProvider.service.js';
 
 function throwOrderNotFound() {
   throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found.');
@@ -652,7 +653,9 @@ export async function decideAdminRefund({
   decision,
   adminDecisionNote,
   restockOnCompletion,
-}) {
+}, {
+  processProviderRefund = processApprovedRazorpayRefund,
+} = {}) {
   if (!mongoose.isValidObjectId(refundId)) {
     throwRefundNotFound();
   }
@@ -718,16 +721,50 @@ export async function decideAdminRefund({
     .lean();
 
   if (!updatedRefund) {
-    const refundExists = await Refund.exists({
-      _id: refundId,
-    });
+    const existingRefund = await Refund.findById(refundId)
+      .select(
+        '_id origin status restockOnCompletion adminDecisionNote',
+      )
+      .lean();
 
-    if (!refundExists) {
+    if (!existingRefund) {
       throwRefundNotFound();
     }
 
-    throwRefundAlreadyProcessed();
+    const isApprovedRetry =
+      !rejecting &&
+      existingRefund.origin === REFUND_ORIGINS.CUSTOMER_REQUEST &&
+      existingRefund.status === REFUND_STATUSES.APPROVED;
+
+    if (!isApprovedRetry) {
+      throwRefundAlreadyProcessed();
+    }
+
+    const retryNoteConflicts =
+      adminDecisionNote !== undefined &&
+      adminDecisionNote !== existingRefund.adminDecisionNote;
+
+    if (
+      restockOnCompletion !== existingRefund.restockOnCompletion ||
+      retryNoteConflicts
+    ) {
+      throwRefundAlreadyProcessed();
+    }
+
+    await processProviderRefund({
+      refundId: existingRefund._id,
+    });
+
+    return getAdminRefund(refundId);
   }
+
+  if (rejecting) {
+    return getAdminRefund(refundId);
+  }
+
+  await processProviderRefund({
+    refundId: updatedRefund._id,
+  });
 
   return getAdminRefund(refundId);
 }
