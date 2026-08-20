@@ -11,7 +11,16 @@ import { Inventory } from '../inventory/inventory.model.js';
 
 import { InventoryAdjustment } from '../inventory/inventoryAdjustment.model.js';
 
-import { Payment, PAYMENT_STATUSES } from '../payment/payment.model.js';
+import {
+  Payment,
+  PAYMENT_COMMERCE_RESOLUTIONS,
+  PAYMENT_STATUSES,
+} from '../payment/payment.model.js';
+
+import { REFUND_ORIGINS } from '../refund/refund.constants.js';
+import { Refund } from '../refund/refund.model.js';
+import { processApprovedRazorpayRefund } from '../refund/refundProvider.service.js';
+import { createOrderCancellationRefund } from '../refund/refundSystem.service.js';
 
 import { Order, ORDER_STATUSES } from './order.model.js';
 
@@ -224,11 +233,15 @@ async function cancelOrderWithInventoryRestoration({
   allowedCurrentStatuses,
   throwNotFound,
   throwNotCancellable,
+  processProviderRefund = processApprovedRazorpayRefund,
 }) {
   const cancelledAt = new Date();
+  let cancellationRefundId = null;
 
   await mongoose.connection.transaction(
     async (session) => {
+      cancellationRefundId = null;
+
       const orderFilter = {
         _id: orderId,
       };
@@ -243,7 +256,9 @@ async function cancelOrderWithInventoryRestoration({
       }
 
       const order = await Order.findOne(orderFilter)
-        .select('_id items orderStatus')
+        .select(
+          '_id customerId paymentId items subtotal discountAmount totalAmount orderStatus',
+        )
         .session(session)
         .lean();
 
@@ -307,13 +322,41 @@ async function cancelOrderWithInventoryRestoration({
 
       await InventoryAdjustment.create(inventoryAdjustments, {
         session,
+        ordered: true,
       });
+
+      const payment = await Payment.findById(order.paymentId)
+        .select(
+          '_id customerId provider providerPaymentId status amount currency',
+        )
+        .session(session)
+        .lean();
+
+      if (payment?.status === PAYMENT_STATUSES.SUCCEEDED) {
+        const cancellationRefund = await createOrderCancellationRefund({
+          order,
+          payment,
+          session,
+        });
+
+        cancellationRefundId = cancellationRefund._id;
+      }
     },
 
     {
       readPreference: 'primary',
     },
   );
+
+  if (cancellationRefundId) {
+    await processProviderRefund({
+      refundId: cancellationRefundId,
+    });
+  }
+
+  return {
+    cancellationRefundId,
+  };
 }
 
 function throwPaymentNotFound() {
@@ -757,6 +800,21 @@ export async function finalizeOrderForSucceededPayment({ paymentId }) {
           return;
         }
 
+        const existingCompensation = await Refund.exists({
+          paymentId: payment._id,
+          origin: REFUND_ORIGINS.SYSTEM_COMPENSATION,
+        }).session(session);
+
+        if (
+          existingCompensation ||
+          payment.commerceResolution ===
+            PAYMENT_COMMERCE_RESOLUTIONS.SYSTEM_COMPENSATION
+        ) {
+          throwOrderFinalizationFailed(
+            'This successful Payment is already resolved through system compensation.',
+          );
+        }
+
         /*
          * Payment provider truth must already
          * be persisted before Order work.
@@ -790,6 +848,39 @@ export async function finalizeOrderForSucceededPayment({ paymentId }) {
 
         assertUniqueSnapshotLines(checkoutSnapshot.items);
 
+        const claimedPaymentResolution = await Payment.findOneAndUpdate(
+          {
+            _id: payment._id,
+            status: PAYMENT_STATUSES.SUCCEEDED,
+            $or: [
+              {
+                commerceResolution: null,
+              },
+              {
+                commerceResolution: PAYMENT_COMMERCE_RESOLUTIONS.ORDER,
+              },
+            ],
+          },
+          {
+            $set: {
+              commerceResolution: PAYMENT_COMMERCE_RESOLUTIONS.ORDER,
+            },
+          },
+          {
+            session,
+            returnDocument: 'after',
+            runValidators: true,
+          },
+        )
+          .select('_id')
+          .lean();
+
+        if (!claimedPaymentResolution) {
+          throwOrderFinalizationFailed(
+            'This successful Payment is already resolved through system compensation.',
+          );
+        }
+
         /*
          * 3. Inventory decrements.
          *
@@ -819,6 +910,7 @@ export async function finalizeOrderForSucceededPayment({ paymentId }) {
          */
         await InventoryAdjustment.create(inventoryAdjustments, {
           session,
+          ordered: true,
         });
 
         /*
@@ -1173,7 +1265,12 @@ export async function getCustomerOrder({ customerId, orderId }) {
   return toCustomerOrderDetailResource(order);
 }
 
-export async function cancelCustomerOrder({ customerId, orderId }) {
+export async function cancelCustomerOrder(
+  { customerId, orderId },
+  {
+    processProviderRefund = processApprovedRazorpayRefund,
+  } = {},
+) {
   if (!mongoose.isValidObjectId(customerId)) {
     throw new TypeError(
       'A valid Customer ID is required for Order cancellation.',
@@ -1194,6 +1291,8 @@ export async function cancelCustomerOrder({ customerId, orderId }) {
     throwNotFound: throwCustomerOrderNotFound,
 
     throwNotCancellable: throwCustomerOrderNotCancellable,
+
+    processProviderRefund,
   });
 
   return getCustomerOrder({
@@ -1304,7 +1403,12 @@ export async function getAdminOrders({
   };
 }
 
-export async function updateAdminOrderStatus({ orderId, status }) {
+export async function updateAdminOrderStatus(
+  { orderId, status },
+  {
+    processProviderRefund = processApprovedRazorpayRefund,
+  } = {},
+) {
   if (!mongoose.isValidObjectId(orderId)) {
     throwAdminOrderNotFound();
   }
@@ -1330,6 +1434,8 @@ export async function updateAdminOrderStatus({ orderId, status }) {
       throwNotFound: throwAdminOrderNotFound,
 
       throwNotCancellable: throwInvalidAdminOrderStateTransition,
+
+      processProviderRefund,
     });
 
     return getAdminOrder(orderId);

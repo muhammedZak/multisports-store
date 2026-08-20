@@ -74,20 +74,20 @@ function getScopeSummary(refund) {
   return 'No Order scope';
 }
 
-function getApprovalResultMessage(status) {
-  if (status === 'processing') {
-    return 'Refund approved. Razorpay processing is pending.';
+function getProviderResultMessage(refund) {
+  if (refund.status === 'processing') {
+    return 'Razorpay Refund processing is pending.';
   }
 
-  if (status === 'refunded') {
-    return 'Refund approved and completed by Razorpay.';
+  if (refund.status === 'refunded') {
+    return 'The Refund was completed by Razorpay.';
   }
 
-  if (status === 'failed') {
-    return 'Refund approved, but Razorpay reported a terminal failure.';
+  if (refund.status === 'failed') {
+    return 'Razorpay reported a terminal Refund failure.';
   }
 
-  return 'The business approval is saved. Provider processing is unconfirmed.';
+  return 'The durable Refund is saved. Provider processing is unconfirmed.';
 }
 
 function AdminRefundDetailsPage() {
@@ -155,10 +155,10 @@ function AdminRefundDetailsPage() {
         setDecisionError({
           ...normalizedError,
           message:
-            'The business approval is saved, but provider processing is unconfirmed. Retry Provider Processing when ready.',
+            'The durable Refund is saved, but provider processing is unconfirmed. Retry Provider Processing when ready.',
         });
       } else {
-        setMessage(getApprovalResultMessage(authoritativeRefund.status));
+        setMessage(getProviderResultMessage(authoritativeRefund));
       }
     } catch (refreshError) {
       setDecisionError(
@@ -239,7 +239,7 @@ function AdminRefundDetailsPage() {
         restockOnCompletion: approveRestock === 'yes',
         ...(normalizedNote ? { adminDecisionNote: normalizedNote } : {}),
       },
-      (updatedRefund) => getApprovalResultMessage(updatedRefund.status),
+      (updatedRefund) => getProviderResultMessage(updatedRefund),
     );
   }
 
@@ -256,11 +256,11 @@ function AdminRefundDetailsPage() {
       {
         decision: 'approve',
         restockOnCompletion: refund.restockOnCompletion,
-        ...(refund.adminDecisionNote
+        ...(refund.origin === 'customer_request' && refund.adminDecisionNote
           ? { adminDecisionNote: refund.adminDecisionNote }
           : {}),
       },
-      (updatedRefund) => getApprovalResultMessage(updatedRefund.status),
+      (updatedRefund) => getProviderResultMessage(updatedRefund),
     );
   }
 
@@ -335,7 +335,15 @@ function AdminRefundDetailsPage() {
   const canDecide =
     refund.status === 'requested' && refund.origin === 'customer_request';
   const canRetryProvider =
-    refund.status === 'approved' && refund.origin === 'customer_request';
+    refund.status === 'approved' &&
+    [
+      'customer_request',
+      'order_cancellation',
+      'system_compensation',
+    ].includes(refund.origin);
+  const isSystemOrigin =
+    refund.origin === 'order_cancellation' ||
+    refund.origin === 'system_compensation';
   const affectedItems = refund.affectedItems ?? [];
 
   return (
@@ -749,9 +757,9 @@ function AdminRefundDetailsPage() {
               Provider processing unconfirmed
             </h3>
             <p className='mt-2 text-sm leading-6 text-indigo-800'>
-              The business approval and original restock decision are already
-              saved. This action reconciles the same Razorpay Refund operation
-              and cannot change the approval details.
+              {isSystemOrigin
+                ? 'This system Refund is already durable and read-only. This action only reconciles the same Razorpay Refund operation.'
+                : 'The business approval and original restock decision are already saved. This action reconciles the same Razorpay Refund operation and cannot change the approval details.'}
             </p>
             <button
               type='button'

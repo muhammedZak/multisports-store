@@ -11,6 +11,11 @@ import {
 import { reconcileCustomerCartAfterPlacedOrder } from '../cart/cart.service.js';
 import { resolveCheckoutForCustomer } from '../checkout/checkout.service.js';
 import { finalizeOrderForSucceededPayment } from '../order/order.service.js';
+import { processApprovedRazorpayRefund } from '../refund/refundProvider.service.js';
+import {
+  ensureSystemCompensationRefund,
+  findSystemCompensationRefund,
+} from '../refund/refundSystem.service.js';
 
 import { Payment, PAYMENT_STATUSES } from './payment.model.js';
 
@@ -462,7 +467,12 @@ export async function completeCapturedRazorpayPaymentCommerce({
   payment,
   providerPaymentId,
   providerPayment = null,
-}) {
+}, {
+  finalizeOrder = finalizeOrderForSucceededPayment,
+  findCompensation = findSystemCompensationRefund,
+  ensureCompensation = ensureSystemCompensationRefund,
+  processProviderRefund = processApprovedRazorpayRefund,
+} = {}) {
   /*
    * Shared authority path:
    *
@@ -485,14 +495,49 @@ export async function completeCapturedRazorpayPaymentCommerce({
     providerPayment,
   });
 
-  /*
-   * Task 8.5:
-   *
-   * Idempotent transactional commerce effects.
-   */
-  const order = await finalizeOrderForSucceededPayment({
-    paymentId: reconciledPayment._id,
-  });
+  let compensationRefund = await findCompensation(reconciledPayment._id);
+  let order = null;
+
+  if (!compensationRefund) {
+    try {
+      /*
+       * Task 8.5:
+       *
+       * Idempotent transactional commerce effects.
+       */
+      order = await finalizeOrder({
+        paymentId: reconciledPayment._id,
+      });
+    } catch (error) {
+      if (!(error instanceof AppError) || error.code !== 'ORDER_FINALIZATION_FAILED') {
+        throw error;
+      }
+
+      const compensationResolution = await ensureCompensation(
+        reconciledPayment._id,
+      );
+
+      if (compensationResolution.orderId) {
+        order = await finalizeOrder({
+          paymentId: reconciledPayment._id,
+        });
+      } else {
+        compensationRefund = compensationResolution.refund;
+      }
+    }
+  }
+
+  if (compensationRefund) {
+    const reconciledCompensation = await processProviderRefund({
+      refundId: compensationRefund._id,
+    });
+
+    return {
+      payment: reconciledPayment,
+      order: null,
+      compensationRefund: reconciledCompensation,
+    };
+  }
 
   /*
    * Task 8.6:
@@ -518,6 +563,8 @@ export async function completeCapturedRazorpayPaymentCommerce({
     payment: reconciledPayment,
 
     order,
+
+    compensationRefund: null,
   };
 }
 
@@ -565,12 +612,31 @@ export async function verifyRazorpayPaymentForCustomer({
     );
   }
 
-  const { payment: reconciledPayment, order } =
+  const {
+    payment: reconciledPayment,
+    order,
+    compensationRefund,
+  } =
     await completeCapturedRazorpayPaymentCommerce({
       payment,
 
       providerPaymentId: razorpayPaymentId,
     });
+
+  if (compensationRefund) {
+    return {
+      result: 'payment_succeeded_compensation',
+
+      payment: toPaymentVerificationResource(reconciledPayment),
+
+      order: null,
+
+      refund: {
+        id: compensationRefund._id.toString(),
+        status: compensationRefund.status,
+      },
+    };
+  }
 
   return {
     result: 'order_placed',

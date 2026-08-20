@@ -13,6 +13,7 @@ import {
   REFUND_PROVIDERS,
   REFUND_STATUSES,
 } from './refund.constants.js';
+import { reconcileRefundInventoryRestock } from './refundInventory.service.js';
 import { Refund } from './refund.model.js';
 
 const RAZORPAY_REFUND_STATUSES = new Set([
@@ -131,7 +132,7 @@ async function persistProviderRefundState({ refund, providerRefund }) {
     $set: {
       providerRefundId: providerRefund.id,
       status: targetStatus,
-      scopeOccupied: true,
+      scopeOccupied: Boolean(refund.orderId),
       ...(targetStatus === REFUND_STATUSES.REFUNDED && !refund.refundedAt
         ? { refundedAt: new Date() }
         : {}),
@@ -281,11 +282,17 @@ export function buildRazorpayRefundRequest({ refundId, amount }) {
 export async function processApprovedRazorpayRefund({
   refundId,
   gateway = defaultRazorpayRefundGateway,
+  inventoryReconciler = reconcileRefundInventoryRestock,
 }) {
   assertLocalRefundId(refundId);
 
   try {
     const refund = await loadProviderBackedRefund(refundId);
+
+    if (refund.status === REFUND_STATUSES.REFUNDED) {
+      await inventoryReconciler(refund._id);
+      return refund;
+    }
 
     if (refund.status !== REFUND_STATUSES.APPROVED) {
       return refund;
@@ -328,10 +335,16 @@ export async function processApprovedRazorpayRefund({
       }
     }
 
-    return await persistProviderRefundState({
+    const reconciledRefund = await persistProviderRefundState({
       refund,
       providerRefund,
     });
+
+    if (reconciledRefund.status === REFUND_STATUSES.REFUNDED) {
+      await inventoryReconciler(reconciledRefund._id);
+    }
+
+    return reconciledRefund;
   } catch (error) {
     if (error instanceof AppError) {
       throw error;
@@ -349,7 +362,12 @@ export async function processApprovedRazorpayRefund({
   }
 }
 
-export async function reconcileRazorpayRefundWebhook(providerRefund) {
+export async function reconcileRazorpayRefundWebhook(
+  providerRefund,
+  {
+    inventoryReconciler = reconcileRefundInventoryRestock,
+  } = {},
+) {
   if (
     !providerRefund ||
     typeof providerRefund !== 'object' ||
@@ -412,6 +430,10 @@ export async function reconcileRazorpayRefundWebhook(providerRefund) {
       refund,
       providerRefund,
     });
+
+    if (reconciledRefund.status === REFUND_STATUSES.REFUNDED) {
+      await inventoryReconciler(reconciledRefund._id);
+    }
 
     return {
       result: `refund_${reconciledRefund.status}`,

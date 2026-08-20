@@ -24,7 +24,6 @@ const TERMINAL_RECONCILIATION_ERRORS = new Set([
   'PAYMENT_AMOUNT_MISMATCH',
   'PAYMENT_VERIFICATION_FAILED',
   'PAYMENT_ALREADY_PROCESSED',
-  'ORDER_FINALIZATION_FAILED',
 ]);
 
 function throwWebhookSignatureInvalid() {
@@ -315,7 +314,12 @@ async function markWebhookFailed({ eventId, error }) {
   );
 }
 
-export async function processRazorpayWebhook({ rawBody, signature, eventId }) {
+export async function processRazorpayWebhook(
+  { rawBody, signature, eventId },
+  {
+    completePaymentCommerce = completeCapturedRazorpayPaymentCommerce,
+  } = {},
+) {
   /*
    * Authenticate BEFORE parsing.
    */
@@ -465,7 +469,9 @@ export async function processRazorpayWebhook({ rawBody, signature, eventId }) {
       payment: reconciledPayment,
 
       order,
-    } = await completeCapturedRazorpayPaymentCommerce({
+
+      compensationRefund,
+    } = await completePaymentCommerce({
       payment,
 
       providerPaymentId: providerPayment.id,
@@ -478,6 +484,20 @@ export async function processRazorpayWebhook({ rawBody, signature, eventId }) {
        */
       providerPayment,
     });
+
+    if (compensationRefund) {
+      await markWebhookProcessed({
+        eventId: normalizedEventId,
+        result: 'payment_succeeded_compensation',
+        paymentId: reconciledPayment._id,
+        refundId: compensationRefund._id,
+      });
+
+      return {
+        result: 'payment_succeeded_compensation',
+        refundId: compensationRefund._id.toString(),
+      };
+    }
 
     await markWebhookProcessed({
       eventId: normalizedEventId,
@@ -507,10 +527,7 @@ export async function processRazorpayWebhook({ rawBody, signature, eventId }) {
       error instanceof AppError &&
       TERMINAL_RECONCILIATION_ERRORS.has(error.code)
     ) {
-      const result =
-        error.code === 'ORDER_FINALIZATION_FAILED'
-          ? 'payment_succeeded_order_pending'
-          : 'reconciliation_rejected';
+      const result = 'reconciliation_rejected';
 
       await markWebhookProcessed({
         eventId: normalizedEventId,
@@ -539,12 +556,6 @@ export async function processRazorpayWebhook({ rawBody, signature, eventId }) {
         },
       );
 
-      /*
-       * Payment provider truth remains intact.
-       *
-       * Automatic compensation/refund remains
-       * outside this Task 8 slice.
-       */
       return {
         result,
       };

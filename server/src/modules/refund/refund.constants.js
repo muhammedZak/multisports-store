@@ -47,6 +47,13 @@ export const REFUND_PROVIDER_VALUES = Object.freeze(
   Object.values(REFUND_PROVIDERS),
 );
 
+export const REFUND_SYSTEM_REASONS = Object.freeze({
+  ORDER_CANCELLATION:
+    'Automatic Refund for a successfully paid cancelled Order.',
+  SYSTEM_COMPENSATION:
+    'Automatic compensation for a successful Payment whose Order could not be finalized.',
+});
+
 export const REFUND_SCOPE_OCCUPYING_STATUSES = Object.freeze([
   REFUND_STATUSES.REQUESTED,
   REFUND_STATUSES.APPROVED,

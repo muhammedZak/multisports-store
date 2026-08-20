@@ -731,12 +731,29 @@ export async function decideAdminRefund({
       throwRefundNotFound();
     }
 
-    const isApprovedRetry =
+    const isCustomerApprovedRetry =
       !rejecting &&
       existingRefund.origin === REFUND_ORIGINS.CUSTOMER_REQUEST &&
       existingRefund.status === REFUND_STATUSES.APPROVED;
 
-    if (!isApprovedRetry) {
+    const isSystemOriginApprovedRetry =
+      !rejecting &&
+      [
+        REFUND_ORIGINS.ORDER_CANCELLATION,
+        REFUND_ORIGINS.SYSTEM_COMPENSATION,
+      ].includes(existingRefund.origin) &&
+      existingRefund.status === REFUND_STATUSES.APPROVED;
+
+    if (!isCustomerApprovedRetry && !isSystemOriginApprovedRetry) {
+      throwRefundAlreadyProcessed();
+    }
+
+    if (
+      isSystemOriginApprovedRetry &&
+      (existingRefund.restockOnCompletion !== false ||
+        restockOnCompletion !== false ||
+        adminDecisionNote !== undefined)
+    ) {
       throwRefundAlreadyProcessed();
     }
 
@@ -745,8 +762,9 @@ export async function decideAdminRefund({
       adminDecisionNote !== existingRefund.adminDecisionNote;
 
     if (
-      restockOnCompletion !== existingRefund.restockOnCompletion ||
-      retryNoteConflicts
+      isCustomerApprovedRetry &&
+      (restockOnCompletion !== existingRefund.restockOnCompletion ||
+        retryNoteConflicts)
     ) {
       throwRefundAlreadyProcessed();
     }

@@ -11,6 +11,11 @@ export const PAYMENT_STATUSES = Object.freeze({
   VERIFICATION_FAILED: 'verification_failed',
 });
 
+export const PAYMENT_COMMERCE_RESOLUTIONS = Object.freeze({
+  ORDER: 'order',
+  SYSTEM_COMPENSATION: 'system_compensation',
+});
+
 const paymentSchema = new mongoose.Schema(
   {
     customerId: {
@@ -101,6 +106,12 @@ const paymentSchema = new mongoose.Schema(
       trim: true,
       default: undefined,
     },
+
+    commerceResolution: {
+      type: String,
+      enum: Object.values(PAYMENT_COMMERCE_RESOLUTIONS),
+      default: undefined,
+    },
   },
   {
     timestamps: true,
@@ -131,6 +142,16 @@ paymentSchema.pre('validate', function validatePaymentIntegrity() {
     this.invalidate(
       'verifiedAt',
       'Payment verification time is valid only for a successful Payment.',
+    );
+  }
+
+  if (
+    this.commerceResolution &&
+    this.status !== PAYMENT_STATUSES.SUCCEEDED
+  ) {
+    this.invalidate(
+      'commerceResolution',
+      'Only a successful Payment can have a commerce resolution.',
     );
   }
 });

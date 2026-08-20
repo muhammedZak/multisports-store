@@ -473,4 +473,32 @@ refundSchema.index(
   },
 );
 
+refundSchema.index(
+  {
+    orderId: 1,
+    origin: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: {
+      origin: REFUND_ORIGINS.ORDER_CANCELLATION,
+    },
+    name: 'refund_order_cancellation_unique',
+  },
+);
+
+refundSchema.index(
+  {
+    paymentId: 1,
+    origin: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: {
+      origin: REFUND_ORIGINS.SYSTEM_COMPENSATION,
+    },
+    name: 'refund_system_compensation_unique',
+  },
+);
+
 export const Refund = mongoose.model('Refund', refundSchema);
