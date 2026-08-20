@@ -36,6 +36,7 @@ import CheckoutPage from '../../pages/storefront/CheckoutPage.jsx';
 import OrderConfirmationPage from '../../pages/storefront/OrderConfirmationPage.jsx';
 import OrdersPage from '../../pages/account/OrdersPage.jsx';
 import OrderDetailsPage from '../../pages/account/OrderDetailsPage.jsx';
+import ReviewsPage from '../../pages/account/ReviewsPage.jsx';
 
 import RequireAdmin from '../../features/auth/RequireAdmin.jsx';
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
@@ -103,6 +104,8 @@ function AppRouter() {
         <Route path='/account/orders' element={<OrdersPage />} />
 
         <Route path='/account/orders/:orderId' element={<OrderDetailsPage />} />
+
+        <Route path='/account/reviews' element={<ReviewsPage />} />
       </Route>
 
       <Route element={<RequireAdmin />}>

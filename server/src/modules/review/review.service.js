@@ -8,6 +8,10 @@ import { Order, ORDER_STATUSES } from '../order/order.model.js';
 
 import { Review, REVIEW_MODERATION_STATUSES } from './review.model.js';
 
+function throwReviewNotFound() {
+  throw new AppError(404, 'REVIEW_NOT_FOUND', 'Review not found.');
+}
+
 function throwProductNotFound() {
   throw new AppError(404, 'PRODUCT_NOT_FOUND', 'Product not found.');
 }
@@ -32,11 +36,56 @@ function isDuplicateKeyError(error) {
   return error?.code === 11000;
 }
 
+function getCustomerProductPrimaryImage(images = []) {
+  const sortedImages = [...images].sort(
+    (left, right) => left.sortOrder - right.sortOrder,
+  );
+
+  const image = sortedImages.find((item) => item.isPrimary) ?? sortedImages[0];
+
+  if (!image) {
+    return null;
+  }
+
+  return {
+    url: image.url,
+    altText: image.altText ?? '',
+  };
+}
+
+function toCustomerReviewProduct(product) {
+  if (!product?._id) {
+    return null;
+  }
+
+  return {
+    id: product._id.toString(),
+
+    name: product.name,
+
+    primaryImage: getCustomerProductPrimaryImage(product.images),
+
+    isActive: product.isActive,
+  };
+}
+
+function getReviewProductId(review) {
+  const product = review.productId;
+
+  if (!product) {
+    return null;
+  }
+
+  return (product._id ?? product).toString();
+}
+
 function toCustomerReviewResource(review) {
   return {
     id: review._id.toString(),
 
-    productId: review.productId.toString(),
+    productId: getReviewProductId(review),
+
+    product: toCustomerReviewProduct(review.productId),
 
     rating: review.rating,
 
@@ -319,4 +368,118 @@ export async function getPublicProductReviews({
       totalPages: Math.ceil(totalItems / limit),
     },
   };
+}
+
+export async function getCustomerReviews({
+  customerId,
+  page,
+  limit,
+  productId,
+  moderationStatus,
+  sort,
+  order,
+}) {
+  const filter = {
+    customerId,
+  };
+
+  if (productId) {
+    filter.productId = productId;
+  }
+
+  if (moderationStatus) {
+    filter.moderationStatus = moderationStatus;
+  }
+
+  const direction = order === 'asc' ? 1 : -1;
+
+  const sortDefinition = {
+    [sort]: direction,
+    _id: direction,
+  };
+
+  const skip = (page - 1) * limit;
+
+  const [reviews, totalItems] = await Promise.all([
+    Review.find(filter)
+      .select(
+        [
+          'productId',
+          'rating',
+          'text',
+          'moderationStatus',
+          'moderationReason',
+          'createdAt',
+          'updatedAt',
+        ].join(' '),
+      )
+      .populate('productId', 'name images isActive')
+      .sort(sortDefinition)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    Review.countDocuments(filter),
+  ]);
+
+  return {
+    items: reviews.map(toCustomerReviewResource),
+
+    meta: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+}
+
+export async function updateCustomerReview({ customerId, reviewId, changes }) {
+  if (!mongoose.isValidObjectId(reviewId)) {
+    throwReviewNotFound();
+  }
+
+  const review = await Review.findOne({
+    _id: reviewId,
+    customerId,
+  });
+
+  if (!review) {
+    throwReviewNotFound();
+  }
+
+  if (Object.prototype.hasOwnProperty.call(changes, 'rating')) {
+    review.rating = changes.rating;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(changes, 'text')) {
+    review.text = changes.text;
+  }
+
+  /*
+   * Do not touch moderationStatus here.
+   *
+   * A hidden Review remains hidden even when
+   * the Customer edits rating/text.
+   */
+  await review.save();
+
+  await review.populate('productId', 'name images isActive');
+
+  return toCustomerReviewResource(review);
+}
+
+export async function deleteCustomerReview({ customerId, reviewId }) {
+  if (!mongoose.isValidObjectId(reviewId)) {
+    throwReviewNotFound();
+  }
+
+  const deletedReview = await Review.findOneAndDelete({
+    _id: reviewId,
+    customerId,
+  });
+
+  if (!deletedReview) {
+    throwReviewNotFound();
+  }
 }

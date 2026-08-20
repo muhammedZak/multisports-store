@@ -1,3 +1,5 @@
+import mongoose from 'mongoose';
+
 import { AppError } from '../../utils/AppError.js';
 
 import { REVIEW_TEXT_MAX_LENGTH } from './review.model.js';
@@ -12,6 +14,20 @@ const PUBLIC_REVIEW_ORDER_VALUES = ['asc', 'desc'];
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+
+const REVIEW_UPDATE_FIELDS = ['rating', 'text'];
+
+const MY_REVIEW_QUERY_FIELDS = [
+  'page',
+  'limit',
+  'productId',
+  'moderationStatus',
+  'sort',
+  'order',
+];
+
+const MY_REVIEW_SORT_VALUES = ['createdAt', 'rating'];
+const MY_REVIEW_ORDER_VALUES = ['asc', 'desc'];
 
 function throwValidationError(fields) {
   throw new AppError(
@@ -51,6 +67,34 @@ function rejectUnexpectedFields(input, allowedFields, message) {
       request: message,
     });
   }
+}
+
+function getOptionalProductIdQuery(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string' || !mongoose.isValidObjectId(value)) {
+    throwValidationError({
+      productId: 'Product ID is invalid.',
+    });
+  }
+
+  return value;
+}
+
+function getOptionalModerationStatusQuery(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string' || !['visible', 'hidden'].includes(value)) {
+    throwValidationError({
+      moderationStatus: 'Moderation status must be visible or hidden.',
+    });
+  }
+
+  return value;
 }
 
 function getRating(value) {
@@ -202,4 +246,99 @@ export function validatePublicReviewQuery(query) {
   }
 
   return input;
+}
+
+export function validateMyReviewQuery(query) {
+  validateObject(query);
+
+  rejectUnexpectedFields(
+    query,
+    MY_REVIEW_QUERY_FIELDS,
+    'Unsupported Review query fields were provided.',
+  );
+
+  const input = {
+    page: getPositiveIntegerQuery(query.page, 'page', DEFAULT_PAGE),
+
+    limit: getPositiveIntegerQuery(
+      query.limit,
+      'limit',
+      DEFAULT_LIMIT,
+      MAX_LIMIT,
+    ),
+
+    sort: 'createdAt',
+
+    order: 'desc',
+  };
+
+  const productId = getOptionalProductIdQuery(query.productId);
+
+  const moderationStatus = getOptionalModerationStatusQuery(
+    query.moderationStatus,
+  );
+
+  if (productId) {
+    input.productId = productId;
+  }
+
+  if (moderationStatus) {
+    input.moderationStatus = moderationStatus;
+  }
+
+  if (query.sort !== undefined) {
+    if (
+      typeof query.sort !== 'string' ||
+      !MY_REVIEW_SORT_VALUES.includes(query.sort)
+    ) {
+      throwValidationError({
+        sort: 'Sort must be createdAt or rating.',
+      });
+    }
+
+    input.sort = query.sort;
+  }
+
+  if (query.order !== undefined) {
+    if (
+      typeof query.order !== 'string' ||
+      !MY_REVIEW_ORDER_VALUES.includes(query.order)
+    ) {
+      throwValidationError({
+        order: 'Order must be asc or desc.',
+      });
+    }
+
+    input.order = query.order;
+  }
+
+  return input;
+}
+
+export function validateReviewUpdateInput(input) {
+  validateObject(input);
+
+  rejectUnexpectedFields(
+    input,
+    REVIEW_UPDATE_FIELDS,
+    'Unsupported Review fields were provided.',
+  );
+
+  if (Object.keys(input).length === 0) {
+    throwValidationError({
+      request: 'Provide at least one Review field to update.',
+    });
+  }
+
+  const changes = {};
+
+  if (Object.prototype.hasOwnProperty.call(input, 'rating')) {
+    changes.rating = getRating(input.rating);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, 'text')) {
+    changes.text = getReviewText(input.text);
+  }
+
+  return changes;
 }
