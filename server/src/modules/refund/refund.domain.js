@@ -8,6 +8,33 @@ import {
 
 const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 
+export const REFUND_DOMAIN_ERROR_CODES = Object.freeze({
+  SCOPE_INVALID: 'REFUND_SCOPE_INVALID',
+  ITEM_NOT_FOUND: 'REFUND_ITEM_NOT_FOUND',
+});
+
+export class RefundDomainError extends TypeError {
+  constructor(code, message) {
+    super(message);
+
+    this.code = code;
+  }
+}
+
+function throwRefundScopeInvalid(message) {
+  throw new RefundDomainError(
+    REFUND_DOMAIN_ERROR_CODES.SCOPE_INVALID,
+    message,
+  );
+}
+
+function throwRefundItemNotFound() {
+  throw new RefundDomainError(
+    REFUND_DOMAIN_ERROR_CODES.ITEM_NOT_FOUND,
+    'A requested item is not part of the owned Order.',
+  );
+}
+
 function isNonNegativeSafeInteger(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
@@ -89,7 +116,9 @@ function assertValidOrderPricingSnapshot(order) {
 
 function normalizeUnverifiedItemIds(itemIds, label = 'Refund item IDs') {
   if (!Array.isArray(itemIds) || itemIds.length === 0) {
-    throw new TypeError(`${label} must contain at least one Order item ID.`);
+    throwRefundScopeInvalid(
+      `${label} must contain at least one Order item ID.`,
+    );
   }
 
   const normalizedIds = [];
@@ -100,7 +129,9 @@ function normalizeUnverifiedItemIds(itemIds, label = 'Refund item IDs') {
     const itemIdKey = itemId.toString();
 
     if (seenIds.has(itemIdKey)) {
-      throw new TypeError('Refund item IDs must not contain duplicates.');
+      throwRefundScopeInvalid(
+        'Refund item IDs must not contain duplicates.',
+      );
     }
 
     seenIds.add(itemIdKey);
@@ -115,7 +146,9 @@ export function normalizeOrderRefundScope({ order, scope, itemIds }) {
 
   if (scope === REFUND_SCOPES.ORDER) {
     if (itemIds !== undefined && (!Array.isArray(itemIds) || itemIds.length)) {
-      throw new TypeError('Whole-Order Refund scope cannot contain item IDs.');
+      throwRefundScopeInvalid(
+        'Whole-Order Refund scope cannot contain item IDs.',
+      );
     }
 
     return {
@@ -125,7 +158,7 @@ export function normalizeOrderRefundScope({ order, scope, itemIds }) {
   }
 
   if (scope !== REFUND_SCOPES.ITEMS) {
-    throw new TypeError('Refund scope must be order or items.');
+    throwRefundScopeInvalid('Refund scope must be order or items.');
   }
 
   const requestedItemIds = normalizeUnverifiedItemIds(itemIds);
@@ -140,9 +173,7 @@ export function normalizeOrderRefundScope({ order, scope, itemIds }) {
     .map((item) => item._id);
 
   if (normalizedItemIds.length !== requestedItemIds.length) {
-    throw new TypeError(
-      'Refund item scope must reference stored items from the Order.',
-    );
+    throwRefundItemNotFound();
   }
 
   return {
@@ -252,6 +283,26 @@ export function calculateOrderRefundAmount({ order, scope, itemIds }) {
         ? amount + line.refundableLineAmount
         : amount,
     0,
+  );
+}
+
+export function buildRefundScopeClaimKeys({ order, scope, itemIds }) {
+  const orderId = getObjectIdKey(order?._id, 'Refund Order ID');
+
+  const normalizedScope = normalizeOrderRefundScope({
+    order,
+    scope,
+    itemIds,
+  });
+
+  const claimedItemIds =
+    normalizedScope.scope === REFUND_SCOPES.ORDER
+      ? order.items.map((item) => item._id)
+      : normalizedScope.itemIds;
+
+  return claimedItemIds.map(
+    (itemId) =>
+      `${orderId}:${getObjectIdKey(itemId, 'Refund item ID')}`,
   );
 }
 

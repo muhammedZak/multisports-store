@@ -9,6 +9,7 @@ import {
   REFUND_SCOPE_VALUES,
   REFUND_STATUSES,
   REFUND_STATUS_VALUES,
+  isRefundScopeOccupyingStatus,
 } from './refund.constants.js';
 
 const refundSchema = new mongoose.Schema(
@@ -100,13 +101,33 @@ const refundSchema = new mongoose.Schema(
     amount: {
       type: Number,
       required: true,
-      min: 0,
+      min: 1,
       validate: {
         validator(value) {
-          return Number.isSafeInteger(value) && value >= 0;
+          return Number.isSafeInteger(value) && value > 0;
         },
-        message: 'Refund amount must be a non-negative integer in paise.',
+        message: 'Refund amount must be a positive integer in paise.',
       },
+      immutable: true,
+    },
+
+    reason: {
+      type: String,
+      required: true,
+      trim: true,
+      validate: {
+        validator(value) {
+          return typeof value === 'string' && value.length > 0;
+        },
+        message: 'Refund reason is required.',
+      },
+      immutable: true,
+    },
+
+    explanation: {
+      type: String,
+      trim: true,
+      default: undefined,
       immutable: true,
     },
 
@@ -121,6 +142,46 @@ const refundSchema = new mongoose.Schema(
     restockOnCompletion: {
       type: Boolean,
       default: undefined,
+    },
+
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: undefined,
+    },
+
+    adminDecisionNote: {
+      type: String,
+      trim: true,
+      default: undefined,
+    },
+
+    reviewedAt: {
+      type: Date,
+      default: undefined,
+    },
+
+    refundedAt: {
+      type: Date,
+      default: undefined,
+    },
+
+    scopeClaimKeys: {
+      type: [
+        {
+          type: String,
+          trim: true,
+        },
+      ],
+      default: undefined,
+      immutable: true,
+      select: false,
+    },
+
+    scopeOccupied: {
+      type: Boolean,
+      default: undefined,
+      select: false,
     },
 
     requestedAt: {
@@ -198,6 +259,91 @@ refundSchema.pre('validate', function validateRefundIntegrity() {
 
   if (new Set(itemIdKeys).size !== itemIdKeys.length) {
     this.invalidate('itemIds', 'Refund item IDs must not contain duplicates.');
+  }
+
+  const scopeClaimKeys = Array.isArray(this.scopeClaimKeys)
+    ? this.scopeClaimKeys
+    : [];
+
+  const uniqueScopeClaimKeys = new Set(scopeClaimKeys);
+
+  if (uniqueScopeClaimKeys.size !== scopeClaimKeys.length) {
+    this.invalidate(
+      'scopeClaimKeys',
+      'Refund scope claim keys must not contain duplicates.',
+    );
+  }
+
+  if (hasOrder) {
+    const orderClaimPrefix = `${this.orderId.toString()}:`;
+
+    if (scopeClaimKeys.length === 0) {
+      this.invalidate(
+        'scopeClaimKeys',
+        'Order-backed Refunds require scope claim keys.',
+      );
+    }
+
+    if (
+      scopeClaimKeys.some((claimKey) => {
+        if (
+          typeof claimKey !== 'string' ||
+          !claimKey.startsWith(orderClaimPrefix)
+        ) {
+          return true;
+        }
+
+        const itemId = claimKey.slice(orderClaimPrefix.length);
+
+        return !mongoose.Types.ObjectId.isValid(itemId);
+      })
+    ) {
+      this.invalidate(
+        'scopeClaimKeys',
+        'Refund scope claim keys must be namespaced to valid Order items.',
+      );
+    }
+
+    if (this.scope === REFUND_SCOPES.ITEMS) {
+      const expectedClaimKeys = itemIdKeys.map(
+        (itemId) => `${orderClaimPrefix}${itemId}`,
+      );
+
+      if (
+        expectedClaimKeys.length !== scopeClaimKeys.length ||
+        expectedClaimKeys.some(
+          (claimKey, index) => claimKey !== scopeClaimKeys[index],
+        )
+      ) {
+        this.invalidate(
+          'scopeClaimKeys',
+          'Item Refund claims must match its stored Order item scope.',
+        );
+      }
+    }
+
+    const scopeShouldBeOccupied = isRefundScopeOccupyingStatus(this.status);
+
+    if (this.scopeOccupied !== scopeShouldBeOccupied) {
+      this.invalidate(
+        'scopeOccupied',
+        'Refund scope occupancy must match its status.',
+      );
+    }
+  } else {
+    if (scopeClaimKeys.length > 0) {
+      this.invalidate(
+        'scopeClaimKeys',
+        'A Refund without an Order cannot claim Order-item scope.',
+      );
+    }
+
+    if (this.scopeOccupied !== undefined && this.scopeOccupied !== false) {
+      this.invalidate(
+        'scopeOccupied',
+        'A Refund without an Order cannot occupy Order-item scope.',
+      );
+    }
   }
 
   if (hasProvider && !hasPayment) {
@@ -311,6 +457,19 @@ refundSchema.index(
       },
     },
     name: 'refund_provider_refund_unique',
+  },
+);
+
+refundSchema.index(
+  {
+    scopeClaimKeys: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: {
+      scopeOccupied: true,
+    },
+    name: 'refund_scope_claim_unique',
   },
 );
 
