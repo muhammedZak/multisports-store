@@ -1591,6 +1591,13 @@ export async function getPublicProducts({
         ratingSummary,
       );
     }),
+
+    meta: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
   };
 }
 
