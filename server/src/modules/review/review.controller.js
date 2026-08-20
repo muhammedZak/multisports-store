@@ -1,15 +1,20 @@
 import {
+  validateAdminReviewQuery,
   validateMyReviewQuery,
   validatePublicReviewQuery,
   validateReviewCreateInput,
+  validateReviewModerationInput,
   validateReviewUpdateInput,
 } from './review.validation.js';
 
 import {
   createCustomerReview,
   deleteCustomerReview,
+  getAdminReview,
+  getAdminReviews,
   getCustomerReviews,
   getPublicProductReviews,
+  moderateAdminReview,
   updateCustomerReview,
 } from './review.service.js';
 
@@ -101,4 +106,54 @@ export async function deleteReviewForCustomer(req, res) {
   });
 
   res.status(204).send();
+}
+
+export async function getReviewsForAdmin(req, res) {
+  const query = validateAdminReviewQuery(req.query);
+
+  const result = await getAdminReviews(query);
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      items: result.items,
+    },
+
+    meta: result.meta,
+  });
+}
+
+export async function getReviewForAdmin(req, res) {
+  const review = await getAdminReview(req.params.reviewId);
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      review,
+    },
+  });
+}
+
+export async function moderateReviewForAdmin(req, res) {
+  const input = validateReviewModerationInput(req.body);
+
+  const review = await moderateAdminReview({
+    reviewId: req.params.reviewId,
+
+    adminId: req.user.id,
+
+    moderationStatus: input.moderationStatus,
+
+    reason: input.reason,
+  });
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      review,
+    },
+  });
 }

@@ -36,6 +36,82 @@ function isDuplicateKeyError(error) {
   return error?.code === 11000;
 }
 
+function toAdminReviewCustomer(customer) {
+  if (!customer?._id) {
+    return null;
+  }
+
+  return {
+    id: customer._id.toString(),
+
+    name: customer.name,
+
+    email: customer.email,
+
+    profilePhotoUrl: customer.profilePhoto?.url ?? null,
+  };
+}
+
+function toAdminReviewProduct(product) {
+  if (!product?._id) {
+    return null;
+  }
+
+  return {
+    id: product._id.toString(),
+
+    name: product.name,
+
+    brand: product.brand,
+
+    sport: product.sport,
+
+    primaryImage: getCustomerProductPrimaryImage(product.images),
+
+    isActive: product.isActive,
+  };
+}
+
+function toAdminModerator(admin) {
+  if (!admin?._id) {
+    return null;
+  }
+
+  return {
+    id: admin._id.toString(),
+
+    name: admin.name,
+
+    email: admin.email,
+  };
+}
+
+function toAdminReviewResource(review) {
+  return {
+    id: review._id.toString(),
+
+    rating: review.rating,
+
+    text: review.text,
+
+    moderationStatus: review.moderationStatus,
+
+    moderationReason: review.moderationReason ?? null,
+
+    moderatedBy: toAdminModerator(review.moderatedBy),
+
+    moderatedAt: review.moderatedAt ?? null,
+
+    customer: toAdminReviewCustomer(review.customerId),
+
+    product: toAdminReviewProduct(review.productId),
+
+    createdAt: review.createdAt,
+
+    updatedAt: review.updatedAt,
+  };
+}
+
 function getCustomerProductPrimaryImage(images = []) {
   const sortedImages = [...images].sort(
     (left, right) => left.sortOrder - right.sortOrder,
@@ -482,4 +558,175 @@ export async function deleteCustomerReview({ customerId, reviewId }) {
   if (!deletedReview) {
     throwReviewNotFound();
   }
+}
+
+export async function getAdminReviews({
+  page,
+  limit,
+  productId,
+  customerId,
+  rating,
+  moderationStatus,
+  sort,
+  order,
+}) {
+  const filter = {};
+
+  if (productId) {
+    filter.productId = productId;
+  }
+
+  if (customerId) {
+    filter.customerId = customerId;
+  }
+
+  if (rating !== undefined) {
+    filter.rating = rating;
+  }
+
+  if (moderationStatus) {
+    filter.moderationStatus = moderationStatus;
+  }
+
+  const direction = order === 'asc' ? 1 : -1;
+
+  const sortDefinition = {
+    [sort]: direction,
+    _id: direction,
+  };
+
+  const skip = (page - 1) * limit;
+
+  const [reviews, totalItems] = await Promise.all([
+    Review.find(filter)
+      .select(
+        [
+          'customerId',
+          'productId',
+          'rating',
+          'text',
+          'moderationStatus',
+          'moderationReason',
+          'moderatedBy',
+          'moderatedAt',
+          'createdAt',
+          'updatedAt',
+        ].join(' '),
+      )
+      .populate('customerId', 'name email profilePhoto')
+      .populate('productId', 'name brand sport images isActive')
+      .populate('moderatedBy', 'name email')
+      .sort(sortDefinition)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    Review.countDocuments(filter),
+  ]);
+
+  return {
+    items: reviews.map(toAdminReviewResource),
+
+    meta: {
+      page,
+      limit,
+      totalItems,
+
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+}
+
+export async function getAdminReview(reviewId) {
+  if (!mongoose.isValidObjectId(reviewId)) {
+    throwReviewNotFound();
+  }
+
+  const review = await Review.findById(reviewId)
+    .select(
+      [
+        'customerId',
+        'productId',
+        'rating',
+        'text',
+        'moderationStatus',
+        'moderationReason',
+        'moderatedBy',
+        'moderatedAt',
+        'createdAt',
+        'updatedAt',
+      ].join(' '),
+    )
+    .populate('customerId', 'name email profilePhoto')
+    .populate('productId', 'name brand sport images isActive')
+    .populate('moderatedBy', 'name email')
+    .lean();
+
+  if (!review) {
+    throwReviewNotFound();
+  }
+
+  return toAdminReviewResource(review);
+}
+
+export async function moderateAdminReview({
+  reviewId,
+  adminId,
+  moderationStatus,
+  reason,
+}) {
+  if (!mongoose.isValidObjectId(reviewId)) {
+    throwReviewNotFound();
+  }
+
+  const review = await Review.findById(reviewId);
+
+  if (!review) {
+    throwReviewNotFound();
+  }
+
+  review.moderationStatus = moderationStatus;
+
+  if (moderationStatus === REVIEW_MODERATION_STATUSES.HIDDEN) {
+    review.moderationReason = reason;
+  } else {
+    review.moderationReason = null;
+  }
+
+  /*
+   * Audit authority comes from the
+   * authenticated Admin session.
+   */
+  review.moderatedBy = adminId;
+
+  review.moderatedAt = new Date();
+
+  /*
+   * Never modify:
+   *
+   * review.customerId
+   * review.productId
+   * review.rating
+   * review.text
+   */
+  await review.save();
+
+  await review.populate([
+    {
+      path: 'customerId',
+      select: 'name email profilePhoto',
+    },
+
+    {
+      path: 'productId',
+      select: 'name brand sport images isActive',
+    },
+
+    {
+      path: 'moderatedBy',
+      select: 'name email',
+    },
+  ]);
+
+  return toAdminReviewResource(review);
 }

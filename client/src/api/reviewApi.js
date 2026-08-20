@@ -1,5 +1,56 @@
 import { apiClient } from './client.js';
 
+const ADMIN_REVIEW_QUERY_FIELDS = [
+  'page',
+  'limit',
+  'productId',
+  'customerId',
+  'rating',
+  'moderationStatus',
+  'sort',
+  'order',
+];
+
+function createAdminReviewQueryParams(filters) {
+  const params = {};
+
+  for (const field of ADMIN_REVIEW_QUERY_FIELDS) {
+    const value = filters[field];
+
+    if (value !== undefined && value !== null && value !== '') {
+      params[field] = value;
+    }
+  }
+
+  return params;
+}
+
+export async function fetchAdminReviews(filters = {}) {
+  const response = await apiClient.get('/admin/reviews', {
+    params: createAdminReviewQueryParams(filters),
+  });
+
+  return {
+    items: response.data.data.items,
+    meta: response.data.meta,
+  };
+}
+
+export async function fetchAdminReview(reviewId) {
+  const response = await apiClient.get(`/admin/reviews/${reviewId}`);
+
+  return response.data.data.review;
+}
+
+export async function moderateAdminReview(reviewId, payload) {
+  const response = await apiClient.patch(
+    `/admin/reviews/${reviewId}/moderation`,
+    payload,
+  );
+
+  return response.data.data.review;
+}
+
 export async function fetchMyReviews({
   page = 1,
   limit = 20,

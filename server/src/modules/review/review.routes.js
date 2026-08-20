@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import {
+  requireAdmin,
   requireAuth,
   requireCustomer,
 } from '../../middleware/auth.middleware.js';
@@ -10,8 +11,11 @@ import { requireCsrf } from '../../middleware/csrf.middleware.js';
 import {
   createReviewForCustomer,
   deleteReviewForCustomer,
+  getReviewForAdmin,
+  getReviewsForAdmin,
   getReviewsForCustomer,
   getReviewsForPublic,
+  moderateReviewForAdmin,
   updateReviewForCustomer,
 } from './review.controller.js';
 
@@ -43,6 +47,23 @@ router.delete(
   requireCustomer,
   requireCsrf,
   deleteReviewForCustomer,
+);
+
+router.get('/admin/reviews', requireAuth, requireAdmin, getReviewsForAdmin);
+
+router.get(
+  '/admin/reviews/:reviewId',
+  requireAuth,
+  requireAdmin,
+  getReviewForAdmin,
+);
+
+router.patch(
+  '/admin/reviews/:reviewId/moderation',
+  requireAuth,
+  requireAdmin,
+  requireCsrf,
+  moderateReviewForAdmin,
 );
 
 export default router;

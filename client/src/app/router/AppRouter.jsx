@@ -28,6 +28,8 @@ import AdminCouponsPage from '../../pages/admin/AdminCouponsPage.jsx';
 import AdminCouponFormPage from '../../pages/admin/AdminCouponFormPage.jsx';
 import AdminOrdersPage from '../../pages/admin/AdminOrdersPage.jsx';
 import AdminOrderDetailsPage from '../../pages/admin/AdminOrderDetailsPage.jsx';
+import AdminReviewsPage from '../../pages/admin/AdminReviewsPage.jsx';
+import AdminReviewDetailsPage from '../../pages/admin/AdminReviewDetailsPage.jsx';
 
 import CatalogPage from '../../pages/storefront/CatalogPage.jsx';
 import ProductDetailsPage from '../../pages/storefront/ProductDetailsPage.jsx';
@@ -155,6 +157,13 @@ function AppRouter() {
           <Route
             path='/admin/orders/:orderId'
             element={<AdminOrderDetailsPage />}
+          />
+
+          <Route path='/admin/reviews' element={<AdminReviewsPage />} />
+
+          <Route
+            path='/admin/reviews/:reviewId'
+            element={<AdminReviewDetailsPage />}
           />
         </Route>
       </Route>

@@ -29,6 +29,23 @@ const MY_REVIEW_QUERY_FIELDS = [
 const MY_REVIEW_SORT_VALUES = ['createdAt', 'rating'];
 const MY_REVIEW_ORDER_VALUES = ['asc', 'desc'];
 
+const ADMIN_REVIEW_QUERY_FIELDS = [
+  'page',
+  'limit',
+  'productId',
+  'customerId',
+  'rating',
+  'moderationStatus',
+  'sort',
+  'order',
+];
+
+const ADMIN_REVIEW_SORT_VALUES = ['createdAt', 'rating'];
+
+const ADMIN_REVIEW_ORDER_VALUES = ['asc', 'desc'];
+
+const REVIEW_MODERATION_FIELDS = ['moderationStatus', 'reason'];
+
 function throwValidationError(fields) {
   throw new AppError(
     422,
@@ -67,6 +84,20 @@ function rejectUnexpectedFields(input, allowedFields, message) {
       request: message,
     });
   }
+}
+
+function getOptionalCustomerIdQuery(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string' || !mongoose.isValidObjectId(value)) {
+    throwValidationError({
+      customerId: 'Customer ID is invalid.',
+    });
+  }
+
+  return value;
 }
 
 function getOptionalProductIdQuery(value) {
@@ -341,4 +372,141 @@ export function validateReviewUpdateInput(input) {
   }
 
   return changes;
+}
+
+export function validateAdminReviewQuery(query) {
+  validateObject(query);
+
+  rejectUnexpectedFields(
+    query,
+    ADMIN_REVIEW_QUERY_FIELDS,
+    'Unsupported Admin Review query fields were provided.',
+  );
+
+  const input = {
+    page: getPositiveIntegerQuery(query.page, 'page', DEFAULT_PAGE),
+
+    limit: getPositiveIntegerQuery(
+      query.limit,
+      'limit',
+      DEFAULT_LIMIT,
+      MAX_LIMIT,
+    ),
+
+    sort: 'createdAt',
+
+    order: 'desc',
+  };
+
+  const productId = getOptionalProductIdQuery(query.productId);
+
+  const customerId = getOptionalCustomerIdQuery(query.customerId);
+
+  const rating = getOptionalRatingQuery(query.rating);
+
+  const moderationStatus = getOptionalModerationStatusQuery(
+    query.moderationStatus,
+  );
+
+  if (productId) {
+    input.productId = productId;
+  }
+
+  if (customerId) {
+    input.customerId = customerId;
+  }
+
+  if (rating !== undefined) {
+    input.rating = rating;
+  }
+
+  if (moderationStatus) {
+    input.moderationStatus = moderationStatus;
+  }
+
+  if (query.sort !== undefined) {
+    if (
+      typeof query.sort !== 'string' ||
+      !ADMIN_REVIEW_SORT_VALUES.includes(query.sort)
+    ) {
+      throwValidationError({
+        sort: 'Sort must be createdAt or rating.',
+      });
+    }
+
+    input.sort = query.sort;
+  }
+
+  if (query.order !== undefined) {
+    if (
+      typeof query.order !== 'string' ||
+      !ADMIN_REVIEW_ORDER_VALUES.includes(query.order)
+    ) {
+      throwValidationError({
+        order: 'Order must be asc or desc.',
+      });
+    }
+
+    input.order = query.order;
+  }
+
+  return input;
+}
+
+export function validateReviewModerationInput(input) {
+  validateObject(input);
+
+  rejectUnexpectedFields(
+    input,
+    REVIEW_MODERATION_FIELDS,
+    'Unsupported Review moderation fields were provided.',
+  );
+
+  const { moderationStatus } = input;
+
+  if (moderationStatus !== 'visible' && moderationStatus !== 'hidden') {
+    throwValidationError({
+      moderationStatus: 'Moderation status must be visible or hidden.',
+    });
+  }
+
+  if (moderationStatus === 'hidden') {
+    if (typeof input.reason !== 'string') {
+      throwValidationError({
+        reason: 'A moderation reason is required when hiding a Review.',
+      });
+    }
+
+    const reason = input.reason.trim();
+
+    if (!reason) {
+      throwValidationError({
+        reason: 'A moderation reason is required when hiding a Review.',
+      });
+    }
+
+    return {
+      moderationStatus,
+      reason,
+    };
+  }
+
+  /*
+   * Restore uses only:
+   *
+   * { moderationStatus: 'visible' }
+   *
+   * Do not allow the browser to carry an
+   * old moderation reason into a restore.
+   */
+  if (Object.prototype.hasOwnProperty.call(input, 'reason')) {
+    throwValidationError({
+      reason: 'Reason must be omitted when restoring a Review.',
+    });
+  }
+
+  return {
+    moderationStatus,
+    reason: null,
+  };
 }
