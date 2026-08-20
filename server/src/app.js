@@ -26,6 +26,7 @@ import cartRouter from './modules/cart/cart.routes.js';
 import checkoutRouter from './modules/checkout/checkout.routes.js';
 import paymentRouter from './modules/payment/payment.routes.js';
 import paymentWebhookRouter from './modules/payment/paymentWebhook.routes.js';
+import reviewRouter from './modules/review/review.routes.js';
 
 const app = express();
 
@@ -70,6 +71,7 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', userRouter);
 app.use('/api/v1', categoryRouter);
 app.use('/api/v1', publicCatalogRouter);
+app.use('/api/v1', reviewRouter);
 
 app.use('/api/v1/coupons', couponRouter);
 
