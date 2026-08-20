@@ -276,6 +276,20 @@ function ProfilePage() {
       </section>
 
       <section className='mt-8 border border-neutral-200 p-5'>
+        <h2 className='font-semibold'>Refunds</h2>
+
+        <p className='mt-2 text-sm leading-6 text-neutral-600'>
+          Track refund requests and current status.
+        </p>
+
+        <Link
+          to='/account/refunds'
+          className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
+          View my refunds
+        </Link>
+      </section>
+
+      <section className='mt-8 border border-neutral-200 p-5'>
         <h2 className='font-semibold'>Saved addresses</h2>
 
         <p className='mt-2 text-sm leading-6 text-neutral-600'>

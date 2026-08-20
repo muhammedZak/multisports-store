@@ -39,6 +39,9 @@ import OrderConfirmationPage from '../../pages/storefront/OrderConfirmationPage.
 import OrdersPage from '../../pages/account/OrdersPage.jsx';
 import OrderDetailsPage from '../../pages/account/OrderDetailsPage.jsx';
 import ReviewsPage from '../../pages/account/ReviewsPage.jsx';
+import RefundRequestPage from '../../pages/account/RefundRequestPage.jsx';
+import RefundsPage from '../../pages/account/RefundsPage.jsx';
+import RefundDetailsPage from '../../pages/account/RefundDetailsPage.jsx';
 
 import RequireAdmin from '../../features/auth/RequireAdmin.jsx';
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
@@ -106,6 +109,18 @@ function AppRouter() {
         <Route path='/account/orders' element={<OrdersPage />} />
 
         <Route path='/account/orders/:orderId' element={<OrderDetailsPage />} />
+
+        <Route
+          path='/account/orders/:orderId/refund-request'
+          element={<RefundRequestPage />}
+        />
+
+        <Route path='/account/refunds' element={<RefundsPage />} />
+
+        <Route
+          path='/account/refunds/:refundId'
+          element={<RefundDetailsPage />}
+        />
 
         <Route path='/account/reviews' element={<ReviewsPage />} />
       </Route>

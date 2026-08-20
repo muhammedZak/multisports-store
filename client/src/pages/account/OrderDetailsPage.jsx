@@ -192,6 +192,10 @@ function OrderDetailsPage() {
     );
   }
 
+  const refundEligible =
+    order.orderStatus === 'delivered' &&
+    order.payment?.status === 'succeeded';
+
   return (
     <main className='mx-auto max-w-5xl p-6'>
       <Link
@@ -441,6 +445,30 @@ function OrderDetailsPage() {
             className='mt-6 inline-flex w-full justify-center border border-neutral-300 px-5 py-3 text-sm font-medium'>
             Continue shopping
           </Link>
+
+          <div className='mt-6 border-t border-neutral-200 pt-6'>
+            <h3 className='font-semibold'>Refunds</h3>
+
+            {refundEligible ? (
+              <>
+                <p className='mt-2 text-sm leading-6 text-neutral-600'>
+                  Request a Refund for this whole Order or selected complete
+                  item lines.
+                </p>
+
+                <Link
+                  to={`/account/orders/${order.id}/refund-request`}
+                  className='mt-4 inline-flex w-full justify-center bg-black px-5 py-3 text-sm font-medium text-white'>
+                  Request Refund
+                </Link>
+              </>
+            ) : (
+              <p className='mt-2 text-sm leading-6 text-neutral-600'>
+                Refund requests become available after delivery when payment
+                is successfully verified.
+              </p>
+            )}
+          </div>
 
           {order.orderStatus === 'placed' && (
             <div className='mt-6 border-t border-neutral-200 pt-6'>
