@@ -30,6 +30,15 @@ export const REFUND_SCOPE_VALUES = Object.freeze(
   Object.values(REFUND_SCOPES),
 );
 
+export const REFUND_ADMIN_DECISIONS = Object.freeze({
+  APPROVE: 'approve',
+  REJECT: 'reject',
+});
+
+export const REFUND_ADMIN_DECISION_VALUES = Object.freeze(
+  Object.values(REFUND_ADMIN_DECISIONS),
+);
+
 export const REFUND_PROVIDERS = Object.freeze({
   RAZORPAY: 'razorpay',
 });

@@ -6,6 +6,7 @@ import { Order, ORDER_STATUSES } from '../order/order.model.js';
 import { Payment, PAYMENT_STATUSES } from '../payment/payment.model.js';
 
 import {
+  REFUND_ADMIN_DECISIONS,
   REFUND_ORIGINS,
   REFUND_SCOPES,
   REFUND_STATUSES,
@@ -28,6 +29,14 @@ function throwOrderNotFound() {
 
 function throwRefundNotFound() {
   throw new AppError(404, 'REFUND_NOT_FOUND', 'Refund not found.');
+}
+
+function throwRefundAlreadyProcessed() {
+  throw new AppError(
+    409,
+    'REFUND_ALREADY_PROCESSED',
+    'This Refund is no longer awaiting an Admin decision.',
+  );
 }
 
 function throwRefundNotEligible(
@@ -72,6 +81,10 @@ function isScopeClaimDuplicateKeyError(error) {
     (error?.keyPattern?.scopeClaimKeys ||
       error?.message?.includes('refund_scope_claim_unique'))
   );
+}
+
+function escapeRegularExpression(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function toCustomerOrderItemResource(item) {
@@ -190,6 +203,79 @@ function toCustomerRefundDetailResource(refund) {
     refundedAt: refund.refundedAt ?? null,
     affectedItems: getAffectedOrderItems(refund),
     payment: toCustomerRefundPaymentResource(refund.paymentId),
+  };
+}
+
+function toAdminRefundCustomerResource(customer) {
+  if (!customer?._id) {
+    return null;
+  }
+
+  return {
+    id: customer._id.toString(),
+    name: customer.name,
+    email: customer.email,
+  };
+}
+
+function toAdminRefundReviewerResource(admin) {
+  if (!admin?._id) {
+    return null;
+  }
+
+  return {
+    id: admin._id.toString(),
+    name: admin.name,
+    email: admin.email,
+  };
+}
+
+function toAdminRefundPaymentResource(payment) {
+  if (!payment?._id) {
+    return null;
+  }
+
+  return {
+    id: payment._id.toString(),
+    provider: payment.provider,
+    status: payment.status,
+    amount: payment.amount,
+    currency: payment.currency,
+    providerPaymentId: payment.providerPaymentId ?? null,
+    verifiedAt: payment.verifiedAt ?? null,
+  };
+}
+
+function toAdminRefundListResource(refund) {
+  return {
+    id: refund._id.toString(),
+    origin: refund.origin,
+    status: refund.status,
+    scope: refund.scope ?? null,
+    orderItemIds: toPublicOrderItemIds(refund),
+    reason: refund.reason,
+    amount: refund.amount,
+    currency: refund.currency,
+    restockOnCompletion: refund.restockOnCompletion ?? null,
+    requestedAt: refund.requestedAt,
+    updatedAt: refund.updatedAt,
+    customer: toAdminRefundCustomerResource(refund.customerId),
+    order: toCustomerRefundOrderResource(refund.orderId),
+  };
+}
+
+function toAdminRefundDetailResource(refund) {
+  return {
+    ...toAdminRefundListResource(refund),
+    explanation: refund.explanation ?? null,
+    providerRefundId: refund.providerRefundId ?? null,
+    adminDecisionNote: refund.adminDecisionNote ?? null,
+    reviewedAt: refund.reviewedAt ?? null,
+    refundedAt: refund.refundedAt ?? null,
+    createdAt: refund.createdAt,
+    affectedItems: getAffectedOrderItems(refund),
+    payment: toAdminRefundPaymentResource(refund.paymentId),
+    reviewedBy: toAdminRefundReviewerResource(refund.reviewedBy),
   };
 }
 
@@ -410,4 +496,238 @@ export async function getCustomerRefund({ customerId, refundId }) {
   }
 
   return toCustomerRefundDetailResource(refund);
+}
+
+export async function getAdminRefunds({
+  page,
+  limit,
+  q,
+  status,
+  origin,
+  customerId,
+  orderId,
+  dateFrom,
+  dateTo,
+  sort,
+  order,
+}) {
+  const filter = {};
+
+  if (q) {
+    const orderNumberFilter = {
+      orderNumber: {
+        $regex: escapeRegularExpression(q),
+        $options: 'i',
+      },
+    };
+
+    if (orderId) {
+      orderNumberFilter._id = orderId;
+    }
+
+    const matchingOrderIds = await Order.distinct('_id', orderNumberFilter);
+
+    filter.orderId = {
+      $in: matchingOrderIds,
+    };
+  } else if (orderId) {
+    filter.orderId = orderId;
+  }
+
+  if (status) {
+    filter.status = status;
+  }
+
+  if (origin) {
+    filter.origin = origin;
+  }
+
+  if (customerId) {
+    filter.customerId = customerId;
+  }
+
+  if (dateFrom || dateTo) {
+    filter.requestedAt = {};
+
+    if (dateFrom) {
+      filter.requestedAt.$gte = dateFrom;
+    }
+
+    if (dateTo) {
+      const dateToExclusive = new Date(dateTo);
+
+      dateToExclusive.setUTCDate(dateToExclusive.getUTCDate() + 1);
+      filter.requestedAt.$lt = dateToExclusive;
+    }
+  }
+
+  const direction = order === 'asc' ? 1 : -1;
+  const sortDefinition = {
+    [sort]: direction,
+    _id: direction,
+  };
+  const skip = (page - 1) * limit;
+
+  const [refunds, totalItems] = await Promise.all([
+    Refund.find(filter)
+      .select(
+        '_id customerId orderId itemIds origin status scope reason amount currency restockOnCompletion requestedAt updatedAt',
+      )
+      .populate('customerId', '_id name email')
+      .populate(
+        'orderId',
+        '_id orderNumber orderStatus subtotal discountAmount totalAmount placedAt',
+      )
+      .sort(sortDefinition)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Refund.countDocuments(filter),
+  ]);
+
+  return {
+    items: refunds.map(toAdminRefundListResource),
+    meta: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+}
+
+export async function getAdminRefund(refundId) {
+  if (!mongoose.isValidObjectId(refundId)) {
+    throwRefundNotFound();
+  }
+
+  const refund = await Refund.findById(refundId)
+    .select(
+      [
+        '_id',
+        'customerId',
+        'orderId',
+        'paymentId',
+        'reviewedBy',
+        'itemIds',
+        'providerRefundId',
+        'origin',
+        'status',
+        'scope',
+        'reason',
+        'explanation',
+        'amount',
+        'currency',
+        'restockOnCompletion',
+        'adminDecisionNote',
+        'requestedAt',
+        'reviewedAt',
+        'refundedAt',
+        'createdAt',
+        'updatedAt',
+      ].join(' '),
+    )
+    .populate('customerId', '_id name email')
+    .populate(
+      'orderId',
+      '_id orderNumber orderStatus items subtotal discountAmount totalAmount placedAt',
+    )
+    .populate(
+      'paymentId',
+      '_id provider status amount currency providerPaymentId verifiedAt',
+    )
+    .populate('reviewedBy', '_id name email')
+    .lean();
+
+  if (!refund) {
+    throwRefundNotFound();
+  }
+
+  return toAdminRefundDetailResource(refund);
+}
+
+export async function decideAdminRefund({
+  refundId,
+  adminId,
+  decision,
+  adminDecisionNote,
+  restockOnCompletion,
+}) {
+  if (!mongoose.isValidObjectId(refundId)) {
+    throwRefundNotFound();
+  }
+
+  if (
+    decision !== REFUND_ADMIN_DECISIONS.APPROVE &&
+    decision !== REFUND_ADMIN_DECISIONS.REJECT
+  ) {
+    throw new TypeError('A valid Admin Refund decision is required.');
+  }
+
+  const rejecting = decision === REFUND_ADMIN_DECISIONS.REJECT;
+
+  if (
+    rejecting &&
+    (typeof adminDecisionNote !== 'string' || !adminDecisionNote.trim())
+  ) {
+    throw new TypeError('Rejected Refunds require an Admin decision note.');
+  }
+
+  if (!rejecting && typeof restockOnCompletion !== 'boolean') {
+    throw new TypeError(
+      'Approved Refunds require an explicit restock decision.',
+    );
+  }
+
+  const reviewedAt = new Date();
+  const update = {
+    $set: {
+      status: rejecting
+        ? REFUND_STATUSES.REJECTED
+        : REFUND_STATUSES.APPROVED,
+      scopeOccupied: !rejecting,
+      reviewedBy: adminId,
+      reviewedAt,
+      ...(rejecting || adminDecisionNote
+        ? { adminDecisionNote }
+        : {}),
+      ...(!rejecting ? { restockOnCompletion } : {}),
+    },
+    ...(rejecting
+      ? {
+          $unset: {
+            restockOnCompletion: 1,
+          },
+        }
+      : {}),
+  };
+
+  const updatedRefund = await Refund.findOneAndUpdate(
+    {
+      _id: refundId,
+      origin: REFUND_ORIGINS.CUSTOMER_REQUEST,
+      status: REFUND_STATUSES.REQUESTED,
+    },
+    update,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+    },
+  )
+    .select('_id')
+    .lean();
+
+  if (!updatedRefund) {
+    const refundExists = await Refund.exists({
+      _id: refundId,
+    });
+
+    if (!refundExists) {
+      throwRefundNotFound();
+    }
+
+    throwRefundAlreadyProcessed();
+  }
+
+  return getAdminRefund(refundId);
 }

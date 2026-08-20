@@ -1,10 +1,15 @@
 import {
+  validateAdminRefundDecisionInput,
+  validateAdminRefundQuery,
   validateCustomerRefundQuery,
   validateCustomerRefundRequestInput,
 } from './refund.validation.js';
 
 import {
   createCustomerRefundRequest,
+  decideAdminRefund,
+  getAdminRefund,
+  getAdminRefunds,
   getCustomerRefund,
   getCustomerRefunds,
 } from './refund.service.js';
@@ -50,6 +55,46 @@ export async function getRefundForCustomer(req, res) {
   const refund = await getCustomerRefund({
     customerId: req.user.id,
     refundId: req.params.refundId,
+  });
+
+  res.status(200).json({
+    success: true,
+    data: {
+      refund,
+    },
+  });
+}
+
+export async function getRefundsForAdmin(req, res) {
+  const query = validateAdminRefundQuery(req.query);
+  const result = await getAdminRefunds(query);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      items: result.items,
+    },
+    meta: result.meta,
+  });
+}
+
+export async function getRefundForAdmin(req, res) {
+  const refund = await getAdminRefund(req.params.refundId);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      refund,
+    },
+  });
+}
+
+export async function decideRefundForAdmin(req, res) {
+  const input = validateAdminRefundDecisionInput(req.body);
+  const refund = await decideAdminRefund({
+    refundId: req.params.refundId,
+    adminId: req.user.id,
+    ...input,
   });
 
   res.status(200).json({
