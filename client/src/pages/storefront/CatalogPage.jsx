@@ -36,7 +36,13 @@ const DEFAULT_META = {
   totalPages: 0,
 };
 
-const SORT_VALUES = ['createdAt:desc', 'price:asc', 'price:desc'];
+const SORT_VALUES = [
+  'createdAt:desc',
+  'price:asc',
+  'price:desc',
+  'rating:desc',
+  'rating:asc',
+];
 
 const STOCK_STATE_PRESENTATION = {
   in_stock: {
@@ -100,6 +106,8 @@ function getCatalogQuery(searchParams) {
 
     color: normalizeParam(searchParams.get('color')),
 
+    rating: normalizeParam(searchParams.get('rating')),
+
     availability: normalizeParam(searchParams.get('availability')),
 
     sort: normalizeParam(searchParams.get('sort')) || 'createdAt',
@@ -132,6 +140,7 @@ function createFilterForm(query) {
     maxPrice: getRupeesValue(query.maxPrice),
     size: query.size,
     color: query.color,
+    rating: query.rating,
     availability: query.availability,
   };
 }
@@ -217,6 +226,21 @@ function ProductCard({ product }) {
           </h2>
 
           <p className='mt-1 text-sm text-neutral-500'>{product.brand}</p>
+
+          {product.reviewCount > 0 ? (
+            <p
+              className='mt-2 text-sm font-medium'
+              aria-label={`${product.averageRating} out of 5 stars from ${product.reviewCount} reviews`}>
+              <span aria-hidden='true'>★</span>{' '}
+              {Number(product.averageRating).toFixed(1)}
+              <span className='font-normal text-neutral-500'>
+                {' '}
+                ({product.reviewCount})
+              </span>
+            </p>
+          ) : (
+            <p className='mt-2 text-xs text-neutral-500'>No reviews yet</p>
+          )}
 
           {stockPresentation && (
             <p
@@ -539,6 +563,7 @@ function CatalogPage({ mode = 'shop' }) {
       'brand',
       'size',
       'color',
+      'rating',
       'availability',
     ];
 
@@ -702,6 +727,13 @@ function CatalogPage({ mode = 'shop' }) {
     activeFilters.push({
       key: 'color',
       label: catalogQuery.color,
+    });
+  }
+
+  if (catalogQuery.rating) {
+    activeFilters.push({
+      key: 'rating',
+      label: `${catalogQuery.rating}+ stars`,
     });
   }
 
@@ -903,6 +935,31 @@ function CatalogPage({ mode = 'shop' }) {
         </div>
 
         <div>
+          <label htmlFor='rating' className='mb-2 block text-sm font-medium'>
+            Customer rating
+          </label>
+
+          <select
+            id='rating'
+            name='rating'
+            value={filterForm.rating}
+            onChange={handleFilterChange}
+            className='w-full border border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-black'>
+            <option value=''>All ratings</option>
+
+            <option value='5'>5 stars</option>
+
+            <option value='4'>4+ stars</option>
+
+            <option value='3'>3+ stars</option>
+
+            <option value='2'>2+ stars</option>
+
+            <option value='1'>1+ stars</option>
+          </select>
+        </div>
+
+        <div>
           <label
             htmlFor='availability'
             className='mb-2 block text-sm font-medium'>
@@ -996,6 +1053,10 @@ function CatalogPage({ mode = 'shop' }) {
               <option value='price:asc'>Price: Low to High</option>
 
               <option value='price:desc'>Price: High to Low</option>
+
+              <option value='rating:desc'>Rating: High to Low</option>
+
+              <option value='rating:asc'>Rating: Low to High</option>
             </select>
           </div>
         </div>

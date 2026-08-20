@@ -16,6 +16,8 @@ import { normalizeApiError } from '../../api/errors.js';
 
 import { formatInrFromPaise } from '../../utils/money.js';
 
+import ProductReviewsSection from '../../features/review/ProductReviewsSection.jsx';
+
 const STOCK_STATE_PRESENTATION = {
   in_stock: {
     label: 'In stock',
@@ -84,6 +86,20 @@ function ProductDetailsPage() {
   const [purchaseError, setPurchaseError] = useState(null);
 
   const [purchaseSuccess, setPurchaseSuccess] = useState(null);
+
+  const handleRatingSummaryChange = useCallback((ratingSummary) => {
+    setProduct((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        averageRating: ratingSummary.averageRating,
+        reviewCount: ratingSummary.reviewCount,
+      };
+    });
+  }, []);
 
   const loadProduct = useCallback(async () => {
     setLoading(true);
@@ -424,6 +440,33 @@ function ProductDetailsPage() {
             {product.name}
           </h1>
 
+          <div className='mt-3'>
+            {product.reviewCount > 0 ? (
+              <a
+                href='#reviews'
+                className='inline-flex items-center gap-2 text-sm hover:underline hover:underline-offset-4'>
+                <span aria-hidden='true' className='text-amber-600'>
+                  ★
+                </span>
+
+                <span className='font-semibold'>
+                  {Number(product.averageRating).toFixed(1)}
+                </span>
+
+                <span className='text-neutral-500'>
+                  {product.reviewCount} review
+                  {product.reviewCount === 1 ? '' : 's'}
+                </span>
+              </a>
+            ) : (
+              <a
+                href='#reviews'
+                className='text-sm text-neutral-500 hover:underline hover:underline-offset-4'>
+                No reviews yet
+              </a>
+            )}
+          </div>
+
           <div className='mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-500'>
             <span className='capitalize'>{product.sport}</span>
 
@@ -664,6 +707,15 @@ function ProductDetailsPage() {
           </dl>
         )}
       </section>
+
+      <ProductReviewsSection
+        productId={product.id}
+        user={user}
+        authInitialized={authInitialized}
+        averageRating={product.averageRating ?? null}
+        reviewCount={product.reviewCount ?? 0}
+        onRatingSummaryChange={handleRatingSummaryChange}
+      />
     </main>
   );
 }

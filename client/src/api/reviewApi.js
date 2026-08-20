@@ -42,3 +42,38 @@ export async function updateMyReview(reviewId, changes) {
 export async function deleteMyReview(reviewId) {
   await apiClient.delete(`/reviews/${reviewId}`);
 }
+
+export async function fetchPublicProductReviews(
+  productId,
+  { page = 1, limit = 10, rating, sort = 'createdAt', order = 'desc' } = {},
+) {
+  const params = {
+    page,
+    limit,
+    sort,
+    order,
+  };
+
+  if (rating) {
+    params.rating = rating;
+  }
+
+  const response = await apiClient.get(`/products/${productId}/reviews`, {
+    params,
+  });
+
+  return {
+    items: response.data.data.items,
+    ratingSummary: response.data.data.ratingSummary,
+    meta: response.data.meta,
+  };
+}
+
+export async function createProductReview(productId, payload) {
+  const response = await apiClient.post(
+    `/products/${productId}/reviews`,
+    payload,
+  );
+
+  return response.data.data.review;
+}
