@@ -19,6 +19,8 @@ import {
   getPublicProductAvailabilities,
 } from '../inventory/inventory.service.js';
 
+import { getVisibleReviewRatingSummaries } from '../review/review.service.js';
+
 import { isSupportedSport } from './catalog.constants.js';
 
 import { validateProductDiscountState } from './product.validation.js';
@@ -1005,7 +1007,7 @@ function toPublicCategorySummary(category) {
   };
 }
 
-function toPublicProductListItem(product, availability) {
+function toPublicProductListItem(product, availability, ratingSummary) {
   const currentPrice = getCurrentProductPrice(product);
 
   return {
@@ -1031,6 +1033,10 @@ function toPublicProductListItem(product, availability) {
           value: product.discountValue,
         }
       : null,
+
+    averageRating: ratingSummary.averageRating,
+
+    reviewCount: ratingSummary.reviewCount,
 
     stockState: availability.stockState,
   };
@@ -1060,7 +1066,7 @@ function toPublicProductVariant(variant, stockState) {
   };
 }
 
-function toPublicProductResource(product, availability) {
+function toPublicProductResource(product, availability, ratingSummary) {
   const currentPrice = getCurrentProductPrice(product);
 
   return {
@@ -1091,6 +1097,10 @@ function toPublicProductResource(product, availability) {
 
     specifications: product.specifications ?? {},
 
+    averageRating: ratingSummary.averageRating,
+
+    reviewCount: ratingSummary.reviewCount,
+
     stockState: availability.stockState,
 
     variants: (product.variants ?? [])
@@ -1104,6 +1114,18 @@ function toPublicProductResource(product, availability) {
         );
       }),
   };
+}
+
+function productMatchesRatingFilter(ratingSummary, minimumRating) {
+  if (minimumRating === undefined) {
+    return true;
+  }
+
+  if (!ratingSummary || ratingSummary.averageRating === null) {
+    return false;
+  }
+
+  return ratingSummary.averageRating >= minimumRating;
 }
 
 export async function getPublicProduct(productId) {
@@ -1142,13 +1164,20 @@ export async function getPublicProduct(productId) {
     throwProductNotFound();
   }
 
-  const availabilityByProductId = await getPublicProductAvailabilities([
-    product,
-  ]);
+  const [availabilityByProductId, ratingSummariesByProductId] =
+    await Promise.all([
+      getPublicProductAvailabilities([product]),
 
-  const availability = availabilityByProductId.get(product._id.toString());
+      getVisibleReviewRatingSummaries([product._id]),
+    ]);
 
-  return toPublicProductResource(product, availability);
+  const productIdKey = product._id.toString();
+
+  const availability = availabilityByProductId.get(productIdKey);
+
+  const ratingSummary = ratingSummariesByProductId.get(productIdKey);
+
+  return toPublicProductResource(product, availability, ratingSummary);
 }
 
 async function ensurePublicFilterCategoryIntegrity({ categoryId, sport }) {
@@ -1408,7 +1437,10 @@ function productMatchesAvailabilityFilter(stockState, availability) {
   return stockState === STOCK_STATES.OUT_OF_STOCK;
 }
 
-function sortPublicProducts(products, { sort, order }) {
+function sortPublicProducts(
+  products,
+  { sort, order, ratingSummariesByProductId },
+) {
   const direction = order === 'asc' ? 1 : -1;
 
   return [...products].sort((left, right) => {
@@ -1416,6 +1448,29 @@ function sortPublicProducts(products, { sort, order }) {
 
     if (sort === 'price') {
       comparison = getCurrentProductPrice(left) - getCurrentProductPrice(right);
+    } else if (sort === 'rating') {
+      const leftSummary = ratingSummariesByProductId.get(left._id.toString());
+
+      const rightSummary = ratingSummariesByProductId.get(right._id.toString());
+
+      const leftRating = leftSummary?.averageRating ?? null;
+      const rightRating = rightSummary?.averageRating ?? null;
+
+      /*
+       * Unrated Products stay after rated Products for both
+       * ascending and descending rating sorts.
+       */
+      if (leftRating === null && rightRating !== null) {
+        return 1;
+      }
+
+      if (leftRating !== null && rightRating === null) {
+        return -1;
+      }
+
+      if (leftRating !== null && rightRating !== null) {
+        comparison = leftRating - rightRating;
+      }
     } else {
       comparison =
         new Date(left.createdAt).getTime() -
@@ -1441,6 +1496,7 @@ export async function getPublicProducts({
   maxPrice,
   size,
   color,
+  rating,
   availability,
   sort,
   order,
@@ -1478,29 +1534,39 @@ export async function getPublicProducts({
    * has not selected an availability filter because every public
    * Product card now exposes stockState.
    */
-  const availabilityByProductId = await getPublicProductAvailabilities(
-    catalogFilteredProducts,
-  );
+  const [availabilityByProductId, ratingSummariesByProductId] =
+    await Promise.all([
+      getPublicProductAvailabilities(catalogFilteredProducts),
+
+      getVisibleReviewRatingSummaries(
+        catalogFilteredProducts.map((product) => product._id),
+      ),
+    ]);
 
   /*
    * Availability must be filtered before sorting/pagination so
    * pagination metadata describes the actual filtered collection.
    */
   const filteredProducts = catalogFilteredProducts.filter((product) => {
-    const productAvailability = availabilityByProductId.get(
-      product._id.toString(),
-    );
+    const productId = product._id.toString();
 
-    return productMatchesAvailabilityFilter(
-      productAvailability.stockState,
-      availability,
+    const productAvailability = availabilityByProductId.get(productId);
+
+    const ratingSummary = ratingSummariesByProductId.get(productId);
+
+    return (
+      productMatchesAvailabilityFilter(
+        productAvailability.stockState,
+        availability,
+      ) && productMatchesRatingFilter(ratingSummary, rating)
     );
   });
 
-  const sortedProducts = sortPublicProducts(filteredProducts, {
-    sort,
-    order,
-  });
+ const sortedProducts = sortPublicProducts(filteredProducts, {
+   sort,
+   order,
+   ratingSummariesByProductId,
+ });
 
   const totalItems = sortedProducts.length;
 
@@ -1513,19 +1579,18 @@ export async function getPublicProducts({
 
   return {
     items: paginatedProducts.map((product) => {
-      const productAvailability = availabilityByProductId.get(
-        product._id.toString(),
+      const productId = product._id.toString();
+
+      const productAvailability = availabilityByProductId.get(productId);
+
+      const ratingSummary = ratingSummariesByProductId.get(productId);
+
+      return toPublicProductListItem(
+        product,
+        productAvailability,
+        ratingSummary,
       );
-
-      return toPublicProductListItem(product, productAvailability);
     }),
-
-    meta: {
-      page,
-      limit,
-      totalItems,
-      totalPages: Math.ceil(totalItems / limit),
-    },
   };
 }
 

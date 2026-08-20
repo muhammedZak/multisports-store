@@ -1,6 +1,12 @@
-import { validateReviewCreateInput } from './review.validation.js';
+import {
+  validatePublicReviewQuery,
+  validateReviewCreateInput,
+} from './review.validation.js';
 
-import { createCustomerReview } from './review.service.js';
+import {
+  createCustomerReview,
+  getPublicProductReviews,
+} from './review.service.js';
 
 export async function createReviewForCustomer(req, res) {
   const input = validateReviewCreateInput(req.body);
@@ -21,5 +27,27 @@ export async function createReviewForCustomer(req, res) {
     data: {
       review,
     },
+  });
+}
+
+export async function getReviewsForPublic(req, res) {
+  const query = validatePublicReviewQuery(req.query);
+
+  const result = await getPublicProductReviews({
+    productId: req.params.productId,
+
+    ...query,
+  });
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      items: result.items,
+
+      ratingSummary: result.ratingSummary,
+    },
+
+    meta: result.meta,
   });
 }

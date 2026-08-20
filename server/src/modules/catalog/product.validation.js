@@ -68,6 +68,7 @@ const PUBLIC_PRODUCT_QUERY_FIELDS = [
   'maxPrice',
   'size',
   'color',
+  'rating',
   'availability',
   'sort',
   'order',
@@ -75,7 +76,7 @@ const PUBLIC_PRODUCT_QUERY_FIELDS = [
 
 const CATALOG_FILTER_OPTIONS_QUERY_FIELDS = ['q', 'sport', 'categoryId'];
 
-const PUBLIC_PRODUCT_SORT_VALUES = ['createdAt', 'price'];
+const PUBLIC_PRODUCT_SORT_VALUES = ['createdAt', 'price', 'rating'];
 
 const PUBLIC_PRODUCT_ORDER_VALUES = ['asc', 'desc'];
 
@@ -149,6 +150,20 @@ function throwDuplicateInitialVariant() {
       options: 'Use a different variant option combination.',
     },
   );
+}
+
+function getOptionalPublicRatingQuery(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string' || !/^[1-5]$/.test(value)) {
+    throwValidationError({
+      rating: 'Rating must be an integer from 1 to 5.',
+    });
+  }
+
+  return Number(value);
 }
 
 function validateObject(body) {
@@ -995,6 +1010,8 @@ export function validatePublicProductQuery(query) {
 
   const color = getOptionalQueryText(query.color, 'color', 'Color');
 
+  const rating = getOptionalPublicRatingQuery(query.rating);
+
   if (q) {
     input.q = q;
   }
@@ -1017,6 +1034,10 @@ export function validatePublicProductQuery(query) {
 
   if (color) {
     input.color = color;
+  }
+
+  if (rating !== undefined) {
+    input.rating = rating;
   }
 
   if (query.availability !== undefined) {
@@ -1043,7 +1064,7 @@ export function validatePublicProductQuery(query) {
       !PUBLIC_PRODUCT_SORT_VALUES.includes(query.sort)
     ) {
       throwValidationError({
-        sort: 'Sort must be createdAt or price.',
+        sort: 'Sort must be createdAt, price, or rating.',
       });
     }
 

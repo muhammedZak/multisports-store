@@ -93,6 +93,64 @@ async function ensureCustomerPurchasedProduct({ customerId, productId }) {
   }
 }
 
+async function ensurePublicProductExists(productId) {
+  if (!mongoose.isValidObjectId(productId)) {
+    throwProductNotFound();
+  }
+
+  const product = await Product.findOne({
+    _id: productId,
+    isActive: true,
+  })
+    .select('sport categoryId')
+    .populate('categoryId', 'sport isActive')
+    .lean();
+
+  if (
+    !product ||
+    !product.categoryId ||
+    !product.categoryId.isActive ||
+    product.categoryId.sport !== product.sport
+  ) {
+    throwProductNotFound();
+  }
+}
+
+function toPublicReviewerResource(customer) {
+  if (!customer) {
+    return null;
+  }
+
+  return {
+    name: customer.name,
+
+    profilePhotoUrl: customer.profilePhoto?.url ?? null,
+  };
+}
+
+function toPublicReviewResource(review) {
+  return {
+    id: review._id.toString(),
+
+    rating: review.rating,
+
+    text: review.text,
+
+    reviewer: toPublicReviewerResource(review.customerId),
+
+    createdAt: review.createdAt,
+
+    updatedAt: review.updatedAt,
+  };
+}
+
+function createEmptyRatingSummary() {
+  return {
+    averageRating: null,
+    reviewCount: 0,
+  };
+}
+
 export async function createCustomerReview({
   customerId,
   productId,
@@ -138,4 +196,127 @@ export async function createCustomerReview({
 
     throw error;
   }
+}
+
+export async function getVisibleReviewRatingSummaries(productIds) {
+  const uniqueProductIds = [
+    ...new Set(
+      (productIds ?? [])
+        .map((value) => value?._id ?? value)
+        .filter((value) => mongoose.isValidObjectId(value))
+        .map((value) => value.toString()),
+    ),
+  ];
+
+  const summariesByProductId = new Map(
+    uniqueProductIds.map((productId) => [
+      productId,
+      createEmptyRatingSummary(),
+    ]),
+  );
+
+  if (uniqueProductIds.length === 0) {
+    return summariesByProductId;
+  }
+
+  const aggregateRows = await Review.aggregate([
+    {
+      $match: {
+        productId: {
+          $in: uniqueProductIds.map(
+            (productId) => new mongoose.Types.ObjectId(productId),
+          ),
+        },
+
+        moderationStatus: REVIEW_MODERATION_STATUSES.VISIBLE,
+      },
+    },
+
+    {
+      $group: {
+        _id: '$productId',
+
+        reviewCount: {
+          $sum: 1,
+        },
+
+        averageRating: {
+          $avg: '$rating',
+        },
+      },
+    },
+  ]);
+
+  for (const row of aggregateRows) {
+    summariesByProductId.set(row._id.toString(), {
+      averageRating: Math.round(Number(row.averageRating) * 10) / 10,
+
+      reviewCount: row.reviewCount,
+    });
+  }
+
+  return summariesByProductId;
+}
+
+export async function getVisibleReviewRatingSummary(productId) {
+  const summaries = await getVisibleReviewRatingSummaries([productId]);
+
+  return summaries.get(productId.toString()) ?? createEmptyRatingSummary();
+}
+
+export async function getPublicProductReviews({
+  productId,
+  page,
+  limit,
+  rating,
+  sort,
+  order,
+}) {
+  await ensurePublicProductExists(productId);
+
+  const filter = {
+    productId,
+
+    moderationStatus: REVIEW_MODERATION_STATUSES.VISIBLE,
+  };
+
+  if (rating !== undefined) {
+    filter.rating = rating;
+  }
+
+  const direction = order === 'asc' ? 1 : -1;
+
+  const sortDefinition = {
+    [sort]: direction,
+    _id: direction,
+  };
+
+  const skip = (page - 1) * limit;
+
+  const [reviews, totalItems, ratingSummary] = await Promise.all([
+    Review.find(filter)
+      .select('customerId rating text createdAt updatedAt')
+      .populate('customerId', 'name profilePhoto')
+      .sort(sortDefinition)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    Review.countDocuments(filter),
+
+    getVisibleReviewRatingSummary(productId),
+  ]);
+
+  return {
+    items: reviews.map(toPublicReviewResource),
+
+    ratingSummary,
+
+    meta: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
 }
