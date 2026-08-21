@@ -36,6 +36,7 @@ import AdminRefundDetailsPage from '../../pages/admin/AdminRefundDetailsPage.jsx
 import AdminNotificationsPage from '../../pages/admin/AdminNotificationsPage.jsx';
 import AdminSupportPage from '../../pages/admin/AdminSupportPage.jsx';
 import AdminSupportConversationPage from '../../pages/admin/AdminSupportConversationPage.jsx';
+import AdminDashboardPage from '../../pages/admin/AdminDashboardPage.jsx';
 
 import CatalogPage from '../../pages/storefront/CatalogPage.jsx';
 import ProductDetailsPage from '../../pages/storefront/ProductDetailsPage.jsx';
@@ -138,10 +139,7 @@ function AppRouter() {
 
       <Route element={<RequireAdmin />}>
         <Route element={<AdminLayout />}>
-          <Route
-            path='/admin'
-            element={<Navigate to='/admin/products' replace />}
-          />
+          <Route path='/admin' element={<AdminDashboardPage />} />
 
           <Route path='/admin/products' element={<AdminProductsPage />} />
 
