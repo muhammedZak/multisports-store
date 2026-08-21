@@ -1,20 +1,29 @@
 import { useEffect, useState } from 'react';
+
 import { Link, useNavigate } from 'react-router';
+
 import { useDispatch, useSelector } from 'react-redux';
 
 import { requestEmailChange, verifyEmailChange } from '../../api/authApi.js';
 
 import { normalizeApiError } from '../../api/errors.js';
 
+import { Alert } from '../../components/ui/Alert.jsx';
+import { Button } from '../../components/ui/Button.jsx';
+import { Input } from '../../components/ui/Input.jsx';
+
+import { AccountPageHeader } from '../../features/account/components/AccountPageHeader.jsx';
+
+import { EMAIL_CHANGE_RESEND_COOLDOWN_SECONDS } from '../../features/account/account.constants.js';
+
 import {
   logout,
   updateAuthenticatedUserEmail,
 } from '../../features/auth/authSlice.js';
 
-const EMAIL_CHANGE_RESEND_COOLDOWN_SECONDS = 60;
-
 function ChangeEmailPage() {
   const dispatch = useDispatch();
+
   const navigate = useNavigate();
 
   const user = useSelector((state) => state.auth.user);
@@ -22,13 +31,17 @@ function ChangeEmailPage() {
   const [step, setStep] = useState('request');
 
   const [newEmail, setNewEmail] = useState('');
+
   const [pendingEmail, setPendingEmail] = useState('');
+
   const [otp, setOtp] = useState('');
 
   const [error, setError] = useState(null);
+
   const [message, setMessage] = useState('');
 
   const [loading, setLoading] = useState(false);
+
   const [resending, setResending] = useState(false);
 
   const [resendSeconds, setResendSeconds] = useState(0);
@@ -49,16 +62,19 @@ function ChangeEmailPage() {
 
   function clearFeedback() {
     setError(null);
+
     setMessage('');
   }
 
   function handleEmailChange(event) {
     setNewEmail(event.target.value);
+
     clearFeedback();
   }
 
   function handleOtpChange(event) {
     setOtp(event.target.value);
+
     setError(null);
   }
 
@@ -72,7 +88,9 @@ function ChangeEmailPage() {
     if (normalizedNewEmail === user.email.trim().toLowerCase()) {
       setError({
         code: 'EMAIL_UNCHANGED',
+
         message: 'New email must be different from your current email.',
+
         fields: {
           newEmail: 'Enter a different email address.',
         },
@@ -91,6 +109,7 @@ function ChangeEmailPage() {
       const requestedEmail = result.newEmail || normalizedNewEmail;
 
       setPendingEmail(requestedEmail);
+
       setOtp('');
 
       setMessage(`We sent a verification code to ${requestedEmail}.`);
@@ -123,6 +142,7 @@ function ChangeEmailPage() {
     event.preventDefault();
 
     setError(null);
+
     setLoading(true);
 
     try {
@@ -166,7 +186,9 @@ function ChangeEmailPage() {
     }
 
     setError(null);
+
     setMessage('');
+
     setResending(true);
 
     try {
@@ -177,6 +199,7 @@ function ChangeEmailPage() {
       const requestedEmail = result.newEmail || pendingEmail;
 
       setPendingEmail(requestedEmail);
+
       setOtp('');
 
       setMessage(`A new verification code was sent to ${requestedEmail}.`);
@@ -198,9 +221,13 @@ function ChangeEmailPage() {
     setStep('request');
 
     setOtp('');
+
     setPendingEmail('');
+
     setMessage('');
+
     setError(null);
+
     setResendSeconds(0);
   }
 
@@ -214,9 +241,12 @@ function ChangeEmailPage() {
     if (logout.fulfilled.match(result)) {
       navigate('/auth/login', {
         replace: true,
+
         state: {
           email: currentEmail,
+
           from: '/account/security/email',
+
           reauthRequired: true,
         },
       });
@@ -229,230 +259,180 @@ function ChangeEmailPage() {
     setError(
       result.payload || {
         code: 'LOGOUT_FAILED',
+
         message: 'Unable to restart authentication. Please try again.',
+
         fields: {},
       },
     );
   }
 
   return (
-    <main className='mx-auto max-w-2xl p-6'>
-      <Link
-        to='/account/security'
-        className='text-sm font-medium underline underline-offset-4'>
-        Back to security
-      </Link>
+    <div className='max-w-2xl'>
+      <AccountPageHeader
+        eyebrow='Account security'
+        title='Change authentication email'
+        description={
+          <>
+            Your current authentication email is{' '}
+            <strong className='text-[var(--color-ink)]'>{user.email}</strong>.
+          </>
+        }
+        backTo='/account/security'
+        backLabel='Security'
+      />
 
-      <div className='mt-8'>
-        <p className='text-sm font-medium uppercase tracking-[0.2em] text-neutral-500'>
-          Account security
-        </p>
-
-        <h1 className='mt-3 text-3xl font-semibold'>
-          Change authentication email
-        </h1>
-
-        <p className='mt-3 text-sm leading-6 text-neutral-600'>
-          Your current authentication email is <strong>{user.email}</strong>.
-        </p>
-      </div>
-
-      {step === 'request' && (
+      {step === 'request' ? (
         <form onSubmit={handleRequest} className='mt-8 space-y-5'>
-          <div>
-            <label
-              htmlFor='newEmail'
-              className='mb-2 block text-sm font-medium'>
-              New email
-            </label>
+          <Input
+            id='newEmail'
+            name='newEmail'
+            label='New email'
+            type='email'
+            autoComplete='email'
+            required
+            value={newEmail}
+            disabled={loading}
+            placeholder='new@example.com'
+            error={error?.fields?.newEmail}
+            onChange={handleEmailChange}
+          />
 
-            <input
-              id='newEmail'
-              name='newEmail'
-              type='email'
-              autoComplete='email'
-              required
-              value={newEmail}
-              disabled={loading}
-              onChange={handleEmailChange}
-              placeholder='new@example.com'
-              className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
-            />
-
-            {error?.fields?.newEmail && (
-              <p className='mt-2 text-sm text-red-600'>
-                {error.fields.newEmail}
-              </p>
-            )}
-          </div>
-
-          {error?.code === 'REAUTH_REQUIRED' && (
-            <div
-              role='alert'
-              className='border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900'>
-              <p className='font-medium'>Please sign in again</p>
-
-              <p className='mt-2 leading-6'>
+          {error?.code === 'REAUTH_REQUIRED' ? (
+            <Alert variant='warning' title='Please sign in again'>
+              <p className='mb-3'>
                 Email changes are sensitive account actions. Your current
                 sign-in is too old, so authenticate again before continuing.
               </p>
 
-              <button
+              <Button
                 type='button'
+                variant='secondary'
+                size='sm'
                 disabled={loading}
-                onClick={handleReauthenticate}
-                className='mt-4 font-medium underline underline-offset-4 disabled:opacity-50'>
+                onClick={handleReauthenticate}>
                 Sign in again
-              </button>
-            </div>
-          )}
+              </Button>
+            </Alert>
+          ) : null}
 
           {error &&
-            error.code !== 'REAUTH_REQUIRED' &&
-            Object.keys(error.fields || {}).length === 0 && (
-              <div
-                role='alert'
-                className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-                {error.message}
-              </div>
-            )}
+          error.code !== 'REAUTH_REQUIRED' &&
+          Object.keys(error.fields || {}).length === 0 ? (
+            <Alert variant='danger'>{error.message}</Alert>
+          ) : null}
 
-          <button
-            type='submit'
-            disabled={loading}
-            className='w-full bg-black px-4 py-3 font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
+          <Button type='submit' size='lg' disabled={loading}>
             {loading
               ? 'Sending verification code...'
               : 'Send verification code'}
-          </button>
+          </Button>
         </form>
-      )}
+      ) : null}
 
-      {step === 'verify' && (
+      {step === 'verify' ? (
         <form onSubmit={handleVerify} className='mt-8 space-y-5'>
-          {message && (
-            <div
-              role='status'
-              className='border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'>
-              {message}
-            </div>
-          )}
+          {message ? <Alert variant='success'>{message}</Alert> : null}
 
-          <div className='border border-neutral-200 p-4'>
-            <p className='text-sm text-neutral-500'>New authentication email</p>
+          <section className='border-y border-[var(--color-border)] py-5'>
+            <p className='mb-1 text-xs font-bold uppercase tracking-[0.12em] text-[var(--color-muted)]'>
+              New authentication email
+            </p>
 
-            <p className='mt-1 font-medium'>{pendingEmail}</p>
+            <p className='mb-0 font-bold'>{pendingEmail}</p>
 
-            <button
+            <Button
               type='button'
+              variant='quiet'
+              size='sm'
               disabled={loading}
               onClick={handleChooseDifferentEmail}
-              className='mt-3 text-sm font-medium underline underline-offset-4 disabled:opacity-50'>
+              className='mt-3'>
               Use a different email
-            </button>
-          </div>
+            </Button>
+          </section>
 
-          <div>
-            <label htmlFor='otp' className='mb-2 block text-sm font-medium'>
-              Verification code
-            </label>
-
-            <input
-              id='otp'
-              name='otp'
-              type='text'
-              inputMode='numeric'
-              autoComplete='one-time-code'
-              required
-              maxLength={6}
-              value={otp}
-              disabled={loading}
-              onChange={handleOtpChange}
-              placeholder='123456'
-              className='w-full border border-neutral-300 px-4 py-3 tracking-[0.3em] outline-none transition focus:border-black disabled:bg-neutral-100'
-            />
-
-            {error?.fields?.otp && (
-              <p className='mt-2 text-sm text-red-600'>{error.fields.otp}</p>
-            )}
-          </div>
+          <Input
+            id='otp'
+            name='otp'
+            label='Verification code'
+            type='text'
+            inputMode='numeric'
+            autoComplete='one-time-code'
+            required
+            maxLength={6}
+            value={otp}
+            disabled={loading}
+            placeholder='123456'
+            error={error?.fields?.otp}
+            onChange={handleOtpChange}
+            className='tracking-[0.3em]'
+          />
 
           <div className='text-sm'>
             {resendSeconds > 0 ? (
-              <p className='text-neutral-500'>
+              <p className='mb-0 text-[var(--color-muted)]'>
                 Didn't receive the code? Resend in {resendSeconds}s
               </p>
             ) : (
-              <button
+              <Button
                 type='button'
+                variant='quiet'
+                size='sm'
                 disabled={loading || resending}
-                onClick={handleResend}
-                className='font-medium underline underline-offset-4 disabled:opacity-50'>
+                onClick={handleResend}>
                 {resending ? 'Sending...' : 'Resend verification code'}
-              </button>
+              </Button>
             )}
           </div>
 
-          {error?.code === 'REAUTH_REQUIRED' && (
-            <div
-              role='alert'
-              className='border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900'>
-              <p className='font-medium'>Please sign in again</p>
-
-              <p className='mt-2 leading-6'>
+          {error?.code === 'REAUTH_REQUIRED' ? (
+            <Alert variant='warning' title='Please sign in again'>
+              <p className='mb-3'>
                 Your recent authentication has expired. Sign in again before
                 requesting another verification code.
               </p>
 
-              <button
+              <Button
                 type='button'
+                variant='secondary'
+                size='sm'
                 disabled={loading || resending}
-                onClick={handleReauthenticate}
-                className='mt-4 font-medium underline underline-offset-4 disabled:opacity-50'>
+                onClick={handleReauthenticate}>
                 Sign in again
-              </button>
-            </div>
-          )}
+              </Button>
+            </Alert>
+          ) : null}
 
           {error &&
-            error.code !== 'REAUTH_REQUIRED' &&
-            Object.keys(error.fields || {}).length === 0 && (
-              <div
-                role='alert'
-                className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-                {error.message}
-              </div>
-            )}
+          error.code !== 'REAUTH_REQUIRED' &&
+          Object.keys(error.fields || {}).length === 0 ? (
+            <Alert variant='danger'>{error.message}</Alert>
+          ) : null}
 
-          <button
-            type='submit'
-            disabled={loading}
-            className='w-full bg-black px-4 py-3 font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
+          <Button type='submit' size='lg' disabled={loading}>
             {loading ? 'Verifying...' : 'Verify and change email'}
-          </button>
+          </Button>
         </form>
-      )}
+      ) : null}
 
-      {step === 'success' && (
-        <section className='mt-8 border border-green-200 bg-green-50 p-6'>
-          <h2 className='text-lg font-semibold text-green-900'>
-            Email changed successfully
-          </h2>
+      {step === 'success' ? (
+        <Alert
+          variant='success'
+          title='Email changed successfully'
+          className='mt-8'>
+          <p className='mb-1'>{message}</p>
 
-          <p className='mt-2 text-sm leading-6 text-green-800'>{message}</p>
-
-          <p className='mt-2 text-sm leading-6 text-green-800'>
-            You are still signed in.
-          </p>
+          <p className='mb-4'>You are still signed in.</p>
 
           <Link
             to='/account'
-            className='mt-5 inline-block font-medium text-green-900 underline underline-offset-4'>
+            className='font-semibold underline underline-offset-4'>
             Back to account
           </Link>
-        </section>
-      )}
-    </main>
+        </Alert>
+      ) : null}
+    </div>
   );
 }
 

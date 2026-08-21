@@ -1,18 +1,30 @@
 import { useState } from 'react';
+
 import { Link } from 'react-router';
 
 import { changePassword } from '../../api/authApi.js';
+
 import { normalizeApiError } from '../../api/errors.js';
+
+import { Alert } from '../../components/ui/Alert.jsx';
+import { Button } from '../../components/ui/Button.jsx';
+import { Input } from '../../components/ui/Input.jsx';
+
+import { AccountPageHeader } from '../../features/account/components/AccountPageHeader.jsx';
 
 function SecurityPage() {
   const [form, setForm] = useState({
     currentPassword: '',
+
     newPassword: '',
+
     confirmPassword: '',
   });
 
   const [error, setError] = useState(null);
+
   const [successMessage, setSuccessMessage] = useState('');
+
   const [loading, setLoading] = useState(false);
 
   function handleChange(event) {
@@ -24,6 +36,7 @@ function SecurityPage() {
     }));
 
     setError(null);
+
     setSuccessMessage('');
   }
 
@@ -31,12 +44,15 @@ function SecurityPage() {
     event.preventDefault();
 
     setError(null);
+
     setSuccessMessage('');
 
     if (form.newPassword !== form.confirmPassword) {
       setError({
         code: 'VALIDATION_ERROR',
+
         message: 'Please correct the invalid fields.',
+
         fields: {
           confirmPassword: 'Passwords do not match.',
         },
@@ -48,7 +64,9 @@ function SecurityPage() {
     if (form.currentPassword === form.newPassword) {
       setError({
         code: 'PASSWORD_REUSE_NOT_ALLOWED',
+
         message: 'New password must be different from your current password.',
+
         fields: {
           newPassword:
             'New password must be different from your current password.',
@@ -63,13 +81,17 @@ function SecurityPage() {
     try {
       await changePassword({
         currentPassword: form.currentPassword,
+
         newPassword: form.newPassword,
+
         confirmPassword: form.confirmPassword,
       });
 
       setForm({
         currentPassword: '',
+
         newPassword: '',
+
         confirmPassword: '',
       });
 
@@ -97,78 +119,66 @@ function SecurityPage() {
   }
 
   return (
-    <main className='mx-auto max-w-2xl p-6'>
-      <Link
-        to='/account'
-        className='text-sm font-medium underline underline-offset-4'>
-        Back to account
-      </Link>
+    <div className='max-w-2xl'>
+      <AccountPageHeader
+        eyebrow='Account security'
+        title='Security'
+        description='Manage your authentication email and password.'
+      />
 
-      <div className='mt-8'>
-        <p className='text-sm font-medium uppercase tracking-[0.2em] text-neutral-500'>
-          Account security
+      <section className='mt-8 border-y border-[var(--color-border)] py-6'>
+        <p className='mb-1 text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-muted)]'>
+          Sign-in identity
         </p>
 
-        <section className='mt-6 border border-neutral-200 p-5'>
-          <h2 className='font-semibold'>Authentication email</h2>
+        <h2 className='mb-0 text-lg font-black tracking-[-0.02em]'>
+          Authentication email
+        </h2>
 
-          <p className='mt-2 text-sm leading-6 text-neutral-600'>
-            Change the email address you use to sign in. Your new address must
-            be verified before the change is completed.
-          </p>
+        <p className='mt-2 mb-0 text-sm leading-6 text-[var(--color-muted)]'>
+          Change the email address you use to sign in. Your new address must be
+          verified before the change is completed.
+        </p>
 
-          <Link
-            to='/account/security/email'
-            className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
-            Change authentication email
-          </Link>
-        </section>
+        <Link
+          to='/account/security/email'
+          className='mt-4 inline-flex text-sm font-semibold underline underline-offset-4'>
+          Change authentication email
+        </Link>
+      </section>
 
-        <h1 className='mt-3 text-3xl font-semibold'>Change password</h1>
+      <section className='mt-8'>
+        <p className='mb-1 text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-muted)]'>
+          Password
+        </p>
 
-        <p className='mt-3 text-sm leading-6 text-neutral-600'>
+        <h2 className='mb-0 text-lg font-black tracking-[-0.02em]'>
+          Change password
+        </h2>
+
+        <p className='mt-2 mb-0 text-sm leading-6 text-[var(--color-muted)]'>
           Enter your current password before creating a new one.
         </p>
-      </div>
 
-      <form onSubmit={handleSubmit} className='mt-8 space-y-5'>
-        <div>
-          <label
-            htmlFor='currentPassword'
-            className='mb-2 block text-sm font-medium'>
-            Current password
-          </label>
-
-          <input
+        <form onSubmit={handleSubmit} className='mt-6 space-y-5'>
+          <Input
             id='currentPassword'
             name='currentPassword'
+            label='Current password'
             type='password'
             autoComplete='current-password'
             required
             maxLength={128}
             value={form.currentPassword}
             disabled={loading}
+            error={error?.fields?.currentPassword}
             onChange={handleChange}
-            className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
           />
 
-          {error?.fields?.currentPassword && (
-            <p className='mt-2 text-sm text-red-600'>
-              {error.fields.currentPassword}
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label
-            htmlFor='newPassword'
-            className='mb-2 block text-sm font-medium'>
-            New password
-          </label>
-
-          <input
+          <Input
             id='newPassword'
             name='newPassword'
+            label='New password'
             type='password'
             autoComplete='new-password'
             required
@@ -176,31 +186,15 @@ function SecurityPage() {
             maxLength={128}
             value={form.newPassword}
             disabled={loading}
+            hint='8–128 characters with at least one letter and one number.'
+            error={error?.fields?.newPassword}
             onChange={handleChange}
-            className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
           />
 
-          <p className='mt-2 text-xs text-neutral-500'>
-            8–128 characters with at least one letter and one number.
-          </p>
-
-          {error?.fields?.newPassword && (
-            <p className='mt-2 text-sm text-red-600'>
-              {error.fields.newPassword}
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label
-            htmlFor='confirmPassword'
-            className='mb-2 block text-sm font-medium'>
-            Confirm new password
-          </label>
-
-          <input
+          <Input
             id='confirmPassword'
             name='confirmPassword'
+            label='Confirm new password'
             type='password'
             autoComplete='new-password'
             required
@@ -208,41 +202,24 @@ function SecurityPage() {
             maxLength={128}
             value={form.confirmPassword}
             disabled={loading}
+            error={error?.fields?.confirmPassword}
             onChange={handleChange}
-            className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
           />
 
-          {error?.fields?.confirmPassword && (
-            <p className='mt-2 text-sm text-red-600'>
-              {error.fields.confirmPassword}
-            </p>
-          )}
-        </div>
+          {successMessage ? (
+            <Alert variant='success'>{successMessage}</Alert>
+          ) : null}
 
-        {successMessage && (
-          <div
-            role='status'
-            className='border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'>
-            {successMessage}
-          </div>
-        )}
+          {error && Object.keys(error.fields || {}).length === 0 ? (
+            <Alert variant='danger'>{error.message}</Alert>
+          ) : null}
 
-        {error && Object.keys(error.fields || {}).length === 0 && (
-          <div
-            role='alert'
-            className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-            {error.message}
-          </div>
-        )}
-
-        <button
-          type='submit'
-          disabled={loading}
-          className='w-full bg-black px-4 py-3 font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
-          {loading ? 'Changing password...' : 'Change password'}
-        </button>
-      </form>
-    </main>
+          <Button type='submit' size='lg' disabled={loading}>
+            {loading ? 'Changing password...' : 'Change password'}
+          </Button>
+        </form>
+      </section>
+    </div>
   );
 }
 

@@ -1,16 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { Link } from 'react-router';
+
 import { useDispatch, useSelector } from 'react-redux';
 
 import { fetchMyProfile } from '../../api/userApi.js';
+
 import { normalizeApiError } from '../../api/errors.js';
+
+import { Alert } from '../../components/ui/Alert.jsx';
+import { Badge } from '../../components/ui/Badge.jsx';
+import { Button } from '../../components/ui/Button.jsx';
+import { Skeleton } from '../../components/ui/Skeleton.jsx';
+
+import { AccountPageHeader } from '../../features/account/components/AccountPageHeader.jsx';
+import { ProfileAvatar } from '../../features/account/components/ProfileAvatar.jsx';
 
 import GoogleSignInButton from '../../features/auth/GoogleSignInButton.jsx';
 
 import {
   clearGoogleLinkPending,
-  logout,
   signInWithGoogle,
 } from '../../features/auth/authSlice.js';
 
@@ -19,12 +28,16 @@ function ProfilePage() {
 
   const {
     actionStatus,
+
     error: authError,
+
     googleLinkPending,
   } = useSelector((state) => state.auth);
 
   const [profile, setProfile] = useState(null);
+
   const [profileLoading, setProfileLoading] = useState(true);
+
   const [profileError, setProfileError] = useState(null);
 
   const [googleMessage, setGoogleMessage] = useState('');
@@ -33,6 +46,7 @@ function ProfilePage() {
 
   const loadProfile = useCallback(async () => {
     setProfileLoading(true);
+
     setProfileError(null);
 
     try {
@@ -69,292 +83,166 @@ function ProfilePage() {
     }
   }
 
-  async function handleLogout() {
-    await dispatch(logout());
-  }
-
   return (
-    <main className='mx-auto max-w-3xl p-6'>
-      <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
-        <div>
-          <p className='text-sm font-medium uppercase tracking-[0.2em] text-neutral-500'>
-            My account
+    <div className='max-w-3xl'>
+      <AccountPageHeader
+        title='Profile'
+        description='View and manage the personal information connected to your Customer account.'
+        action={
+          <Link
+            to='/account/profile/edit'
+            className='inline-flex min-h-10 items-center border border-[var(--color-ink)] bg-[var(--color-ink)] px-4 text-sm font-bold text-white transition hover:bg-[#2b2b2b]'>
+            Edit profile
+          </Link>
+        }
+      />
+
+      {googleLinkPending ? (
+        <Alert variant='warning' title='Finish linking Google' className='mt-6'>
+          <p className='mb-4'>
+            You successfully proved ownership of this account. Continue with the
+            same Google account to finish linking it.
           </p>
 
-          <h1 className='mt-3 text-3xl font-semibold'>Profile</h1>
+          <GoogleSignInButton
+            disabled={authActionLoading}
+            onCredential={handleGoogleCredential}
+          />
 
-          <p className='mt-2 text-sm leading-6 text-neutral-600'>
-            View and manage your personal account information.
-          </p>
-        </div>
-
-        <Link
-          to='/account/profile/edit'
-          className='inline-flex bg-black px-5 py-3 text-sm font-medium text-white transition hover:bg-neutral-800'>
-          Edit profile
-        </Link>
-      </div>
-
-      {googleLinkPending && (
-        <section className='mt-8 border border-amber-200 bg-amber-50 p-6'>
-          <h2 className='text-lg font-semibold'>Finish linking Google</h2>
-
-          <p className='mt-2 text-sm leading-6 text-neutral-700'>
-            You have successfully proved ownership of this account. Continue
-            with the same Google account to finish linking it.
-          </p>
-
-          <div className='mt-5'>
-            <GoogleSignInButton
-              disabled={authActionLoading}
-              onCredential={handleGoogleCredential}
-            />
-          </div>
-
-          <button
+          <Button
             type='button'
+            variant='quiet'
+            size='sm'
             disabled={authActionLoading}
             onClick={() => dispatch(clearGoogleLinkPending())}
-            className='mt-4 text-sm font-medium underline underline-offset-4 disabled:opacity-50'>
+            className='mt-3'>
             Not now
-          </button>
-        </section>
-      )}
+          </Button>
+        </Alert>
+      ) : null}
 
-      {googleMessage && (
-        <div
-          role='status'
-          className='mt-6 border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'>
+      {googleMessage ? (
+        <Alert variant='success' className='mt-6'>
           {googleMessage}
-        </div>
-      )}
+        </Alert>
+      ) : null}
 
-      {authError && authError.code !== 'ACCOUNT_LINK_REQUIRED' && (
-        <div
-          role='alert'
-          className='mt-6 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
+      {authError && authError.code !== 'ACCOUNT_LINK_REQUIRED' ? (
+        <Alert variant='danger' className='mt-6'>
           {authError.message}
+        </Alert>
+      ) : null}
+
+      {profileLoading ? (
+        <div className='mt-8'>
+          <div className='flex items-center gap-5 border-y border-[var(--color-border)] py-6'>
+            <Skeleton className='size-20 rounded-full' />
+
+            <div className='flex-1'>
+              <Skeleton className='h-5 w-40' />
+
+              <Skeleton className='mt-3 h-4 w-56' />
+            </div>
+          </div>
+
+          <Skeleton className='mt-6 h-24 w-full' />
         </div>
-      )}
+      ) : null}
 
-      {profileLoading && (
-        <section className='mt-8 border border-neutral-200 p-6'>
-          <p className='text-sm text-neutral-600'>Loading profile...</p>
-        </section>
-      )}
+      {!profileLoading && profileError ? (
+        <Alert
+          variant='danger'
+          title='Unable to load profile'
+          className='mt-6'
+          actions={
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={loadProfile}>
+              Try again
+            </Button>
+          }>
+          {profileError.message}
+        </Alert>
+      ) : null}
 
-      {!profileLoading && profileError && (
-        <section className='mt-8 border border-red-200 bg-red-50 p-6'>
-          <p role='alert' className='text-sm text-red-700'>
-            {profileError.message}
-          </p>
+      {!profileLoading && !profileError && profile ? (
+        <>
+          <section className='mt-8 flex items-center gap-5 border-y border-[var(--color-border)] py-6'>
+            <ProfileAvatar
+              name={profile.name}
+              profilePhoto={profile.profilePhoto}
+            />
 
-          <button
-            type='button'
-            onClick={loadProfile}
-            className='mt-4 bg-black px-4 py-2 text-sm font-medium text-white'>
-            Try again
-          </button>
-        </section>
-      )}
+            <div>
+              <h2 className='mb-1 text-xl font-black tracking-[-0.025em]'>
+                {profile.name}
+              </h2>
 
-      {!profileLoading && !profileError && profile && (
-        <section className='mt-8 border border-neutral-200'>
-          <div className='border-b border-neutral-200 p-5'>
-            <p className='text-xs font-medium uppercase tracking-wide text-neutral-500'>
-              Profile photo
-            </p>
+              <p className='mb-0 text-sm text-[var(--color-muted)]'>
+                {profile.email}
+              </p>
 
-            <div className='mt-4 flex items-center gap-4'>
-              {profile.profilePhoto?.url ? (
-                <img
-                  src={profile.profilePhoto.url}
-                  alt={`${profile.name} profile`}
-                  className='h-20 w-20 rounded-full border border-neutral-200 object-cover'
-                />
-              ) : (
-                <div
-                  aria-hidden='true'
-                  className='flex h-20 w-20 items-center justify-center rounded-full bg-neutral-100 text-2xl font-semibold text-neutral-500'>
-                  {profile.name?.trim()?.charAt(0)?.toUpperCase() || '?'}
+              <p className='mt-2 mb-0 text-xs text-[var(--color-muted)]'>
+                Profile photo, display name and phone can be changed from Edit
+                profile.
+              </p>
+            </div>
+          </section>
+
+          <dl className='border-b border-[var(--color-border)]'>
+            <div className='grid gap-2 border-b border-[var(--color-border)] py-5 sm:grid-cols-[180px_minmax(0,1fr)]'>
+              <dt className='text-sm font-semibold text-[var(--color-muted)]'>
+                Name
+              </dt>
+
+              <dd className='m-0 font-semibold'>{profile.name}</dd>
+            </div>
+
+            <div className='grid gap-2 border-b border-[var(--color-border)] py-5 sm:grid-cols-[180px_minmax(0,1fr)]'>
+              <dt className='text-sm font-semibold text-[var(--color-muted)]'>
+                Authentication email
+              </dt>
+
+              <dd className='m-0'>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <span className='font-semibold'>{profile.email}</span>
+
+                  <Badge
+                    variant={profile.emailVerified ? 'success' : 'warning'}>
+                    {profile.emailVerified ? 'Verified' : 'Not verified'}
+                  </Badge>
                 </div>
-              )}
 
-              <div>
-                <p className='text-sm font-medium'>
-                  {profile.profilePhoto?.url
-                    ? 'Profile photo added'
-                    : 'No profile photo'}
+                <p className='mt-2 mb-0 text-xs leading-5 text-[var(--color-muted)]'>
+                  Authentication email is managed separately from profile
+                  editing.
                 </p>
-
-                <p className='mt-1 text-xs leading-5 text-neutral-500'>
-                  Use Edit profile to upload, replace, or remove your photo.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className='border-b border-neutral-200 p-5'>
-            <p className='text-xs font-medium uppercase tracking-wide text-neutral-500'>
-              Name
-            </p>
-
-            <p className='mt-2 font-medium'>{profile.name}</p>
-          </div>
-
-          <div className='border-b border-neutral-200 p-5'>
-            <p className='text-xs font-medium uppercase tracking-wide text-neutral-500'>
-              Email
-            </p>
-
-            <div className='mt-2 flex flex-wrap items-center gap-3'>
-              <p className='font-medium'>{profile.email}</p>
-
-              {profile.emailVerified ? (
-                <span className='bg-green-50 px-2 py-1 text-xs font-medium text-green-700'>
-                  Verified
-                </span>
-              ) : (
-                <span className='bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700'>
-                  Not verified
-                </span>
-              )}
+              </dd>
             </div>
 
-            <p className='mt-2 text-xs leading-5 text-neutral-500'>
-              Authentication email is managed separately from profile editing.
-            </p>
-          </div>
+            <div className='grid gap-2 border-b border-[var(--color-border)] py-5 sm:grid-cols-[180px_minmax(0,1fr)]'>
+              <dt className='text-sm font-semibold text-[var(--color-muted)]'>
+                Phone
+              </dt>
 
-          <div className='border-b border-neutral-200 p-5'>
-            <p className='text-xs font-medium uppercase tracking-wide text-neutral-500'>
-              Phone
-            </p>
+              <dd className='m-0 font-semibold'>
+                {profile.phone || 'No phone number added'}
+              </dd>
+            </div>
 
-            <p className='mt-2 font-medium'>
-              {profile.phone || 'No phone number added'}
-            </p>
-          </div>
+            <div className='grid gap-2 py-5 sm:grid-cols-[180px_minmax(0,1fr)]'>
+              <dt className='text-sm font-semibold text-[var(--color-muted)]'>
+                Account type
+              </dt>
 
-          <div className='p-5'>
-            <p className='text-xs font-medium uppercase tracking-wide text-neutral-500'>
-              Account type
-            </p>
-
-            <p className='mt-2 font-medium capitalize'>{profile.role}</p>
-          </div>
-        </section>
-      )}
-
-      <section className='mt-8 border border-neutral-200 p-5'>
-        <h2 className='font-semibold'>Notifications</h2>
-
-        <p className='mt-2 text-sm leading-6 text-neutral-600'>
-          View important updates about your Orders, Payments, Refunds, and
-          account activity.
-        </p>
-
-        <Link
-          to='/account/notifications'
-          className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
-          View my Notifications
-        </Link>
-      </section>
-
-      <section className='mt-8 border border-neutral-200 p-5'>
-        <h2 className='font-semibold'>Support</h2>
-
-        <p className='mt-2 text-sm leading-6 text-neutral-600'>
-          Contact the store support team and view your persistent message
-          history.
-        </p>
-
-        <Link
-          to='/account/support'
-          className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
-          Open Support
-        </Link>
-      </section>
-
-      <section className='mt-8 border border-neutral-200 p-5'>
-        <h2 className='font-semibold'>Orders</h2>
-
-        <p className='mt-2 text-sm leading-6 text-neutral-600'>
-          View your order history, payment status, purchased items, and delivery
-          progress.
-        </p>
-
-        <Link
-          to='/account/orders'
-          className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
-          View my orders
-        </Link>
-      </section>
-
-      <section className='mt-8 border border-neutral-200 p-5'>
-        <h2 className='font-semibold'>Reviews</h2>
-
-        <p className='mt-2 text-sm leading-6 text-neutral-600'>
-          View, edit, and manage the product reviews you have submitted.
-        </p>
-
-        <Link
-          to='/account/reviews'
-          className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
-          View my reviews
-        </Link>
-      </section>
-
-      <section className='mt-8 border border-neutral-200 p-5'>
-        <h2 className='font-semibold'>Refunds</h2>
-
-        <p className='mt-2 text-sm leading-6 text-neutral-600'>
-          Track refund requests and current status.
-        </p>
-
-        <Link
-          to='/account/refunds'
-          className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
-          View my refunds
-        </Link>
-      </section>
-
-      <section className='mt-8 border border-neutral-200 p-5'>
-        <h2 className='font-semibold'>Saved addresses</h2>
-
-        <p className='mt-2 text-sm leading-6 text-neutral-600'>
-          Add and manage shipping addresses for future checkout use.
-        </p>
-
-        <Link
-          to='/account/addresses'
-          className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
-          Manage addresses
-        </Link>
-      </section>
-
-      <section className='mt-8 border border-neutral-200 p-5'>
-        <h2 className='font-semibold'>Account security</h2>
-
-        <p className='mt-2 text-sm leading-6 text-neutral-600'>
-          Manage your password and authentication email from Security.
-        </p>
-
-        <Link
-          to='/account/security'
-          className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
-          Security settings
-        </Link>
-      </section>
-
-      <button
-        type='button'
-        disabled={authActionLoading}
-        onClick={handleLogout}
-        className='mt-8 border border-neutral-300 px-5 py-3 text-sm font-medium transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50'>
-        {authActionLoading ? 'Logging out...' : 'Logout'}
-      </button>
-    </main>
+              <dd className='m-0 capitalize font-semibold'>{profile.role}</dd>
+            </div>
+          </dl>
+        </>
+      ) : null}
+    </div>
   );
 }
 

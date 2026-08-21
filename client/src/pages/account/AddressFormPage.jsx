@@ -10,102 +10,31 @@ import {
 
 import { normalizeApiError } from '../../api/errors.js';
 
-const PHONE_ALLOWED_REGEX = /^\+?[0-9\s()-]+$/;
+import { Alert } from '../../components/ui/Alert.jsx';
+import { Button } from '../../components/ui/Button.jsx';
+import { Input } from '../../components/ui/Input.jsx';
+import { Skeleton } from '../../components/ui/Skeleton.jsx';
+import { Textarea } from '../../components/ui/Textarea.jsx';
 
-const EMPTY_FORM = {
-  fullName: '',
-  phone: '',
-  address: '',
-  city: '',
-  state: '',
-  postalCode: '',
-  country: '',
-  isDefault: false,
-};
+import { AccountPageHeader } from '../../features/account/components/AccountPageHeader.jsx';
 
-function isValidPhone(phone) {
-  const digitCount = phone.replace(/\D/g, '').length;
+import { EMPTY_ADDRESS_FORM } from '../../features/account/account.constants.js';
 
-  return (
-    phone.length <= 25 &&
-    PHONE_ALLOWED_REGEX.test(phone) &&
-    digitCount >= 7 &&
-    digitCount <= 15
-  );
-}
-
-function validateForm(form) {
-  const fields = {};
-
-  const normalized = {
-    fullName: form.fullName.trim(),
-    phone: form.phone.trim(),
-    address: form.address.trim(),
-    city: form.city.trim(),
-    state: form.state.trim(),
-    postalCode: form.postalCode.trim(),
-    country: form.country.trim(),
-  };
-
-  if (!normalized.fullName) {
-    fields.fullName = 'Full name is required.';
-  } else if (normalized.fullName.length > 100) {
-    fields.fullName = 'Full name is too long.';
-  }
-
-  if (!normalized.phone || !isValidPhone(normalized.phone)) {
-    fields.phone = 'Enter a valid phone number.';
-  }
-
-  if (!normalized.address) {
-    fields.address = 'Address is required.';
-  } else if (normalized.address.length > 300) {
-    fields.address = 'Address is too long.';
-  }
-
-  if (!normalized.city) {
-    fields.city = 'City is required.';
-  } else if (normalized.city.length > 100) {
-    fields.city = 'City is too long.';
-  }
-
-  if (!normalized.state) {
-    fields.state = 'State is required.';
-  } else if (normalized.state.length > 100) {
-    fields.state = 'State is too long.';
-  }
-
-  if (!normalized.postalCode) {
-    fields.postalCode = 'Postal code is required.';
-  } else if (normalized.postalCode.length > 20) {
-    fields.postalCode = 'Postal code is too long.';
-  }
-
-  if (!normalized.country) {
-    fields.country = 'Country is required.';
-  } else if (normalized.country.length > 100) {
-    fields.country = 'Country is too long.';
-  }
-
-  return {
-    fields,
-    normalized,
-  };
-}
+import { validateAddressForm } from '../../features/account/account.utils.js';
 
 function AddressFormPage() {
   const navigate = useNavigate();
 
   const location = useLocation();
 
+  const { addressId } = useParams();
+
   const returnTo =
     location.state?.from === '/checkout' ? '/checkout' : '/account/addresses';
 
-  const { addressId } = useParams();
-
   const editMode = Boolean(addressId);
 
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(EMPTY_ADDRESS_FORM);
 
   const [pageLoading, setPageLoading] = useState(editMode);
 
@@ -119,6 +48,7 @@ function AddressFormPage() {
     }
 
     setPageLoading(true);
+
     setError(null);
 
     try {
@@ -129,7 +59,9 @@ function AddressFormPage() {
       if (!address) {
         setError({
           code: 'NOT_FOUND',
+
           message: 'Address not found.',
+
           fields: {},
         });
 
@@ -138,12 +70,19 @@ function AddressFormPage() {
 
       setForm({
         fullName: address.fullName,
+
         phone: address.phone,
+
         address: address.address,
+
         city: address.city,
+
         state: address.state,
+
         postalCode: address.postalCode,
+
         country: address.country,
+
         isDefault: address.isDefault,
       });
     } catch (requestError) {
@@ -162,6 +101,7 @@ function AddressFormPage() {
 
     setForm((current) => ({
       ...current,
+
       [name]: type === 'checkbox' ? checked : value,
     }));
 
@@ -173,12 +113,14 @@ function AddressFormPage() {
 
     setError(null);
 
-    const { fields, normalized } = validateForm(form);
+    const { fields, normalized } = validateAddressForm(form);
 
     if (Object.keys(fields).length > 0) {
       setError({
         code: 'VALIDATION_ERROR',
+
         message: 'Please correct the invalid fields.',
+
         fields,
       });
 
@@ -193,17 +135,19 @@ function AddressFormPage() {
       } else {
         await createMyAddress({
           ...normalized,
+
           isDefault: form.isDefault,
         });
       }
 
-     navigate(returnTo, {
-       replace: true,
-     });
+      navigate(returnTo, {
+        replace: true,
+      });
     } catch (requestError) {
       setError(
         normalizeApiError(
           requestError,
+
           editMode
             ? 'Unable to update this address.'
             : 'Unable to save this address.',
@@ -216,283 +160,190 @@ function AddressFormPage() {
 
   if (pageLoading) {
     return (
-      <main className='mx-auto max-w-2xl p-6'>
-        <p className='text-sm text-neutral-600'>Loading address...</p>
-      </main>
+      <div className='max-w-2xl'>
+        <Skeleton className='h-8 w-44' />
+
+        <Skeleton className='mt-8 h-96 w-full' />
+      </div>
     );
   }
 
   if (editMode && error?.code === 'NOT_FOUND') {
     return (
-      <main className='mx-auto max-w-2xl p-6'>
-        <Link
-          to={returnTo}
-          className='text-sm font-medium underline underline-offset-4'>
-          Back to addresses
-        </Link>
+      <div className='max-w-2xl'>
+        <AccountPageHeader
+          title='Address not found'
+          backTo={returnTo}
+          backLabel='Addresses'
+        />
 
-        <section className='mt-8 border border-neutral-200 p-6'>
-          <h1 className='text-xl font-semibold'>Address not found</h1>
-
-          <p className='mt-2 text-sm leading-6 text-neutral-600'>
-            This saved address does not exist in your account.
-          </p>
-        </section>
-      </main>
+        <Alert variant='warning' className='mt-6'>
+          This saved address does not exist in your account.
+        </Alert>
+      </div>
     );
   }
 
   return (
-    <main className='mx-auto max-w-2xl p-6'>
-      <Link
-        to={returnTo}
-        className='text-sm font-medium underline underline-offset-4'>
-        Back to addresses
-      </Link>
-
-      <div className='mt-8'>
-        <p className='text-sm font-medium uppercase tracking-[0.2em] text-neutral-500'>
-          My account
-        </p>
-
-        <h1 className='mt-3 text-3xl font-semibold'>
-          {editMode ? 'Edit address' : 'Add address'}
-        </h1>
-
-        <p className='mt-3 text-sm leading-6 text-neutral-600'>
-          {editMode
+    <div className='max-w-2xl'>
+      <AccountPageHeader
+        title={editMode ? 'Edit address' : 'Add address'}
+        description={
+          editMode
             ? 'Update your saved shipping details.'
-            : 'Save a shipping address for future checkout use.'}
-        </p>
-      </div>
+            : 'Save a shipping address for future Checkout use.'
+        }
+        backTo={returnTo}
+        backLabel='Addresses'
+      />
 
-      <form onSubmit={handleSubmit} className='mt-8 space-y-6'>
-        <div>
-          <label htmlFor='fullName' className='mb-2 block text-sm font-medium'>
-            Full name
-          </label>
+      <form onSubmit={handleSubmit} className='mt-8 space-y-5'>
+        <Input
+          id='fullName'
+          name='fullName'
+          label='Full name'
+          type='text'
+          autoComplete='name'
+          maxLength={100}
+          required
+          disabled={saving}
+          value={form.fullName}
+          error={error?.fields?.fullName}
+          onChange={handleChange}
+        />
 
-          <input
-            id='fullName'
-            name='fullName'
+        <Input
+          id='address-phone'
+          name='phone'
+          label='Phone'
+          type='tel'
+          autoComplete='tel'
+          maxLength={25}
+          required
+          disabled={saving}
+          placeholder='+91 98765 43210'
+          value={form.phone}
+          error={error?.fields?.phone}
+          onChange={handleChange}
+        />
+
+        <Textarea
+          id='address'
+          name='address'
+          label='Address'
+          rows={4}
+          maxLength={300}
+          required
+          disabled={saving}
+          value={form.address}
+          error={error?.fields?.address}
+          onChange={handleChange}
+        />
+
+        <div className='grid gap-5 sm:grid-cols-2'>
+          <Input
+            id='city'
+            name='city'
+            label='City'
             type='text'
-            autoComplete='name'
             maxLength={100}
             required
             disabled={saving}
-            value={form.fullName}
+            value={form.city}
+            error={error?.fields?.city}
             onChange={handleChange}
-            className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
           />
 
-          {error?.fields?.fullName && (
-            <p className='mt-2 text-sm text-red-600'>{error.fields.fullName}</p>
-          )}
-        </div>
-
-        <div>
-          <label htmlFor='phone' className='mb-2 block text-sm font-medium'>
-            Phone
-          </label>
-
-          <input
-            id='phone'
-            name='phone'
-            type='tel'
-            autoComplete='tel'
-            maxLength={25}
+          <Input
+            id='state'
+            name='state'
+            label='State'
+            type='text'
+            maxLength={100}
             required
             disabled={saving}
-            placeholder='+91 98765 43210'
-            value={form.phone}
+            value={form.state}
+            error={error?.fields?.state}
             onChange={handleChange}
-            className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
           />
-
-          {error?.fields?.phone && (
-            <p className='mt-2 text-sm text-red-600'>{error.fields.phone}</p>
-          )}
         </div>
 
-        <div>
-          <label htmlFor='address' className='mb-2 block text-sm font-medium'>
-            Address
-          </label>
-
-          <textarea
-            id='address'
-            name='address'
-            rows={4}
-            maxLength={300}
+        <div className='grid gap-5 sm:grid-cols-2'>
+          <Input
+            id='postalCode'
+            name='postalCode'
+            label='Postal code'
+            type='text'
+            autoComplete='postal-code'
+            maxLength={20}
             required
             disabled={saving}
-            value={form.address}
+            value={form.postalCode}
+            error={error?.fields?.postalCode}
             onChange={handleChange}
-            className='w-full resize-y border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
           />
 
-          {error?.fields?.address && (
-            <p className='mt-2 text-sm text-red-600'>{error.fields.address}</p>
-          )}
+          <Input
+            id='country'
+            name='country'
+            label='Country'
+            type='text'
+            autoComplete='country-name'
+            maxLength={100}
+            required
+            disabled={saving}
+            value={form.country}
+            error={error?.fields?.country}
+            onChange={handleChange}
+          />
         </div>
 
-        <div className='grid gap-6 sm:grid-cols-2'>
-          <div>
-            <label htmlFor='city' className='mb-2 block text-sm font-medium'>
-              City
-            </label>
-
-            <input
-              id='city'
-              name='city'
-              type='text'
-              maxLength={100}
-              required
-              disabled={saving}
-              value={form.city}
-              onChange={handleChange}
-              className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
-            />
-
-            {error?.fields?.city && (
-              <p className='mt-2 text-sm text-red-600'>{error.fields.city}</p>
-            )}
-          </div>
-
-          <div>
-            <label htmlFor='state' className='mb-2 block text-sm font-medium'>
-              State
-            </label>
-
-            <input
-              id='state'
-              name='state'
-              type='text'
-              maxLength={100}
-              required
-              disabled={saving}
-              value={form.state}
-              onChange={handleChange}
-              className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
-            />
-
-            {error?.fields?.state && (
-              <p className='mt-2 text-sm text-red-600'>{error.fields.state}</p>
-            )}
-          </div>
-        </div>
-
-        <div className='grid gap-6 sm:grid-cols-2'>
-          <div>
-            <label
-              htmlFor='postalCode'
-              className='mb-2 block text-sm font-medium'>
-              Postal code
-            </label>
-
-            <input
-              id='postalCode'
-              name='postalCode'
-              type='text'
-              autoComplete='postal-code'
-              maxLength={20}
-              required
-              disabled={saving}
-              value={form.postalCode}
-              onChange={handleChange}
-              className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
-            />
-
-            {error?.fields?.postalCode && (
-              <p className='mt-2 text-sm text-red-600'>
-                {error.fields.postalCode}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label htmlFor='country' className='mb-2 block text-sm font-medium'>
-              Country
-            </label>
-
-            <input
-              id='country'
-              name='country'
-              type='text'
-              autoComplete='country-name'
-              maxLength={100}
-              required
-              disabled={saving}
-              value={form.country}
-              onChange={handleChange}
-              className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
-            />
-
-            {error?.fields?.country && (
-              <p className='mt-2 text-sm text-red-600'>
-                {error.fields.country}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {!editMode && (
-          <label className='flex items-start gap-3 border border-neutral-200 p-4'>
+        {!editMode ? (
+          <label className='flex cursor-pointer items-start gap-3 border-y border-[var(--color-border)] py-4'>
             <input
               name='isDefault'
               type='checkbox'
               checked={form.isDefault}
               disabled={saving}
               onChange={handleChange}
-              className='mt-1 h-4 w-4'
+              className='mt-1 size-4 accent-[var(--color-ink)]'
             />
 
             <span>
-              <span className='block text-sm font-medium'>
+              <span className='block text-sm font-bold'>
                 Set as default address
               </span>
 
-              <span className='mt-1 block text-xs leading-5 text-neutral-500'>
+              <span className='mt-1 block text-xs leading-5 text-[var(--color-muted)]'>
                 This will replace any existing default address.
               </span>
             </span>
           </label>
-        )}
+        ) : null}
 
-        {error?.fields?.request && (
-          <div
-            role='alert'
-            className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-            {error.fields.request}
-          </div>
-        )}
+        {error?.fields?.request ? (
+          <Alert variant='danger'>{error.fields.request}</Alert>
+        ) : null}
 
         {error &&
-          Object.keys(error.fields || {}).length === 0 &&
-          error.code !== 'NOT_FOUND' && (
-            <div
-              role='alert'
-              className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-              {error.message}
-            </div>
-          )}
+        Object.keys(error.fields || {}).length === 0 &&
+        error.code !== 'NOT_FOUND' ? (
+          <Alert variant='danger'>{error.message}</Alert>
+        ) : null}
 
-        <div className='flex flex-col gap-3 sm:flex-row'>
-          <button
-            type='submit'
-            disabled={saving}
-            className='bg-black px-5 py-3 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
+        <div className='flex flex-wrap gap-3 border-t border-[var(--color-border)] pt-5'>
+          <Button type='submit' disabled={saving}>
             {saving ? 'Saving...' : editMode ? 'Save changes' : 'Save address'}
-          </button>
+          </Button>
 
           <Link
             to='/account/addresses'
-            className='border border-neutral-300 px-5 py-3 text-center text-sm font-medium transition hover:bg-neutral-50'>
+            className='inline-flex min-h-10 items-center border border-[var(--color-border-strong)] px-4 text-sm font-semibold hover:border-[var(--color-ink)]'>
             Cancel
           </Link>
         </div>
       </form>
-    </main>
+    </div>
   );
 }
 
