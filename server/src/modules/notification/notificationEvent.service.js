@@ -352,3 +352,23 @@ export async function notifyAdminsInventoryStockTransition({
     resourceId: inventoryId,
   });
 }
+
+export async function notifyAdminsNewSupportMessage({ conversationId }) {
+  await notifyAllAdmins({
+    event: 'support_message_customer_admin',
+
+    type: NOTIFICATION_TYPES.SUPPORT,
+
+    title: 'New support message',
+
+    message: 'A Customer sent a new support message.',
+
+    resourceType: NOTIFICATION_RESOURCE_TYPES.SUPPORT,
+
+    /*
+     * The useful Support resource is the Conversation,
+     * not an individual Message.
+     */
+    resourceId: conversationId,
+  });
+}

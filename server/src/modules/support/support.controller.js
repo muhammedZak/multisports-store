@@ -1,11 +1,17 @@
 import {
   validateSupportConversationCreateInput,
   validateSupportConversationQuery,
+  validateSupportConversationReadInput,
+  validateSupportMessageCreateInput,
+  validateSupportMessageListQuery,
 } from './support.validation.js';
 
 import {
+  createCustomerSupportMessage,
   createOrReuseCustomerSupportConversation,
   getCustomerSupportConversation,
+  getCustomerSupportMessages,
+  markCustomerSupportConversationRead,
 } from './support.service.js';
 
 export async function createSupportConversation(req, res) {
@@ -43,6 +49,64 @@ export async function getSupportConversation(req, res) {
    * Never-started support is a normal Customer
    * account state, not a 404.
    */
+  res.status(200).json({
+    success: true,
+
+    data: {
+      conversation,
+    },
+  });
+}
+
+export async function getSupportMessages(req, res) {
+  const query = validateSupportMessageListQuery(req.query);
+
+  const result = await getCustomerSupportMessages({
+    customerId: req.user.id,
+
+    ...query,
+  });
+
+  res.status(200).json({
+    success: true,
+
+    data: {
+      items: result.items,
+    },
+
+    meta: result.meta,
+  });
+}
+
+export async function sendSupportMessage(req, res) {
+  validateSupportConversationQuery(req.query);
+
+  const input = validateSupportMessageCreateInput(req.body);
+
+  const message = await createCustomerSupportMessage({
+    customerId: req.user.id,
+
+    text: input.text,
+  });
+
+  res.status(201).json({
+    success: true,
+
+    data: {
+      message,
+    },
+  });
+}
+
+export async function markSupportConversationRead(req, res) {
+  validateSupportConversationQuery(req.query);
+
+  validateSupportConversationReadInput(req.body);
+
+  const conversation = await markCustomerSupportConversationRead({
+    customerId: req.user.id,
+  });
+
   res.status(200).json({
     success: true,
 
