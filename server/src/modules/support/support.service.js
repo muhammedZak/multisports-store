@@ -569,6 +569,53 @@ export async function getAdminSupportConversationDetail({ conversationId }) {
   return toAdminSupportConversationResource(conversation);
 }
 
+export async function authorizeSupportConversationSocketAccess({
+  user,
+  conversationId,
+}) {
+  if (!user?.id) {
+    throw new AppError(401, 'AUTH_REQUIRED', 'Authentication is required.');
+  }
+
+  if (!mongoose.isValidObjectId(conversationId)) {
+    throwSupportConversationNotFound();
+  }
+
+  const filter = {
+    _id: conversationId,
+  };
+
+  if (user.role === 'customer') {
+    /*
+     * A Customer may join only their own
+     * persistent Support Conversation.
+     */
+    filter.customerId = user.id;
+  } else if (user.role !== 'admin') {
+    throw new AppError(
+      403,
+      'FORBIDDEN',
+      'Support conversation access is not allowed.',
+    );
+  }
+
+  /*
+   * Admin:
+   *   only _id is checked, therefore any existing
+   *   Support Conversation may be joined.
+   *
+   * Customer:
+   *   _id + customerId must both match.
+   */
+  const conversationExists = await SupportConversation.exists(filter);
+
+  if (!conversationExists) {
+    throwSupportConversationNotFound();
+  }
+
+  return conversationId.toString();
+}
+
 export async function getAdminSupportConversationMessages({
   conversationId,
   page,
