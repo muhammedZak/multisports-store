@@ -1,3 +1,5 @@
+import { STOCK_STATES } from '../inventory/inventory.constants.js';
+import { REFUND_STATUSES } from '../refund/refund.constants.js';
 import { User } from '../users/user.model.js';
 
 import {
@@ -24,11 +26,10 @@ async function createNotificationSafely({
     return await createNotification(notificationInput);
   } catch (error) {
     /*
-     * Notifications are informational.
+     * Notifications remain informational.
      *
-     * A Notification persistence problem must not
-     * invalidate an already-successful Payment,
-     * Order placement, or fulfillment transition.
+     * A Notification persistence problem must never
+     * invalidate an already-successful business event.
      */
     logNotificationFailure(event, error, context);
 
@@ -47,13 +48,6 @@ async function notifyAllAdmins({
   let admins;
 
   try {
-    /*
-     * Notifications are recipient-specific.
-     *
-     * There is no shared Admin-inbox model, so an
-     * Admin business event fans out to every current
-     * User whose role is admin.
-     */
     admins = await User.find({
       role: 'admin',
     })
@@ -180,5 +174,181 @@ export async function notifyCustomerOrderStatusChanged({
     resourceType: NOTIFICATION_RESOURCE_TYPES.ORDER,
 
     resourceId: orderId,
+  });
+}
+
+export async function notifyRefundRequestCreated({ customerId, refundId }) {
+  await createNotificationSafely({
+    event: 'refund_requested_customer',
+
+    context: {
+      customerId: customerId?.toString() ?? null,
+      refundId: refundId?.toString() ?? null,
+    },
+
+    recipientId: customerId,
+
+    type: NOTIFICATION_TYPES.REFUND,
+
+    title: 'Refund requested',
+
+    message: 'Your Refund request has been submitted and is awaiting review.',
+
+    resourceType: NOTIFICATION_RESOURCE_TYPES.REFUND,
+
+    resourceId: refundId,
+  });
+
+  await notifyAllAdmins({
+    event: 'refund_requested_admin',
+
+    type: NOTIFICATION_TYPES.REFUND,
+
+    title: 'New Refund request',
+
+    message: 'A new Customer Refund request is ready for review.',
+
+    resourceType: NOTIFICATION_RESOURCE_TYPES.REFUND,
+
+    resourceId: refundId,
+  });
+}
+
+export async function notifyCustomerRefundDecision({
+  customerId,
+  refundId,
+  refundStatus,
+}) {
+  let title;
+  let message;
+
+  if (refundStatus === REFUND_STATUSES.APPROVED) {
+    title = 'Refund approved';
+
+    message = 'Your Refund request has been approved and will be processed.';
+  } else if (refundStatus === REFUND_STATUSES.REJECTED) {
+    title = 'Refund rejected';
+
+    message =
+      'Your Refund request was not approved. View the Refund details for more information.';
+  } else {
+    /*
+     * This is an internal side-effect helper.
+     *
+     * Never let an unexpected Notification input
+     * break an already-completed Refund decision.
+     */
+    logNotificationFailure(
+      'refund_decision_notification_invalid_status',
+      new Error('Unsupported Refund decision status.'),
+      {
+        customerId: customerId?.toString() ?? null,
+        refundId: refundId?.toString() ?? null,
+        refundStatus,
+      },
+    );
+
+    return;
+  }
+
+  await createNotificationSafely({
+    event: `refund_${refundStatus}_customer`,
+
+    context: {
+      customerId: customerId?.toString() ?? null,
+      refundId: refundId?.toString() ?? null,
+      refundStatus,
+    },
+
+    recipientId: customerId,
+
+    type: NOTIFICATION_TYPES.REFUND,
+
+    title,
+
+    message,
+
+    resourceType: NOTIFICATION_RESOURCE_TYPES.REFUND,
+
+    resourceId: refundId,
+  });
+}
+
+export async function notifyCustomerRefundCompleted({ customerId, refundId }) {
+  await createNotificationSafely({
+    event: 'refund_completed_customer',
+
+    context: {
+      customerId: customerId?.toString() ?? null,
+      refundId: refundId?.toString() ?? null,
+    },
+
+    recipientId: customerId,
+
+    type: NOTIFICATION_TYPES.REFUND,
+
+    title: 'Refund completed',
+
+    message: 'Your Refund has been completed successfully.',
+
+    resourceType: NOTIFICATION_RESOURCE_TYPES.REFUND,
+
+    resourceId: refundId,
+  });
+}
+
+export async function notifyAdminsInventoryStockTransition({
+  inventoryId,
+  previousStockState,
+  newStockState,
+  newQuantity,
+}) {
+  /*
+   * Remaining inside the same stock state does not
+   * generate another alert.
+   *
+   * Example:
+   *
+   * low_stock 5 → low_stock 4
+   *
+   * should not spam Admins.
+   */
+  if (previousStockState === newStockState) {
+    return;
+  }
+
+  let title;
+  let message;
+
+  if (newStockState === STOCK_STATES.LOW_STOCK) {
+    title = 'Low stock';
+
+    message = `An Inventory position is low on stock with ${newQuantity} unit${
+      newQuantity === 1 ? '' : 's'
+    } remaining.`;
+  } else if (newStockState === STOCK_STATES.OUT_OF_STOCK) {
+    title = 'Out of stock';
+
+    message = 'An Inventory position is now out of stock.';
+  } else {
+    /*
+     * Recovery to IN_STOCK is useful business state,
+     * but it is not a signed Notification event.
+     */
+    return;
+  }
+
+  await notifyAllAdmins({
+    event: `inventory_${newStockState}`,
+
+    type: NOTIFICATION_TYPES.INVENTORY,
+
+    title,
+
+    message,
+
+    resourceType: NOTIFICATION_RESOURCE_TYPES.INVENTORY,
+
+    resourceId: inventoryId,
   });
 }

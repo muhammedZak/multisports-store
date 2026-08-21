@@ -7,6 +7,10 @@ import { Inventory } from '../inventory/inventory.model.js';
 import { InventoryAdjustment } from '../inventory/inventoryAdjustment.model.js';
 import { Order } from '../order/order.model.js';
 
+import { getStockState } from '../inventory/inventory.service.js';
+
+import { notifyAdminsInventoryStockTransition } from '../notification/notificationEvent.service.js';
+
 import {
   REFUND_ORIGINS,
   REFUND_SCOPES,
@@ -17,11 +21,7 @@ import { Refund } from './refund.model.js';
 const REFUND_ADJUSTMENT_SOURCE_TYPE = 'refund';
 
 function throwRefundInventoryIntegrityError(message) {
-  throw new AppError(
-    409,
-    'REFUND_INVENTORY_INTEGRITY_ERROR',
-    message,
-  );
+  throw new AppError(409, 'REFUND_INVENTORY_INTEGRITY_ERROR', message);
 }
 
 function getInventoryFilter(item) {
@@ -97,9 +97,7 @@ function adjustmentMatchesExpectedEffect(adjustment, expectedEffect) {
 
 export async function reconcileRefundInventoryRestock(
   refundId,
-  {
-    persistAdjustments = writeInventoryAdjustments,
-  } = {},
+  { persistAdjustments = writeInventoryAdjustments } = {},
 ) {
   if (!mongoose.isObjectIdOrHexString(refundId)) {
     throw new TypeError('A valid Refund ID is required for Inventory restock.');
@@ -110,17 +108,17 @@ export async function reconcileRefundInventoryRestock(
     adjustmentCount: 0,
   };
 
+  let restockAdjustments = [];
+
   await mongoose.connection.transaction(
     async (session) => {
       result = {
         result: 'not_applicable',
         adjustmentCount: 0,
       };
-
+      restockAdjustments = [];
       const refund = await Refund.findById(refundId)
-        .select(
-          '_id orderId itemIds origin status scope restockOnCompletion',
-        )
+        .select('_id orderId itemIds origin status scope restockOnCompletion')
         .session(session)
         .lean();
 
@@ -192,9 +190,7 @@ export async function reconcileRefundInventoryRestock(
         sourceId: refund._id,
         reason: INVENTORY_ADJUSTMENT_REASONS.REFUND_RETURN,
       })
-        .select(
-          'inventoryId quantityChange previousQuantity newQuantity',
-        )
+        .select('inventoryId quantityChange previousQuantity newQuantity')
         .session(session)
         .lean();
 
@@ -270,6 +266,10 @@ export async function reconcileRefundInventoryRestock(
 
       await persistAdjustments(adjustments, session);
 
+      restockAdjustments = adjustments.map((adjustment) => ({
+        ...adjustment,
+      }));
+
       result = {
         result: 'restocked',
         adjustmentCount: adjustments.length,
@@ -279,6 +279,18 @@ export async function reconcileRefundInventoryRestock(
       readPreference: 'primary',
     },
   );
+
+  for (const adjustment of restockAdjustments) {
+    await notifyAdminsInventoryStockTransition({
+      inventoryId: adjustment.inventoryId,
+
+      previousStockState: getStockState(adjustment.previousQuantity),
+
+      newStockState: getStockState(adjustment.newQuantity),
+
+      newQuantity: adjustment.newQuantity,
+    });
+  }
 
   return result;
 }

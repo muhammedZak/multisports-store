@@ -8,7 +8,7 @@ import {
 import { AppError } from '../../utils/AppError.js';
 
 import { PAYMENT_STATUSES } from '../payment/payment.model.js';
-
+import { notifyCustomerRefundCompleted } from '../notification/notificationEvent.service.js';
 import {
   REFUND_PROVIDERS,
   REFUND_STATUSES,
@@ -165,6 +165,21 @@ async function persistProviderRefundState({ refund, providerRefund }) {
     .lean();
 
   if (updatedRefund) {
+    /*
+     * Only the request/webhook that actually wins
+     * the Refund status transition emits the event.
+     *
+     * Later webhook/provider replays receive the
+     * already-authoritative Refund and do not notify again.
+     */
+    if (updatedRefund.status === REFUND_STATUSES.REFUNDED) {
+      await notifyCustomerRefundCompleted({
+        customerId: updatedRefund.customerId,
+
+        refundId: updatedRefund._id,
+      });
+    }
+
     return updatedRefund;
   }
 

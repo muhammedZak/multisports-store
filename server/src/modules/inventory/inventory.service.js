@@ -7,6 +7,8 @@ import { AppError } from '../../utils/AppError.js';
 import { Category } from '../catalog/category.model.js';
 import { Product } from '../catalog/product.model.js';
 
+import { notifyAdminsInventoryStockTransition } from '../notification/notificationEvent.service.js';
+
 import {
   INVENTORY_ADJUSTMENT_REASONS,
   STOCK_STATES,
@@ -415,6 +417,16 @@ export async function adjustInventoryManually({
 
       adjustment: toAdminInventoryAdjustmentResource(adjustment),
     };
+  });
+
+  await notifyAdminsInventoryStockTransition({
+    inventoryId: result.inventory.id,
+
+    previousStockState: getStockState(result.adjustment.previousQuantity),
+
+    newStockState: result.inventory.stockState,
+
+    newQuantity: result.inventory.quantity,
   });
 
   return result;

@@ -6,6 +6,11 @@ import { Order, ORDER_STATUSES } from '../order/order.model.js';
 import { Payment, PAYMENT_STATUSES } from '../payment/payment.model.js';
 
 import {
+  notifyCustomerRefundDecision,
+  notifyRefundRequestCreated,
+} from '../notification/notificationEvent.service.js';
+
+import {
   REFUND_ADMIN_DECISIONS,
   REFUND_ORIGINS,
   REFUND_SCOPES,
@@ -55,14 +60,9 @@ function throwRefundScopeConflict() {
 }
 
 function throwRefundScopeInvalid() {
-  throw new AppError(
-    422,
-    'REFUND_SCOPE_INVALID',
-    'Refund scope is invalid.',
-    {
-      scope: 'Refund scope must be order or items with a valid combination.',
-    },
-  );
+  throw new AppError(422, 'REFUND_SCOPE_INVALID', 'Refund scope is invalid.', {
+    scope: 'Refund scope must be order or items with a valid combination.',
+  });
 }
 
 function throwRefundItemNotFound() {
@@ -403,6 +403,12 @@ export async function createCustomerRefundRequest({
     throw error;
   }
 
+  await notifyRefundRequestCreated({
+    customerId: refund.customerId,
+
+    refundId: refund._id,
+  });
+
   return getCustomerRefund({
     customerId,
     refundId: refund._id,
@@ -486,10 +492,7 @@ export async function getCustomerRefund({ customerId, refundId }) {
       'orderId',
       '_id orderNumber orderStatus items subtotal discountAmount totalAmount placedAt',
     )
-    .populate(
-      'paymentId',
-      '_id status amount currency verifiedAt',
-    )
+    .populate('paymentId', '_id status amount currency verifiedAt')
     .lean();
 
   if (!refund) {
@@ -647,15 +650,10 @@ export async function getAdminRefund(refundId) {
   return toAdminRefundDetailResource(refund);
 }
 
-export async function decideAdminRefund({
-  refundId,
-  adminId,
-  decision,
-  adminDecisionNote,
-  restockOnCompletion,
-}, {
-  processProviderRefund = processApprovedRazorpayRefund,
-} = {}) {
+export async function decideAdminRefund(
+  { refundId, adminId, decision, adminDecisionNote, restockOnCompletion },
+  { processProviderRefund = processApprovedRazorpayRefund } = {},
+) {
   if (!mongoose.isValidObjectId(refundId)) {
     throwRefundNotFound();
   }
@@ -685,15 +683,11 @@ export async function decideAdminRefund({
   const reviewedAt = new Date();
   const update = {
     $set: {
-      status: rejecting
-        ? REFUND_STATUSES.REJECTED
-        : REFUND_STATUSES.APPROVED,
+      status: rejecting ? REFUND_STATUSES.REJECTED : REFUND_STATUSES.APPROVED,
       scopeOccupied: !rejecting,
       reviewedBy: adminId,
       reviewedAt,
-      ...(rejecting || adminDecisionNote
-        ? { adminDecisionNote }
-        : {}),
+      ...(rejecting || adminDecisionNote ? { adminDecisionNote } : {}),
       ...(!rejecting ? { restockOnCompletion } : {}),
     },
     ...(rejecting
@@ -717,14 +711,12 @@ export async function decideAdminRefund({
       runValidators: true,
     },
   )
-    .select('_id')
+    .select('_id customerId status')
     .lean();
 
   if (!updatedRefund) {
     const existingRefund = await Refund.findById(refundId)
-      .select(
-        '_id origin status restockOnCompletion adminDecisionNote',
-      )
+      .select('_id origin status restockOnCompletion adminDecisionNote')
       .lean();
 
     if (!existingRefund) {
@@ -775,6 +767,14 @@ export async function decideAdminRefund({
 
     return getAdminRefund(refundId);
   }
+
+  await notifyCustomerRefundDecision({
+    customerId: updatedRefund.customerId,
+
+    refundId: updatedRefund._id,
+
+    refundStatus: updatedRefund.status,
+  });
 
   if (rejecting) {
     return getAdminRefund(refundId);

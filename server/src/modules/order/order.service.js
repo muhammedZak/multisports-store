@@ -11,7 +11,10 @@ import { Inventory } from '../inventory/inventory.model.js';
 
 import { InventoryAdjustment } from '../inventory/inventoryAdjustment.model.js';
 
+import { getStockState } from '../inventory/inventory.service.js';
+
 import {
+  notifyAdminsInventoryStockTransition,
   notifyCustomerOrderStatusChanged,
   notifyOrderPlaced,
 } from '../notification/notificationEvent.service.js';
@@ -243,11 +246,13 @@ async function cancelOrderWithInventoryRestoration({
   let cancellationRefundId = null;
 
   let cancelledOrderNotification = null;
+  let cancelledInventoryAdjustments = [];
 
   await mongoose.connection.transaction(
     async (session) => {
       cancellationRefundId = null;
       cancelledOrderNotification = null;
+      cancelledInventoryAdjustments = [];
 
       const orderFilter = {
         _id: orderId,
@@ -309,21 +314,21 @@ async function cancelOrderWithInventoryRestoration({
         .select('_id')
         .lean();
 
-     if (!cancelledOrder) {
-       throwNotCancellable();
-     }
+      if (!cancelledOrder) {
+        throwNotCancellable();
+      }
 
-     cancelledOrderNotification = {
-       customerId: order.customerId,
+      cancelledOrderNotification = {
+        customerId: order.customerId,
 
-       orderId: order._id,
+        orderId: order._id,
 
-       orderNumber: order.orderNumber,
+        orderNumber: order.orderNumber,
 
-       orderStatus: ORDER_STATUSES.CANCELLED,
-     };
+        orderStatus: ORDER_STATUSES.CANCELLED,
+      };
 
-     const inventoryAdjustments = [];
+      const inventoryAdjustments = [];
 
       for (const item of order.items) {
         const adjustment = await restoreInventoryForCancelledOrderItem({
@@ -341,6 +346,12 @@ async function cancelOrderWithInventoryRestoration({
         session,
         ordered: true,
       });
+
+      cancelledInventoryAdjustments = inventoryAdjustments.map(
+        (adjustment) => ({
+          ...adjustment,
+        }),
+      );
 
       const payment = await Payment.findById(order.paymentId)
         .select(
@@ -365,9 +376,21 @@ async function cancelOrderWithInventoryRestoration({
     },
   );
 
-  if (cancelledOrderNotification) {
-    await notifyCustomerOrderStatusChanged(cancelledOrderNotification);
-  }
+ if (cancelledOrderNotification) {
+   await notifyCustomerOrderStatusChanged(cancelledOrderNotification);
+ }
+
+ for (const adjustment of cancelledInventoryAdjustments) {
+   await notifyAdminsInventoryStockTransition({
+     inventoryId: adjustment.inventoryId,
+
+     previousStockState: getStockState(adjustment.previousQuantity),
+
+     newStockState: getStockState(adjustment.newQuantity),
+
+     newQuantity: adjustment.newQuantity,
+   });
+ }
 
   if (cancellationRefundId) {
     await processProviderRefund({
@@ -791,11 +814,14 @@ export async function finalizeOrderForSucceededPayment({ paymentId }) {
 
   let createdNewOrder = false;
 
+  let placedInventoryAdjustments = [];
+
   try {
     await mongoose.connection.transaction(
       async (session) => {
         placedOrder = null;
         createdNewOrder = false;
+        placedInventoryAdjustments = [];
         /*
          * 1. Re-read Payment inside transaction.
          */
@@ -995,6 +1021,10 @@ export async function finalizeOrderForSucceededPayment({ paymentId }) {
 
         createdNewOrder = true;
 
+        placedInventoryAdjustments = inventoryAdjustments.map((adjustment) => ({
+          ...adjustment,
+        }));
+
         /*
          * Successful callback:
          *
@@ -1035,27 +1065,39 @@ export async function finalizeOrderForSucceededPayment({ paymentId }) {
     throw error;
   }
 
-if (!placedOrder) {
-  throwOrderFinalizationFailed();
-}
+  if (!placedOrder) {
+    throwOrderFinalizationFailed();
+  }
 
-/*
- * Only the transaction invocation that actually
- * created the Order generates placement Notifications.
- *
- * Existing-order idempotent retries do not.
- */
-if (createdNewOrder) {
-  await notifyOrderPlaced({
-    customerId: placedOrder.customerId,
+  /*
+   * Only the transaction invocation that actually
+   * created the Order generates placement Notifications.
+   *
+   * Existing-order idempotent retries do not.
+   */
+  if (createdNewOrder) {
+    await notifyOrderPlaced({
+      customerId: placedOrder.customerId,
 
-    orderId: placedOrder._id,
+      orderId: placedOrder._id,
 
-    orderNumber: placedOrder.orderNumber,
-  });
-}
+      orderNumber: placedOrder.orderNumber,
+    });
 
-return toOrderPlacementResource(placedOrder);
+    for (const adjustment of placedInventoryAdjustments) {
+      await notifyAdminsInventoryStockTransition({
+        inventoryId: adjustment.inventoryId,
+
+        previousStockState: getStockState(adjustment.previousQuantity),
+
+        newStockState: getStockState(adjustment.newQuantity),
+
+        newQuantity: adjustment.newQuantity,
+      });
+    }
+  }
+
+  return toOrderPlacementResource(placedOrder);
 }
 
 function throwCustomerOrderNotFound() {
