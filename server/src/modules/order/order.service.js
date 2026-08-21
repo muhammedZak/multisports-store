@@ -12,6 +12,11 @@ import { Inventory } from '../inventory/inventory.model.js';
 import { InventoryAdjustment } from '../inventory/inventoryAdjustment.model.js';
 
 import {
+  notifyCustomerOrderStatusChanged,
+  notifyOrderPlaced,
+} from '../notification/notificationEvent.service.js';
+
+import {
   Payment,
   PAYMENT_COMMERCE_RESOLUTIONS,
   PAYMENT_STATUSES,
@@ -226,7 +231,6 @@ async function restoreInventoryForCancelledOrderItem({
   };
 }
 
-
 async function cancelOrderWithInventoryRestoration({
   orderId,
   customerId = null,
@@ -238,9 +242,12 @@ async function cancelOrderWithInventoryRestoration({
   const cancelledAt = new Date();
   let cancellationRefundId = null;
 
+  let cancelledOrderNotification = null;
+
   await mongoose.connection.transaction(
     async (session) => {
       cancellationRefundId = null;
+      cancelledOrderNotification = null;
 
       const orderFilter = {
         _id: orderId,
@@ -257,7 +264,7 @@ async function cancelOrderWithInventoryRestoration({
 
       const order = await Order.findOne(orderFilter)
         .select(
-          '_id customerId paymentId items subtotal discountAmount totalAmount orderStatus',
+          '_id orderNumber customerId paymentId items subtotal discountAmount totalAmount orderStatus',
         )
         .session(session)
         .lean();
@@ -302,11 +309,21 @@ async function cancelOrderWithInventoryRestoration({
         .select('_id')
         .lean();
 
-      if (!cancelledOrder) {
-        throwNotCancellable();
-      }
+     if (!cancelledOrder) {
+       throwNotCancellable();
+     }
 
-      const inventoryAdjustments = [];
+     cancelledOrderNotification = {
+       customerId: order.customerId,
+
+       orderId: order._id,
+
+       orderNumber: order.orderNumber,
+
+       orderStatus: ORDER_STATUSES.CANCELLED,
+     };
+
+     const inventoryAdjustments = [];
 
       for (const item of order.items) {
         const adjustment = await restoreInventoryForCancelledOrderItem({
@@ -347,6 +364,10 @@ async function cancelOrderWithInventoryRestoration({
       readPreference: 'primary',
     },
   );
+
+  if (cancelledOrderNotification) {
+    await notifyCustomerOrderStatusChanged(cancelledOrderNotification);
+  }
 
   if (cancellationRefundId) {
     await processProviderRefund({
@@ -768,11 +789,13 @@ export async function finalizeOrderForSucceededPayment({ paymentId }) {
 
   let placedOrder = null;
 
+  let createdNewOrder = false;
+
   try {
     await mongoose.connection.transaction(
       async (session) => {
         placedOrder = null;
-
+        createdNewOrder = false;
         /*
          * 1. Re-read Payment inside transaction.
          */
@@ -970,6 +993,8 @@ export async function finalizeOrderForSucceededPayment({ paymentId }) {
           depopulate: true,
         });
 
+        createdNewOrder = true;
+
         /*
          * Successful callback:
          *
@@ -1010,11 +1035,27 @@ export async function finalizeOrderForSucceededPayment({ paymentId }) {
     throw error;
   }
 
-  if (!placedOrder) {
-    throwOrderFinalizationFailed();
-  }
+if (!placedOrder) {
+  throwOrderFinalizationFailed();
+}
 
-  return toOrderPlacementResource(placedOrder);
+/*
+ * Only the transaction invocation that actually
+ * created the Order generates placement Notifications.
+ *
+ * Existing-order idempotent retries do not.
+ */
+if (createdNewOrder) {
+  await notifyOrderPlaced({
+    customerId: placedOrder.customerId,
+
+    orderId: placedOrder._id,
+
+    orderNumber: placedOrder.orderNumber,
+  });
+}
+
+return toOrderPlacementResource(placedOrder);
 }
 
 function throwCustomerOrderNotFound() {
@@ -1267,9 +1308,7 @@ export async function getCustomerOrder({ customerId, orderId }) {
 
 export async function cancelCustomerOrder(
   { customerId, orderId },
-  {
-    processProviderRefund = processApprovedRazorpayRefund,
-  } = {},
+  { processProviderRefund = processApprovedRazorpayRefund } = {},
 ) {
   if (!mongoose.isValidObjectId(customerId)) {
     throw new TypeError(
@@ -1405,9 +1444,7 @@ export async function getAdminOrders({
 
 export async function updateAdminOrderStatus(
   { orderId, status },
-  {
-    processProviderRefund = processApprovedRazorpayRefund,
-  } = {},
+  { processProviderRefund = processApprovedRazorpayRefund } = {},
 ) {
   if (!mongoose.isValidObjectId(orderId)) {
     throwAdminOrderNotFound();
@@ -1446,7 +1483,9 @@ export async function updateAdminOrderStatus(
    *
    * No MongoDB transaction is needed.
    */
-  const order = await Order.findById(orderId).select('_id orderStatus').lean();
+  const order = await Order.findById(orderId)
+    .select('_id orderNumber customerId orderStatus')
+    .lean();
 
   if (!order) {
     throwAdminOrderNotFound();
@@ -1489,6 +1528,20 @@ export async function updateAdminOrderStatus(
   if (!updatedOrder) {
     throwInvalidAdminOrderStateTransition();
   }
+
+  /*
+   * The compare-and-set succeeded, therefore this
+   * invocation actually changed the fulfillment state.
+   */
+  await notifyCustomerOrderStatusChanged({
+    customerId: order.customerId,
+
+    orderId: order._id,
+
+    orderNumber: order.orderNumber,
+
+    orderStatus: status,
+  });
 
   /*
    * Return the same authoritative resource shape

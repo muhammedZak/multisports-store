@@ -18,7 +18,7 @@ import {
 } from '../refund/refundSystem.service.js';
 
 import { Payment, PAYMENT_STATUSES } from './payment.model.js';
-
+import { notifyCustomerPaymentSucceeded } from '../notification/notificationEvent.service.js';
 function throwCheckoutNotReady(preview) {
   const firstIssue = preview?.issues?.[0];
 
@@ -444,6 +444,19 @@ export async function reconcileCapturedRazorpayPayment({
   }
 
   if (reconciledPayment) {
+    /*
+     * This branch means THIS request won the atomic
+     * transition into PAYMENT_STATUSES.SUCCEEDED.
+     *
+     * Replay/concurrent requests that merely observe an
+     * already-succeeded Payment do not enter this branch.
+     */
+    await notifyCustomerPaymentSucceeded({
+      customerId: reconciledPayment.customerId,
+
+      paymentId: reconciledPayment._id,
+    });
+
     return reconciledPayment;
   }
 
