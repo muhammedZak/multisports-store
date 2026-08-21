@@ -32,6 +32,7 @@ import AdminReviewsPage from '../../pages/admin/AdminReviewsPage.jsx';
 import AdminReviewDetailsPage from '../../pages/admin/AdminReviewDetailsPage.jsx';
 import AdminRefundsPage from '../../pages/admin/AdminRefundsPage.jsx';
 import AdminRefundDetailsPage from '../../pages/admin/AdminRefundDetailsPage.jsx';
+import AdminNotificationsPage from '../../pages/admin/AdminNotificationsPage.jsx';
 
 import CatalogPage from '../../pages/storefront/CatalogPage.jsx';
 import ProductDetailsPage from '../../pages/storefront/ProductDetailsPage.jsx';
@@ -191,6 +192,11 @@ function AppRouter() {
           <Route
             path='/admin/refunds/:refundId'
             element={<AdminRefundDetailsPage />}
+          />
+
+          <Route
+            path='/admin/notifications'
+            element={<AdminNotificationsPage />}
           />
         </Route>
       </Route>
