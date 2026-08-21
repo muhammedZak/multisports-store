@@ -28,6 +28,7 @@ import paymentRouter from './modules/payment/payment.routes.js';
 import paymentWebhookRouter from './modules/payment/paymentWebhook.routes.js';
 import reviewRouter from './modules/review/review.routes.js';
 import refundRouter from './modules/refund/refund.routes.js';
+import notificationRouter from './modules/notification/notification.routes.js';
 
 const app = express();
 
@@ -74,6 +75,7 @@ app.use('/api/v1', categoryRouter);
 app.use('/api/v1', publicCatalogRouter);
 app.use('/api/v1', reviewRouter);
 app.use('/api/v1', refundRouter);
+app.use('/api/v1', notificationRouter);
 
 app.use('/api/v1/coupons', couponRouter);
 
