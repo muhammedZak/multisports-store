@@ -17,6 +17,7 @@ import SecurityPage from '../../pages/account/SecurityPage.jsx';
 import ChangeEmailPage from '../../pages/account/ChangeEmailPage.jsx';
 import AddressesPage from '../../pages/account/AddressesPage.jsx';
 import AddressFormPage from '../../pages/account/AddressFormPage.jsx';
+import SupportPage from '../../pages/account/SupportPage.jsx';
 
 import AdminCategoriesPage from '../../pages/admin/AdminCategoriesPage.jsx';
 import AdminProductsPage from '../../pages/admin/AdminProductsPage.jsx';
@@ -129,6 +130,8 @@ function AppRouter() {
         <Route path='/account/reviews' element={<ReviewsPage />} />
 
         <Route path='/account/notifications' element={<NotificationsPage />} />
+
+        <Route path='/account/support' element={<SupportPage />} />
       </Route>
 
       <Route element={<RequireAdmin />}>

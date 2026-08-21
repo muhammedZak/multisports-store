@@ -56,11 +56,18 @@ function getResourceLink(notification) {
     return `/account/refunds/${notification.resourceId}`;
   }
 
+  if (notification.resourceType === 'support') {
+    /*
+     * A Customer has exactly one persistent
+     * Support Conversation, so Support
+     * Notifications open that Conversation.
+     */
+    return '/account/support';
+  }
+
   /*
-   * There is currently no Customer Payment-detail
-   * or Support-detail route.
-   *
-   * Do not invent a destination that does not exist.
+   * There is still no Customer Payment-detail
+   * route.
    */
   return null;
 }
@@ -72,6 +79,10 @@ function getResourceLinkText(notification) {
 
   if (notification.resourceType === 'refund') {
     return 'View Refund';
+  }
+
+  if (notification.resourceType === 'support') {
+    return 'Open Support';
   }
 
   return 'View details';

@@ -262,6 +262,21 @@ function ProfilePage() {
       </section>
 
       <section className='mt-8 border border-neutral-200 p-5'>
+        <h2 className='font-semibold'>Support</h2>
+
+        <p className='mt-2 text-sm leading-6 text-neutral-600'>
+          Contact the store support team and view your persistent message
+          history.
+        </p>
+
+        <Link
+          to='/account/support'
+          className='mt-4 inline-block text-sm font-medium underline underline-offset-4'>
+          Open Support
+        </Link>
+      </section>
+
+      <section className='mt-8 border border-neutral-200 p-5'>
         <h2 className='font-semibold'>Orders</h2>
 
         <p className='mt-2 text-sm leading-6 text-neutral-600'>
