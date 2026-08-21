@@ -292,10 +292,18 @@ export function SalesBySportChart({ data }) {
 
           <Tooltip formatter={moneyTooltipFormatter} />
 
+          {/* <Bar
+            dataKey='salesAmount'
+            name='Sales amount'
+            fill='#171717'
+            radius={[3, 3, 0, 0]}
+          /> */}
+
           <Bar
             dataKey='salesAmount'
             name='Sales amount'
             fill='#171717'
+            maxBarSize={72}
             radius={[3, 3, 0, 0]}
           />
         </BarChart>
@@ -353,10 +361,18 @@ export function CategorySalesChart({ data }) {
 
           <Tooltip formatter={moneyTooltipFormatter} />
 
+          {/* <Bar
+            dataKey='salesAmount'
+            name='Sales amount'
+            fill='#404040'
+            radius={[0, 3, 3, 0]}
+          /> */}
+
           <Bar
             dataKey='salesAmount'
             name='Sales amount'
             fill='#404040'
+            maxBarSize={52}
             radius={[0, 3, 3, 0]}
           />
         </BarChart>
@@ -416,10 +432,18 @@ export function TopProductsChart({ data }) {
 
           <Tooltip formatter={integerTooltipFormatter} />
 
+          {/* <Bar
+            dataKey='unitsSold'
+            name='Units sold'
+            fill='#171717'
+            radius={[0, 3, 3, 0]}
+          /> */}
+
           <Bar
             dataKey='unitsSold'
             name='Units sold'
             fill='#171717'
+            maxBarSize={42}
             radius={[0, 3, 3, 0]}
           />
         </BarChart>
