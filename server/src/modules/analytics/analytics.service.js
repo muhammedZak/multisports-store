@@ -13,6 +13,12 @@ import {
 
 import { getSalesAndProductAnalytics } from './salesAnalytics.service.js';
 
+import { getCustomerAnalytics } from './customerAnalytics.service.js';
+
+import { getCurrentInventoryAnalytics } from './inventoryAnalytics.service.js';
+
+import { getRefundAnalytics } from './refundAnalytics.service.js';
+
 const ORDER_STATUS_VALUES = Object.values(ORDER_STATUSES);
 
 function createPeriodExpression(field, bucket, timezone) {
@@ -325,16 +331,29 @@ export async function getAdminAnalyticsFoundation(rangeKey) {
 
   const periods = createAnalyticsBucketKeys(range);
 
-  const [recognizedSales, customerRefunds, orders, salesAndProducts] =
-    await Promise.all([
-      getRecognizedSalesAnalytics(range),
+  const [
+    recognizedSales,
+    customerRefunds,
+    orders,
+    salesAndProducts,
+    customers,
+    inventory,
+    refunds,
+  ] = await Promise.all([
+    getRecognizedSalesAnalytics(range),
 
-      getCustomerRefundRevenueAnalytics(range),
+    getCustomerRefundRevenueAnalytics(range),
 
-      getOrderAnalytics(range),
+    getOrderAnalytics(range),
 
-      getSalesAndProductAnalytics(range),
-    ]);
+    getSalesAndProductAnalytics(range),
+
+    getCustomerAnalytics(range, periods),
+
+    getCurrentInventoryAnalytics(),
+
+    getRefundAnalytics(range, periods),
+  ]);
 
   const totalRevenue =
     recognizedSales.grossSales - customerRefunds.refundedAmount;
@@ -397,5 +416,11 @@ export async function getAdminAnalyticsFoundation(rangeKey) {
 
       statusDistribution: orders.statusDistribution,
     },
+
+    customers,
+
+    inventory,
+
+    refunds,
   };
 }
