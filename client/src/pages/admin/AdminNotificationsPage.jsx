@@ -64,11 +64,12 @@ function getResourceLink(notification) {
     return `/admin/inventory/${notification.resourceId}`;
   }
 
+  if (notification.resourceType === 'support') {
+    return `/admin/support/conversations/${notification.resourceId}`;
+  }
   /*
-   * Support Chat is not implemented yet.
-   *
-   * There is also no Admin Payment-detail route.
-   * Do not fabricate destinations.
+   * There is still no Admin Payment-detail
+   * route. Do not fabricate a destination.
    */
   return null;
 }
@@ -84,6 +85,10 @@ function getResourceLinkText(notification) {
 
   if (notification.resourceType === 'inventory') {
     return 'View Inventory';
+  }
+
+  if (notification.resourceType === 'support') {
+    return 'Open Support';
   }
 
   return 'View details';
