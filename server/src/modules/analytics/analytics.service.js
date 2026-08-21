@@ -11,6 +11,8 @@ import {
   resolveAnalyticsRange,
 } from './analytics.range.js';
 
+import { getSalesAndProductAnalytics } from './salesAnalytics.service.js';
+
 const ORDER_STATUS_VALUES = Object.values(ORDER_STATUSES);
 
 function createPeriodExpression(field, bucket, timezone) {
@@ -323,13 +325,16 @@ export async function getAdminAnalyticsFoundation(rangeKey) {
 
   const periods = createAnalyticsBucketKeys(range);
 
-  const [recognizedSales, customerRefunds, orders] = await Promise.all([
-    getRecognizedSalesAnalytics(range),
+  const [recognizedSales, customerRefunds, orders, salesAndProducts] =
+    await Promise.all([
+      getRecognizedSalesAnalytics(range),
 
-    getCustomerRefundRevenueAnalytics(range),
+      getCustomerRefundRevenueAnalytics(range),
 
-    getOrderAnalytics(range),
-  ]);
+      getOrderAnalytics(range),
+
+      getSalesAndProductAnalytics(range),
+    ]);
 
   const totalRevenue =
     recognizedSales.grossSales - customerRefunds.refundedAmount;
@@ -375,6 +380,16 @@ export async function getAdminAnalyticsFoundation(rangeKey) {
       ),
 
       ordersOverTime: zeroFillOrderTrend(periods, orders.trend),
+
+      bySport: salesAndProducts.bySport,
+
+      byCategory: salesAndProducts.byCategory,
+    },
+
+    products: {
+      topSelling: salesAndProducts.topSelling,
+
+      lowPerforming: salesAndProducts.lowPerforming,
     },
 
     orders: {
