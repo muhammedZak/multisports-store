@@ -16,6 +16,16 @@ if (!Number.isInteger(lowStockThreshold) || lowStockThreshold < 0) {
   throw new Error('LOW_STOCK_THRESHOLD must be a non-negative integer');
 }
 
+const appTimezone = process.env.APP_TIMEZONE || 'Asia/Kolkata';
+
+try {
+  new Intl.DateTimeFormat('en-US', {
+    timeZone: appTimezone,
+  }).format(new Date());
+} catch {
+  throw new Error('APP_TIMEZONE must be a valid IANA timezone.');
+}
+
 if (!Number.isInteger(port) || port <= 0) {
   throw new Error('PORT must be a valid positive number');
 }
@@ -83,6 +93,7 @@ export const env = Object.freeze({
   nodeEnv,
   port,
   lowStockThreshold,
+  appTimezone,
 
   mongodbUri: process.env.MONGODB_URI,
   clientOrigins,
