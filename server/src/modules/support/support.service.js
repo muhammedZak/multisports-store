@@ -15,6 +15,8 @@ import { SupportMessage } from './supportMessage.model.js';
 
 import { SupportConversation } from './supportConversation.model.js';
 
+import { emitSupportMessageNew } from '../../realtime/socket.emitter.js';
+
 function escapeRegularExpression(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -335,6 +337,21 @@ export async function createCustomerSupportMessage({ customerId, text }) {
     conversationId: conversation._id,
   });
 
+  /*
+   * MongoDB Message + Conversation metadata have
+   * already committed.
+   *
+   * Admin Notification persistence has already been
+   * attempted.
+   *
+   * Live delivery is now safe to attempt.
+   */
+  emitSupportMessageNew({
+    conversationId: conversation._id,
+
+    message: messageResource,
+  });
+
   return messageResource;
 }
 
@@ -552,6 +569,59 @@ export async function getAdminSupportConversationDetail({ conversationId }) {
   return toAdminSupportConversationResource(conversation);
 }
 
+export async function getAdminSupportConversationMessages({
+  conversationId,
+  page,
+  limit,
+}) {
+  if (!mongoose.isValidObjectId(conversationId)) {
+    throwSupportConversationNotFound();
+  }
+
+  const conversationExists = await SupportConversation.exists({
+    _id: conversationId,
+  });
+
+  if (!conversationExists) {
+    throwSupportConversationNotFound();
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [messages, totalItems] = await Promise.all([
+    SupportMessage.find({
+      conversationId,
+    })
+      .sort({
+        createdAt: -1,
+        _id: -1,
+      })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    SupportMessage.countDocuments({
+      conversationId,
+    }),
+  ]);
+
+  return {
+    /*
+     * Page 1 selects the newest window,
+     * but each page is returned oldest → newest
+     * for chat rendering.
+     */
+    items: messages.reverse().map(toSupportMessageResource),
+
+    meta: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+}
+
 export async function createAdminSupportMessage({
   adminId,
   conversationId,
@@ -639,6 +709,15 @@ export async function createAdminSupportMessage({
     customerId: conversation.customerId,
 
     conversationId: conversation._id,
+  });
+
+  /*
+   * REST/MongoDB remain authoritative.
+   */
+  emitSupportMessageNew({
+    conversationId: conversation._id,
+
+    message: messageResource,
   });
 
   return messageResource;

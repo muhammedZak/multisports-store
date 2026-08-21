@@ -9,6 +9,32 @@ import {
 
 import { createNotification } from './notification.service.js';
 
+import { emitNotificationNew } from '../../realtime/socket.emitter.js';
+
+function toNotificationSocketResource(notification) {
+  return {
+    id: notification._id.toString(),
+
+    type: notification.type,
+
+    title: notification.title,
+
+    message: notification.message,
+
+    resourceType: notification.resourceType ?? null,
+
+    resourceId: notification.resourceId
+      ? notification.resourceId.toString()
+      : null,
+
+    readAt: notification.readAt ?? null,
+
+    createdAt: notification.createdAt,
+
+    updatedAt: notification.updatedAt,
+  };
+}
+
 function logNotificationFailure(event, error, context = {}) {
   console.error('Notification side effect failed:', {
     event,
@@ -23,13 +49,28 @@ async function createNotificationSafely({
   ...notificationInput
 }) {
   try {
-    return await createNotification(notificationInput);
+    /*
+     * First persist.
+     */
+    const notification = await createNotification(notificationInput);
+
+    /*
+     * Only an already-persisted Notification
+     * may be delivered live.
+     */
+    emitNotificationNew({
+      recipientId: notification.recipientId,
+
+      notification: toNotificationSocketResource(notification),
+    });
+
+    return notification;
   } catch (error) {
     /*
      * Notifications remain informational.
      *
-     * A Notification persistence problem must never
-     * invalidate an already-successful business event.
+     * Notification persistence problems must never
+     * invalidate the authoritative business event.
      */
     logNotificationFailure(event, error, context);
 

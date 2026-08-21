@@ -41,6 +41,8 @@ import {
   getPasswordResetAuthorization,
 } from './auth.session.js';
 
+import { disconnectSocketSession } from '../../realtime/socket.emitter.js';
+
 export function getCsrfToken(req, res) {
   const csrfToken = getOrCreateCsrfToken(req);
 
@@ -182,10 +184,23 @@ export async function googleAuth(req, res) {
 }
 
 export async function logout(req, res) {
+  /*
+   * Capture the authenticated session ID BEFORE
+   * createAnonymousSession() regenerates it.
+   */
+  const authenticatedSessionId = req.session.id;
+
   const csrfToken = await createAnonymousSession(req);
+
+  /*
+   * Immediately terminate sockets attached to the
+   * old authenticated session.
+   */
+  disconnectSocketSession(authenticatedSessionId);
 
   res.status(200).json({
     success: true,
+
     data: {
       authenticated: false,
       csrfToken,
