@@ -48,6 +48,16 @@ supportConversationSchema.index(
   },
 );
 
+supportConversationSchema.index(
+  {
+    lastMessageAt: -1,
+    _id: -1,
+  },
+  {
+    name: 'support_conversation_admin_recent',
+  },
+);
+
 export const SupportConversation = mongoose.model(
   'SupportConversation',
   supportConversationSchema,

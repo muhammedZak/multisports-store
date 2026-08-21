@@ -372,3 +372,32 @@ export async function notifyAdminsNewSupportMessage({ conversationId }) {
     resourceId: conversationId,
   });
 }
+
+export async function notifyCustomerSupportReply({
+  customerId,
+  conversationId,
+}) {
+  await createNotificationSafely({
+    event: 'support_reply_customer',
+
+    context: {
+      customerId: customerId?.toString() ?? null,
+      conversationId: conversationId?.toString() ?? null,
+    },
+
+    recipientId: customerId,
+
+    type: NOTIFICATION_TYPES.SUPPORT,
+
+    title: 'New support reply',
+
+    message: 'Support replied to your conversation.',
+
+    resourceType: NOTIFICATION_RESOURCE_TYPES.SUPPORT,
+
+    /*
+     * Support navigation belongs to the Conversation.
+     */
+    resourceId: conversationId,
+  });
+}

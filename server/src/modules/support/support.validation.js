@@ -1,10 +1,22 @@
 import { AppError } from '../../utils/AppError.js';
 
 import {
+  SUPPORT_ADMIN_SEARCH_MAX_LENGTH,
+  SUPPORT_CONVERSATION_DEFAULT_LIMIT,
+  SUPPORT_CONVERSATION_MAX_LIMIT,
   SUPPORT_MESSAGE_DEFAULT_LIMIT,
   SUPPORT_MESSAGE_MAX_LIMIT,
   SUPPORT_MESSAGE_TEXT_MAX_LENGTH,
 } from './support.constants.js';
+
+const ADMIN_SUPPORT_CONVERSATION_QUERY_FIELDS = [
+  'page',
+  'limit',
+  'q',
+  'unread',
+  'sort',
+  'order',
+];
 
 function throwValidationError(fields) {
   throw new AppError(
@@ -172,4 +184,83 @@ export function validateSupportConversationReadInput(input) {
     input,
     'Marking a Support conversation as read does not accept a request body.',
   );
+}
+
+export function validateAdminSupportConversationListQuery(query) {
+  validateObject(query);
+
+  rejectUnexpectedFields(
+    query,
+    ADMIN_SUPPORT_CONVERSATION_QUERY_FIELDS,
+    'Unsupported Admin Support conversation query fields were provided.',
+  );
+
+  const input = {
+    page: getPositiveIntegerQuery(query.page, 'page', 1),
+
+    limit: getPositiveIntegerQuery(
+      query.limit,
+      'limit',
+      SUPPORT_CONVERSATION_DEFAULT_LIMIT,
+      SUPPORT_CONVERSATION_MAX_LIMIT,
+    ),
+
+    sort: 'lastMessageAt',
+
+    order: 'desc',
+  };
+
+  if (query.q !== undefined) {
+    if (typeof query.q !== 'string') {
+      throwValidationError({
+        q: 'Support conversation search must be text.',
+      });
+    }
+
+    const q = query.q.trim();
+
+    if (q.length > SUPPORT_ADMIN_SEARCH_MAX_LENGTH) {
+      throwValidationError({
+        q: `Support conversation search cannot exceed ${SUPPORT_ADMIN_SEARCH_MAX_LENGTH} characters.`,
+      });
+    }
+
+    if (q) {
+      input.q = q;
+    }
+  }
+
+  if (query.unread !== undefined) {
+    if (query.unread !== 'true' && query.unread !== 'false') {
+      throwValidationError({
+        unread: 'Unread must be true or false.',
+      });
+    }
+
+    input.unread = query.unread === 'true';
+  }
+
+  /*
+   * The signed contract defines lastMessageAt as the
+   * Admin Support list ordering authority.
+   *
+   * Do not invent ticket/status/priority sort fields.
+   */
+  if (query.sort !== undefined && query.sort !== 'lastMessageAt') {
+    throwValidationError({
+      sort: 'Sort must be lastMessageAt.',
+    });
+  }
+
+  if (query.order !== undefined) {
+    if (query.order !== 'asc' && query.order !== 'desc') {
+      throwValidationError({
+        order: 'Order must be asc or desc.',
+      });
+    }
+
+    input.order = query.order;
+  }
+
+  return input;
 }

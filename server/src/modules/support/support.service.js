@@ -1,8 +1,13 @@
 import mongoose from 'mongoose';
 
+import { User } from '../users/user.model.js';
+
 import { AppError } from '../../utils/AppError.js';
 
-import { notifyAdminsNewSupportMessage } from '../notification/notificationEvent.service.js';
+import {
+  notifyAdminsNewSupportMessage,
+  notifyCustomerSupportReply,
+} from '../notification/notificationEvent.service.js';
 
 import { SUPPORT_SENDER_ROLES } from './support.constants.js';
 
@@ -10,12 +15,61 @@ import { SupportMessage } from './supportMessage.model.js';
 
 import { SupportConversation } from './supportConversation.model.js';
 
+function escapeRegularExpression(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function throwSupportConversationNotFound() {
   throw new AppError(
     404,
     'SUPPORT_CONVERSATION_NOT_FOUND',
     'Support conversation not found.',
   );
+}
+
+function isAdminConversationUnread(conversation) {
+  if (!conversation.lastMessageAt) {
+    return false;
+  }
+
+  if (!conversation.adminLastReadAt) {
+    return true;
+  }
+
+  return (
+    new Date(conversation.lastMessageAt).getTime() >
+    new Date(conversation.adminLastReadAt).getTime()
+  );
+}
+
+function toAdminSupportConversationResource(conversation) {
+  const customer = conversation.customerId?._id
+    ? conversation.customerId
+    : null;
+
+  return {
+    id: conversation._id.toString(),
+
+    customer: customer
+      ? {
+          id: customer._id.toString(),
+          name: customer.name,
+          email: customer.email,
+        }
+      : null,
+
+    customerLastReadAt: conversation.customerLastReadAt ?? null,
+
+    adminLastReadAt: conversation.adminLastReadAt ?? null,
+
+    lastMessageAt: conversation.lastMessageAt ?? null,
+
+    unread: isAdminConversationUnread(conversation),
+
+    createdAt: conversation.createdAt,
+
+    updatedAt: conversation.updatedAt,
+  };
 }
 
 function toSupportMessageResource(message) {
@@ -356,4 +410,289 @@ export async function markCustomerSupportConversationRead({ customerId }) {
   }
 
   return toCustomerSupportConversationResource(updatedConversation);
+}
+
+export async function listAdminSupportConversations({
+  page,
+  limit,
+  q,
+  unread,
+  sort,
+  order,
+}) {
+  const filter = {};
+
+  /*
+   * q searches Customer identity first, then filters
+   * Conversations by the matching Customer IDs.
+   */
+  if (q) {
+    const escapedSearch = escapeRegularExpression(q);
+
+    const matchingCustomerIds = await User.distinct('_id', {
+      role: 'customer',
+
+      $or: [
+        {
+          name: {
+            $regex: escapedSearch,
+            $options: 'i',
+          },
+        },
+
+        {
+          email: {
+            $regex: escapedSearch,
+            $options: 'i',
+          },
+        },
+      ],
+    });
+
+    filter.customerId = {
+      $in: matchingCustomerIds,
+    };
+  }
+
+  /*
+   * Admin unread:
+   *
+   * lastMessageAt exists
+   * AND
+   * adminLastReadAt is null or older.
+   */
+  if (unread === true) {
+    filter.$and = [
+      {
+        lastMessageAt: {
+          $ne: null,
+        },
+      },
+
+      {
+        $or: [
+          {
+            adminLastReadAt: null,
+          },
+
+          {
+            $expr: {
+              $lt: ['$adminLastReadAt', '$lastMessageAt'],
+            },
+          },
+        ],
+      },
+    ];
+  } else if (unread === false) {
+    filter.$or = [
+      /*
+       * An empty Conversation has nothing unread.
+       */
+      {
+        lastMessageAt: null,
+      },
+
+      /*
+       * Admin marker has caught up with activity.
+       */
+      {
+        $expr: {
+          $gte: ['$adminLastReadAt', '$lastMessageAt'],
+        },
+      },
+    ];
+  }
+
+  const direction = order === 'asc' ? 1 : -1;
+
+  const sortDefinition = {
+    [sort]: direction,
+
+    _id: direction,
+  };
+
+  const skip = (page - 1) * limit;
+
+  const [conversations, totalItems] = await Promise.all([
+    SupportConversation.find(filter)
+      .populate('customerId', '_id name email')
+      .sort(sortDefinition)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    SupportConversation.countDocuments(filter),
+  ]);
+
+  return {
+    items: conversations.map(toAdminSupportConversationResource),
+
+    meta: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+}
+
+export async function getAdminSupportConversationDetail({ conversationId }) {
+  if (!mongoose.isValidObjectId(conversationId)) {
+    throwSupportConversationNotFound();
+  }
+
+  const conversation = await SupportConversation.findById(conversationId)
+    .populate('customerId', '_id name email')
+    .lean();
+
+  if (!conversation) {
+    throwSupportConversationNotFound();
+  }
+
+  return toAdminSupportConversationResource(conversation);
+}
+
+export async function createAdminSupportMessage({
+  adminId,
+  conversationId,
+  text,
+}) {
+  if (!mongoose.isValidObjectId(conversationId)) {
+    throwSupportConversationNotFound();
+  }
+
+  const conversation = await SupportConversation.findById(conversationId)
+    .select('_id customerId')
+    .lean();
+
+  if (!conversation) {
+    throwSupportConversationNotFound();
+  }
+
+  const session = await mongoose.startSession();
+
+  let messageResource;
+
+  try {
+    await session.withTransaction(async () => {
+      const [message] = await SupportMessage.create(
+        [
+          {
+            conversationId: conversation._id,
+
+            /*
+             * Never accept Admin sender identity
+             * from the request body.
+             */
+            senderId: adminId,
+
+            senderRole: SUPPORT_SENDER_ROLES.ADMIN,
+
+            text,
+          },
+        ],
+        {
+          session,
+        },
+      );
+
+      /*
+       * Signed Admin-send rules:
+       *
+       * lastMessageAt      = message.createdAt
+       * adminLastReadAt    = message.createdAt
+       * customerLastReadAt = unchanged
+       */
+      const updateResult = await SupportConversation.updateOne(
+        {
+          _id: conversation._id,
+        },
+        {
+          $max: {
+            lastMessageAt: message.createdAt,
+
+            adminLastReadAt: message.createdAt,
+          },
+        },
+        {
+          session,
+        },
+      );
+
+      if (updateResult.matchedCount !== 1) {
+        throwSupportConversationNotFound();
+      }
+
+      messageResource = toSupportMessageResource(message);
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  /*
+   * Authoritative Support state has committed.
+   *
+   * Notification is deliberately after commit and
+   * remains a non-blocking informational side effect.
+   */
+  await notifyCustomerSupportReply({
+    customerId: conversation.customerId,
+
+    conversationId: conversation._id,
+  });
+
+  return messageResource;
+}
+
+export async function markAdminSupportConversationRead({ conversationId }) {
+  if (!mongoose.isValidObjectId(conversationId)) {
+    throwSupportConversationNotFound();
+  }
+
+  const conversation = await SupportConversation.findById(conversationId)
+    .select('_id')
+    .lean();
+
+  if (!conversation) {
+    throwSupportConversationNotFound();
+  }
+
+  /*
+   * The read marker is based on persisted Message
+   * authority, not new Date().
+   */
+  const latestMessage = await SupportMessage.findOne({
+    conversationId: conversation._id,
+  })
+    .select('createdAt')
+    .sort({
+      createdAt: -1,
+      _id: -1,
+    })
+    .lean();
+
+  if (latestMessage) {
+    await SupportConversation.updateOne(
+      {
+        _id: conversation._id,
+      },
+      {
+        /*
+         * Never let a stale read request move
+         * the marker backwards.
+         */
+        $max: {
+          adminLastReadAt: latestMessage.createdAt,
+        },
+      },
+    );
+  }
+
+  /*
+   * Empty Conversations are valid.
+   * Return the same Admin detail shape.
+   */
+  return getAdminSupportConversationDetail({
+    conversationId: conversation._id,
+  });
 }
