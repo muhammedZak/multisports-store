@@ -44,6 +44,7 @@ import ReviewsPage from '../../pages/account/ReviewsPage.jsx';
 import RefundRequestPage from '../../pages/account/RefundRequestPage.jsx';
 import RefundsPage from '../../pages/account/RefundsPage.jsx';
 import RefundDetailsPage from '../../pages/account/RefundDetailsPage.jsx';
+import NotificationsPage from '../../pages/account/NotificationsPage.jsx';
 
 import RequireAdmin from '../../features/auth/RequireAdmin.jsx';
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
@@ -125,6 +126,8 @@ function AppRouter() {
         />
 
         <Route path='/account/reviews' element={<ReviewsPage />} />
+
+        <Route path='/account/notifications' element={<NotificationsPage />} />
       </Route>
 
       <Route element={<RequireAdmin />}>
