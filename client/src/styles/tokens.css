@@ -1,0 +1,62 @@
+:root {
+  color-scheme: light;
+
+  --font-sans:
+    Inter, "Helvetica Neue", Helvetica, Arial, ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --color-canvas: #ffffff;
+
+  --color-surface: #f7f7f4;
+  --color-surface-strong: #efefe9;
+
+  --color-ink: #111111;
+  --color-ink-soft: #30302d;
+  --color-muted: #686862;
+
+  --color-border: #d9d9d1;
+  --color-border-strong: #a9a9a0;
+
+  --color-accent: #c74412;
+  --color-accent-soft: #fff1eb;
+
+  --color-success: #166534;
+  --color-success-soft: #effaf2;
+
+  --color-warning: #8a4b08;
+  --color-warning-soft: #fff8e6;
+
+  --color-danger: #b42318;
+  --color-danger-soft: #fff1f0;
+
+  --color-info: #1d4ed8;
+  --color-info-soft: #eff6ff;
+
+  --color-focus: #111111;
+
+  --radius-xs: 4px;
+  --radius-control: 6px;
+  --radius-panel: 10px;
+  --radius-pill: 999px;
+
+  --shadow-subtle: 0 1px 2px rgb(17 17 17 / 0.08);
+
+  --content-narrow: 760px;
+  --content-standard: 1280px;
+  --content-wide: 1440px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-24: 96px;
+
+  --transition-fast: 150ms;
+  --transition-standard: 200ms;
+}

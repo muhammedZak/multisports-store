@@ -1,8 +1,10 @@
 import { Navigate, Route, Routes } from 'react-router';
 
-import AuthLayout from '../../layouts/AuthLayout.jsx';
-import AdminLayout from '../../layouts/AdminLayout.jsx';
 import StorefrontLayout from '../../layouts/StorefrontLayout.jsx';
+import AuthLayout from '../../layouts/AuthLayout.jsx';
+import AccountLayout from '../../layouts/AccountLayout.jsx';
+import CheckoutLayout from '../../layouts/CheckoutLayout.jsx';
+import AdminLayout from '../../layouts/AdminLayout.jsx';
 
 import LoginPage from '../../pages/auth/LoginPage.jsx';
 import RegisterPage from '../../pages/auth/RegisterPage.jsx';
@@ -17,8 +19,23 @@ import SecurityPage from '../../pages/account/SecurityPage.jsx';
 import ChangeEmailPage from '../../pages/account/ChangeEmailPage.jsx';
 import AddressesPage from '../../pages/account/AddressesPage.jsx';
 import AddressFormPage from '../../pages/account/AddressFormPage.jsx';
+import OrdersPage from '../../pages/account/OrdersPage.jsx';
+import OrderDetailsPage from '../../pages/account/OrderDetailsPage.jsx';
+import ReviewsPage from '../../pages/account/ReviewsPage.jsx';
+import RefundRequestPage from '../../pages/account/RefundRequestPage.jsx';
+import RefundsPage from '../../pages/account/RefundsPage.jsx';
+import RefundDetailsPage from '../../pages/account/RefundDetailsPage.jsx';
+import NotificationsPage from '../../pages/account/NotificationsPage.jsx';
 import SupportPage from '../../pages/account/SupportPage.jsx';
 
+import CatalogPage from '../../pages/storefront/CatalogPage.jsx';
+import ProductDetailsPage from '../../pages/storefront/ProductDetailsPage.jsx';
+import CartPage from '../../pages/storefront/CartPage.jsx';
+import CheckoutPage from '../../pages/storefront/CheckoutPage.jsx';
+import OrderConfirmationPage from '../../pages/storefront/OrderConfirmationPage.jsx';
+
+import AdminDashboardPage from '../../pages/admin/AdminDashboardPage.jsx';
+import AdminAnalyticsPage from '../../pages/admin/AdminAnalyticsPage.jsx';
 import AdminCategoriesPage from '../../pages/admin/AdminCategoriesPage.jsx';
 import AdminProductsPage from '../../pages/admin/AdminProductsPage.jsx';
 import AdminProductDetailsPage from '../../pages/admin/AdminProductDetailsPage.jsx';
@@ -36,21 +53,6 @@ import AdminRefundDetailsPage from '../../pages/admin/AdminRefundDetailsPage.jsx
 import AdminNotificationsPage from '../../pages/admin/AdminNotificationsPage.jsx';
 import AdminSupportPage from '../../pages/admin/AdminSupportPage.jsx';
 import AdminSupportConversationPage from '../../pages/admin/AdminSupportConversationPage.jsx';
-import AdminDashboardPage from '../../pages/admin/AdminDashboardPage.jsx';
-import AdminAnalyticsPage from '../../pages/admin/AdminAnalyticsPage.jsx';
-
-import CatalogPage from '../../pages/storefront/CatalogPage.jsx';
-import ProductDetailsPage from '../../pages/storefront/ProductDetailsPage.jsx';
-import CartPage from '../../pages/storefront/CartPage.jsx';
-import CheckoutPage from '../../pages/storefront/CheckoutPage.jsx';
-import OrderConfirmationPage from '../../pages/storefront/OrderConfirmationPage.jsx';
-import OrdersPage from '../../pages/account/OrdersPage.jsx';
-import OrderDetailsPage from '../../pages/account/OrderDetailsPage.jsx';
-import ReviewsPage from '../../pages/account/ReviewsPage.jsx';
-import RefundRequestPage from '../../pages/account/RefundRequestPage.jsx';
-import RefundsPage from '../../pages/account/RefundsPage.jsx';
-import RefundDetailsPage from '../../pages/account/RefundDetailsPage.jsx';
-import NotificationsPage from '../../pages/account/NotificationsPage.jsx';
 
 import RequireAdmin from '../../features/auth/RequireAdmin.jsx';
 import RequireCustomer from '../../features/auth/RequireCustomer.jsx';
@@ -59,6 +61,7 @@ import RequireGuest from '../../features/auth/RequireGuest.jsx';
 function AppRouter() {
   return (
     <Routes>
+      {/* Public storefront */}
       <Route element={<StorefrontLayout />}>
         <Route path='/shop' element={<CatalogPage mode='shop' />} />
 
@@ -67,17 +70,9 @@ function AppRouter() {
         <Route path='/products/:productId' element={<ProductDetailsPage />} />
 
         <Route path='/cart' element={<CartPage />} />
-
-        <Route element={<RequireCustomer />}>
-          <Route path='/checkout' element={<CheckoutPage />} />
-
-          <Route
-            path='/checkout/confirmation/:orderId'
-            element={<OrderConfirmationPage />}
-          />
-        </Route>
       </Route>
 
+      {/* Guest authentication */}
       <Route element={<AuthLayout />}>
         <Route element={<RequireGuest />}>
           <Route path='/auth/login' element={<LoginPage />} />
@@ -97,47 +92,68 @@ function AppRouter() {
         </Route>
       </Route>
 
+      {/* Customer-only routes */}
       <Route element={<RequireCustomer />}>
-        <Route path='/account' element={<ProfilePage />} />
+        {/* Customer account */}
+        <Route element={<AccountLayout />}>
+          <Route path='/account' element={<ProfilePage />} />
 
-        <Route path='/account/profile/edit' element={<EditProfilePage />} />
+          <Route path='/account/profile/edit' element={<EditProfilePage />} />
 
-        <Route path='/account/security' element={<SecurityPage />} />
+          <Route path='/account/security' element={<SecurityPage />} />
 
-        <Route path='/account/security/email' element={<ChangeEmailPage />} />
+          <Route path='/account/security/email' element={<ChangeEmailPage />} />
 
-        <Route path='/account/addresses' element={<AddressesPage />} />
+          <Route path='/account/addresses' element={<AddressesPage />} />
 
-        <Route path='/account/addresses/new' element={<AddressFormPage />} />
+          <Route path='/account/addresses/new' element={<AddressFormPage />} />
 
-        <Route
-          path='/account/addresses/:addressId/edit'
-          element={<AddressFormPage />}
-        />
+          <Route
+            path='/account/addresses/:addressId/edit'
+            element={<AddressFormPage />}
+          />
 
-        <Route path='/account/orders' element={<OrdersPage />} />
+          <Route path='/account/orders' element={<OrdersPage />} />
 
-        <Route path='/account/orders/:orderId' element={<OrderDetailsPage />} />
+          <Route
+            path='/account/orders/:orderId'
+            element={<OrderDetailsPage />}
+          />
 
-        <Route
-          path='/account/orders/:orderId/refund-request'
-          element={<RefundRequestPage />}
-        />
+          <Route
+            path='/account/orders/:orderId/refund-request'
+            element={<RefundRequestPage />}
+          />
 
-        <Route path='/account/refunds' element={<RefundsPage />} />
+          <Route path='/account/refunds' element={<RefundsPage />} />
 
-        <Route
-          path='/account/refunds/:refundId'
-          element={<RefundDetailsPage />}
-        />
+          <Route
+            path='/account/refunds/:refundId'
+            element={<RefundDetailsPage />}
+          />
 
-        <Route path='/account/reviews' element={<ReviewsPage />} />
+          <Route path='/account/reviews' element={<ReviewsPage />} />
 
-        <Route path='/account/notifications' element={<NotificationsPage />} />
+          <Route
+            path='/account/notifications'
+            element={<NotificationsPage />}
+          />
 
-        <Route path='/account/support' element={<SupportPage />} />
+          <Route path='/account/support' element={<SupportPage />} />
+        </Route>
+
+        {/* Checkout */}
+        <Route element={<CheckoutLayout />}>
+          <Route path='/checkout' element={<CheckoutPage />} />
+
+          <Route
+            path='/checkout/confirmation/:orderId'
+            element={<OrderConfirmationPage />}
+          />
+        </Route>
       </Route>
 
+      {/* Admin */}
       <Route element={<RequireAdmin />}>
         <Route element={<AdminLayout />}>
           <Route path='/admin' element={<AdminDashboardPage />} />

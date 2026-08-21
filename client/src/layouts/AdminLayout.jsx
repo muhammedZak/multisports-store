@@ -1,6 +1,15 @@
-import { NavLink, Outlet } from 'react-router';
+import { useState } from 'react';
+
+import { Outlet } from 'react-router';
 
 import { useDispatch, useSelector } from 'react-redux';
+
+import { Button } from '../components/ui/Button.jsx';
+import { Drawer } from '../components/ui/Drawer.jsx';
+
+import { AppLogo } from '../components/shared/AppLogo.jsx';
+
+import { AdminNavigation } from '../components/shared/navigation/AdminNavigation.jsx';
 
 import { logout } from '../features/auth/authSlice.js';
 
@@ -9,6 +18,8 @@ function AdminLayout() {
 
   const { user, actionStatus } = useSelector((state) => state.auth);
 
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   const loggingOut = actionStatus === 'loading';
 
   async function handleLogout() {
@@ -16,192 +27,81 @@ function AdminLayout() {
   }
 
   return (
-    <div className='min-h-screen bg-neutral-50'>
-      <header className='border-b border-neutral-200 bg-white'>
-        <div className='mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 lg:px-6'>
-          <div>
-            <p className='text-xs font-medium uppercase tracking-[0.2em] text-neutral-500'>
-              MultiSports Store
-            </p>
+    <div className='min-h-screen bg-white text-[var(--color-ink)]'>
+      <header className='sticky top-0 z-40 border-b border-[var(--color-border)] bg-white'>
+        <div className='ds-container flex min-h-[68px] items-center justify-between gap-6'>
+          <div className='flex items-center gap-5'>
+            <AppLogo />
 
-            <p className='mt-1 font-semibold'>Admin</p>
+            <div className='hidden h-6 w-px bg-[var(--color-border)] sm:block' />
+
+            <p className='mb-0 hidden text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-muted)] sm:block'>
+              Admin
+            </p>
           </div>
 
-          <div className='flex items-center gap-4'>
-            <div className='hidden text-right sm:block'>
-              <p className='text-sm font-medium'>{user?.name}</p>
+          <div className='flex items-center gap-3'>
+            <div className='hidden text-right md:block'>
+              <p className='mb-0 text-sm font-semibold'>{user?.name}</p>
 
-              <p className='text-xs text-neutral-500'>{user?.email}</p>
+              <p className='mb-0 text-xs text-[var(--color-muted)]'>
+                {user?.email}
+              </p>
             </div>
 
-            <button
+            <Button
               type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => setMobileOpen(true)}
+              className='lg:hidden'>
+              Menu
+            </Button>
+
+            <Button
+              type='button'
+              variant='quiet'
+              size='sm'
               disabled={loggingOut}
               onClick={handleLogout}
-              className='border border-neutral-300 px-4 py-2 text-sm font-medium transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50'>
-              {loggingOut ? 'Logging out...' : 'Logout'}
-            </button>
+              className='hidden lg:inline-flex'>
+              {loggingOut ? 'Logging out...' : 'Log out'}
+            </Button>
           </div>
         </div>
       </header>
 
-      <div className='mx-auto grid max-w-7xl gap-6 p-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:p-6'>
-        <aside className='border border-neutral-200 bg-white p-4'>
-          <p className='mb-3 text-xs font-medium uppercase tracking-[0.2em] text-neutral-500'>
-            Management
-          </p>
+      <div className='ds-container py-6 lg:py-8'>
+        <div className='grid gap-8 lg:grid-cols-[230px_minmax(0,1fr)] xl:gap-10'>
+          <aside className='hidden lg:block'>
+            <div className='sticky top-24 border-r border-[var(--color-border)] pr-6'>
+              <AdminNavigation />
+            </div>
+          </aside>
 
-          <nav className='space-y-1'>
-            <NavLink
-              to='/admin'
-              end
-              className={({ isActive }) =>
-                [
-                  'block px-3 py-2 text-sm font-medium transition',
-                  isActive
-                    ? 'bg-black text-white'
-                    : 'text-neutral-700 hover:bg-neutral-100',
-                ].join(' ')
-              }>
-              Dashboard
-            </NavLink>
-
-            <NavLink
-              to='/admin/analytics'
-              className={({ isActive }) =>
-                [
-                  'block px-3 py-2 text-sm font-medium transition',
-                  isActive
-                    ? 'bg-black text-white'
-                    : 'text-neutral-700 hover:bg-neutral-100',
-                ].join(' ')
-              }>
-              Analytics
-            </NavLink>
-
-            <NavLink
-              to='/admin/products'
-              className={({ isActive }) =>
-                [
-                  'block px-3 py-2 text-sm font-medium transition',
-                  isActive
-                    ? 'bg-black text-white'
-                    : 'text-neutral-700 hover:bg-neutral-100',
-                ].join(' ')
-              }>
-              Products
-            </NavLink>
-
-            <NavLink
-              to='/admin/categories'
-              className={({ isActive }) =>
-                [
-                  'block px-3 py-2 text-sm font-medium transition',
-                  isActive
-                    ? 'bg-black text-white'
-                    : 'text-neutral-700 hover:bg-neutral-100',
-                ].join(' ')
-              }>
-              Categories
-            </NavLink>
-            <NavLink
-              to='/admin/inventory'
-              className={({ isActive }) =>
-                [
-                  'block px-3 py-2 text-sm font-medium transition',
-                  isActive
-                    ? 'bg-black text-white'
-                    : 'text-neutral-700 hover:bg-neutral-100',
-                ].join(' ')
-              }>
-              Inventory
-            </NavLink>
-
-            <NavLink
-              to='/admin/coupons'
-              className={({ isActive }) =>
-                [
-                  'block px-3 py-2 text-sm font-medium transition',
-                  isActive
-                    ? 'bg-black text-white'
-                    : 'text-neutral-700 hover:bg-neutral-100',
-                ].join(' ')
-              }>
-              Coupons
-            </NavLink>
-
-            <NavLink
-              to='/admin/orders'
-              className={({ isActive }) =>
-                [
-                  'block px-3 py-2 text-sm font-medium transition',
-                  isActive
-                    ? 'bg-black text-white'
-                    : 'text-neutral-700 hover:bg-neutral-100',
-                ].join(' ')
-              }>
-              Orders
-            </NavLink>
-
-            <NavLink
-              to='/admin/reviews'
-              className={({ isActive }) =>
-                [
-                  'block px-3 py-2 text-sm font-medium transition',
-                  isActive
-                    ? 'bg-black text-white'
-                    : 'text-neutral-700 hover:bg-neutral-100',
-                ].join(' ')
-              }>
-              Reviews
-            </NavLink>
-
-            <NavLink
-              to='/admin/refunds'
-              className={({ isActive }) =>
-                [
-                  'block px-3 py-2 text-sm font-medium transition',
-                  isActive
-                    ? 'bg-black text-white'
-                    : 'text-neutral-700 hover:bg-neutral-100',
-                ].join(' ')
-              }>
-              Refunds
-            </NavLink>
-
-            <NavLink
-              to='/admin/notifications'
-              className={({ isActive }) =>
-                [
-                  'block px-3 py-2 text-sm font-medium transition',
-                  isActive
-                    ? 'bg-black text-white'
-                    : 'text-neutral-700 hover:bg-neutral-100',
-                ].join(' ')
-              }>
-              Notifications
-            </NavLink>
-
-            <NavLink
-              to='/admin/support'
-              className={({ isActive }) =>
-                [
-                  'block px-3 py-2 text-sm font-medium transition',
-
-                  isActive
-                    ? 'bg-black text-white'
-                    : 'text-neutral-700 hover:bg-neutral-100',
-                ].join(' ')
-              }>
-              Support
-            </NavLink>
-          </nav>
-        </aside>
-
-        <div className='min-w-0 border border-neutral-200 bg-white'>
-          <Outlet />
+          <main className='min-w-0'>
+            <Outlet />
+          </main>
         </div>
       </div>
+
+      <Drawer
+        open={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        title='Admin'
+        description='MultiSport management'
+        footer={
+          <Button
+            type='button'
+            variant='secondary'
+            disabled={loggingOut}
+            onClick={handleLogout}
+            className='w-full'>
+            {loggingOut ? 'Logging out...' : 'Log out'}
+          </Button>
+        }>
+        <AdminNavigation onNavigate={() => setMobileOpen(false)} />
+      </Drawer>
     </div>
   );
 }
