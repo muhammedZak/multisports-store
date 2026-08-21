@@ -1,356 +1,153 @@
-import { useCallback, useEffect, useState } from 'react';
-
 import { Link } from 'react-router';
 
-import { normalizeApiError } from '../../api/errors.js';
-import { fetchMyOrders } from '../../api/orderApi.js';
+import { Alert } from '../../components/ui/Alert.jsx';
+import { Button } from '../../components/ui/Button.jsx';
+import { Select } from '../../components/ui/Select.jsx';
+import { Skeleton } from '../../components/ui/Skeleton.jsx';
 
-import { formatInrFromPaise } from '../../utils/money.js';
+import { Pagination } from '../../components/shared/Pagination.jsx';
 
-const EMPTY_FILTERS = {
-  status: '',
-  order: 'desc',
-};
+import { AccountPageHeader } from '../../features/account/components/AccountPageHeader.jsx';
 
-const DEFAULT_QUERY = {
-  ...EMPTY_FILTERS,
-  page: 1,
-  limit: 20,
-  sort: 'placedAt',
-};
+import { ORDER_STATUS_OPTIONS } from '../../features/orders/order.constants.js';
 
-const dateFormatter = new Intl.DateTimeFormat('en-IN', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-});
+import { OrderHistoryCard } from '../../features/orders/components/OrderHistoryCard.jsx';
 
-const ORDER_STATUS_STYLES = {
-  placed: 'bg-blue-50 text-blue-700',
-  confirmed: 'bg-indigo-50 text-indigo-700',
-  processing: 'bg-amber-50 text-amber-700',
-  shipped: 'bg-purple-50 text-purple-700',
-  delivered: 'bg-green-50 text-green-700',
-  cancelled: 'bg-red-50 text-red-700',
-};
-
-function formatStatus(value) {
-  if (!value) {
-    return 'Unknown';
-  }
-
-  return value
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
+import { useMyOrders } from '../../features/orders/hooks/useMyOrders.js';
 
 function OrdersPage() {
-  const [orders, setOrders] = useState([]);
-
-  const [filterForm, setFilterForm] = useState(EMPTY_FILTERS);
-
-  const [query, setQuery] = useState(DEFAULT_QUERY);
-
-  const [meta, setMeta] = useState({
-    page: 1,
-    limit: 20,
-    totalItems: 0,
-    totalPages: 0,
-  });
-
-  const [loading, setLoading] = useState(true);
-
-  const [error, setError] = useState(null);
-
-  const loadOrders = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const result = await fetchMyOrders(query);
-
-      setOrders(result.items);
-      setMeta(result.meta);
-    } catch (requestError) {
-      setError(
-        normalizeApiError(
-          requestError,
-          'Unable to load your orders. Please try again.',
-        ),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [query]);
-
-  useEffect(() => {
-    loadOrders();
-  }, [loadOrders]);
-
-  function handleFilterChange(event) {
-    const { name, value } = event.target;
-
-    setFilterForm((current) => ({
-      ...current,
-      [name]: value,
-    }));
-  }
-
-  function handleFilterSubmit(event) {
-    event.preventDefault();
-
-    setQuery({
-      ...DEFAULT_QUERY,
-      ...filterForm,
-      page: 1,
-    });
-  }
-
-  function handleResetFilters() {
-    setFilterForm(EMPTY_FILTERS);
-    setQuery(DEFAULT_QUERY);
-  }
-
-  function changePage(page) {
-    setQuery((current) => ({
-      ...current,
-      page,
-    }));
-  }
-
-  const filtersActive = Boolean(query.status);
+  const orders = useMyOrders();
 
   return (
-    <main className='mx-auto max-w-5xl p-6'>
-      <Link
-        to='/account'
-        className='text-sm font-medium underline underline-offset-4'>
-        Back to profile
-      </Link>
-
-      <div className='mt-8'>
-        <p className='text-sm font-medium uppercase tracking-[0.2em] text-neutral-500'>
-          My account
-        </p>
-
-        <h1 className='mt-3 text-3xl font-semibold'>My orders</h1>
-
-        <p className='mt-3 max-w-2xl text-sm leading-6 text-neutral-600'>
-          Review your previous purchases, payment status, and current order
-          progress.
-        </p>
-      </div>
+    <div className='max-w-5xl'>
+      <AccountPageHeader
+        title='My orders'
+        description='Review your purchases, payment status and current fulfillment progress.'
+      />
 
       <form
-        onSubmit={handleFilterSubmit}
-        className='mt-8 grid gap-4 border border-neutral-200 p-4 sm:grid-cols-2'>
-        <div>
-          <label htmlFor='status' className='mb-2 block text-sm font-medium'>
-            Order status
-          </label>
+        onSubmit={orders.applyFilters}
+        className='mt-7 grid gap-4 border-y border-[var(--color-border)] py-5 sm:grid-cols-2'>
+        <Select
+          id='order-status'
+          name='status'
+          label='Order status'
+          value={orders.filterForm.status}
+          onChange={orders.handleFilterChange}>
+          {ORDER_STATUS_OPTIONS.map((option) => (
+            <option key={option.value || 'all'} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
 
-          <select
-            id='status'
-            name='status'
-            value={filterForm.status}
-            onChange={handleFilterChange}
-            className='w-full border border-neutral-300 bg-white px-3 py-2.5 outline-none focus:border-black'>
-            <option value=''>All statuses</option>
-            <option value='placed'>Placed</option>
-            <option value='confirmed'>Confirmed</option>
-            <option value='processing'>Processing</option>
-            <option value='shipped'>Shipped</option>
-            <option value='delivered'>Delivered</option>
-            <option value='cancelled'>Cancelled</option>
-          </select>
-        </div>
+        <Select
+          id='order-date-order'
+          name='order'
+          label='Date order'
+          value={orders.filterForm.order}
+          onChange={orders.handleFilterChange}>
+          <option value='desc'>Newest first</option>
 
-        <div>
-          <label htmlFor='order' className='mb-2 block text-sm font-medium'>
-            Date order
-          </label>
-
-          <select
-            id='order'
-            name='order'
-            value={filterForm.order}
-            onChange={handleFilterChange}
-            className='w-full border border-neutral-300 bg-white px-3 py-2.5 outline-none focus:border-black'>
-            <option value='desc'>Newest first</option>
-            <option value='asc'>Oldest first</option>
-          </select>
-        </div>
+          <option value='asc'>Oldest first</option>
+        </Select>
 
         <div className='flex flex-wrap gap-3 sm:col-span-2'>
-          <button
-            type='submit'
-            disabled={loading}
-            className='bg-black px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50'>
-            Apply
-          </button>
+          <Button type='submit' disabled={orders.loading}>
+            Apply filters
+          </Button>
 
-          <button
+          <Button
             type='button'
-            disabled={loading}
-            onClick={handleResetFilters}
-            className='border border-neutral-300 px-4 py-2.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50'>
+            variant='secondary'
+            disabled={orders.loading}
+            onClick={orders.resetFilters}>
             Reset
-          </button>
+          </Button>
         </div>
       </form>
 
-      {error && (
-        <div
-          role='alert'
-          className='mt-6 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-          {error.message}
+      {orders.error ? (
+        <Alert variant='danger' title='Unable to load orders' className='mt-6'>
+          {orders.error.message}
+        </Alert>
+      ) : null}
+
+      {orders.loading ? (
+        <div className='mt-8 space-y-8'>
+          {Array.from({
+            length: 3,
+          }).map((_, index) => (
+            <div
+              key={index}
+              className='border-b border-[var(--color-border)] pb-7'>
+              <Skeleton className='h-4 w-36' />
+              <Skeleton className='mt-3 h-5 w-56' />
+              <Skeleton className='mt-5 h-20 w-full' />
+            </div>
+          ))}
         </div>
-      )}
+      ) : null}
 
-      {loading && (
-        <section className='mt-6 border border-neutral-200 p-8'>
-          <p className='text-sm text-neutral-600'>Loading your orders...</p>
-        </section>
-      )}
-
-      {!loading && error && orders.length === 0 && (
-        <button
-          type='button'
-          onClick={loadOrders}
-          className='mt-4 bg-black px-4 py-2 text-sm font-medium text-white'>
+      {!orders.loading && orders.error && orders.orders.length === 0 ? (
+        <Button type='button' onClick={orders.loadOrders} className='mt-5'>
           Try again
-        </button>
-      )}
+        </Button>
+      ) : null}
 
-      {!loading && !error && orders.length === 0 && (
-        <section className='mt-6 border border-neutral-200 p-8 text-center'>
-          <h2 className='text-lg font-semibold'>
-            {filtersActive ? 'No matching orders' : 'No orders yet'}
+      {!orders.loading && !orders.error && orders.orders.length === 0 ? (
+        <section className='mt-8 border-y border-[var(--color-border)] py-14 text-center'>
+          <p className='mb-2 text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-muted)]'>
+            Orders
+          </p>
+
+          <h2 className='mb-0 text-2xl font-black tracking-[-0.03em]'>
+            {orders.filtersActive ? 'No matching orders' : 'No orders yet'}
           </h2>
 
-          <p className='mx-auto mt-2 max-w-md text-sm leading-6 text-neutral-600'>
-            {filtersActive
-              ? 'No orders match the selected status. Try another filter.'
+          <p className='mx-auto mt-3 mb-0 max-w-md text-sm leading-6 text-[var(--color-muted)]'>
+            {orders.filtersActive
+              ? 'No orders match the selected status.'
               : 'Orders you place will appear here with their payment and fulfillment status.'}
           </p>
 
-          {filtersActive ? (
-            <button
+          {orders.filtersActive ? (
+            <Button
               type='button'
-              onClick={handleResetFilters}
-              className='mt-5 border border-neutral-300 px-5 py-3 text-sm font-medium'>
+              variant='secondary'
+              onClick={orders.resetFilters}
+              className='mt-5'>
               Clear filters
-            </button>
+            </Button>
           ) : (
             <Link
               to='/shop'
-              className='mt-5 inline-flex bg-black px-5 py-3 text-sm font-medium text-white'>
+              className='mt-5 inline-flex min-h-11 items-center border border-[var(--color-ink)] bg-[var(--color-ink)] px-5 text-sm font-bold text-white'>
               Start shopping
             </Link>
           )}
         </section>
-      )}
+      ) : null}
 
-      {!loading && orders.length > 0 && (
+      {!orders.loading && orders.orders.length > 0 ? (
         <>
-          <section className='mt-6 space-y-4'>
-            {orders.map((order) => (
-              <article
-                key={order.id}
-                className='border border-neutral-200 p-5 sm:p-6'>
-                <div className='flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between'>
-                  <div>
-                    <p className='text-xs font-medium uppercase tracking-wide text-neutral-500'>
-                      Order number
-                    </p>
-
-                    <p className='mt-1 break-all font-semibold'>
-                      {order.orderNumber}
-                    </p>
-
-                    <p className='mt-2 text-sm text-neutral-600'>
-                      {dateFormatter.format(new Date(order.placedAt))}
-                    </p>
-                  </div>
-
-                  <span
-                    className={[
-                      'inline-flex w-fit px-2.5 py-1 text-xs font-medium',
-                      ORDER_STATUS_STYLES[order.orderStatus] ??
-                        'bg-neutral-100 text-neutral-700',
-                    ].join(' ')}>
-                    {formatStatus(order.orderStatus)}
-                  </span>
-                </div>
-
-                <dl className='mt-5 grid gap-4 border-y border-neutral-200 py-4 text-sm sm:grid-cols-3'>
-                  <div>
-                    <dt className='text-neutral-500'>Total</dt>
-
-                    <dd className='mt-1 font-semibold'>
-                      {formatInrFromPaise(order.pricing.totalAmount)}
-                    </dd>
-                  </div>
-
-                  <div>
-                    <dt className='text-neutral-500'>Items</dt>
-
-                    <dd className='mt-1 font-medium'>
-                      {order.itemCount} item
-                      {order.itemCount === 1 ? '' : 's'}
-                    </dd>
-                  </div>
-
-                  <div>
-                    <dt className='text-neutral-500'>Payment</dt>
-
-                    <dd className='mt-1 font-medium capitalize'>
-                      {order.payment?.status
-                        ? formatStatus(order.payment.status)
-                        : 'Unavailable'}
-                    </dd>
-                  </div>
-                </dl>
-
-                <Link
-                  to={`/account/orders/${order.id}`}
-                  className='mt-5 inline-flex text-sm font-medium underline underline-offset-4'>
-                  View order details
-                </Link>
-              </article>
+          <section className='mt-8 border-y border-[var(--color-border)] py-6'>
+            {orders.orders.map((order) => (
+              <OrderHistoryCard key={order.id} order={order} />
             ))}
           </section>
 
-          <div className='mt-5 flex flex-col gap-3 border border-neutral-200 p-4 sm:flex-row sm:items-center sm:justify-between'>
-            <p className='text-sm text-neutral-600'>
-              {meta.totalItems} order
-              {meta.totalItems === 1 ? '' : 's'}
-            </p>
-
-            <div className='flex items-center gap-3'>
-              <button
-                type='button'
-                disabled={meta.page <= 1 || loading}
-                onClick={() => changePage(meta.page - 1)}
-                className='border border-neutral-300 px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40'>
-                Previous
-              </button>
-
-              <span className='text-sm'>
-                Page {meta.page} of {Math.max(meta.totalPages, 1)}
-              </span>
-
-              <button
-                type='button'
-                disabled={meta.page >= meta.totalPages || loading}
-                onClick={() => changePage(meta.page + 1)}
-                className='border border-neutral-300 px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40'>
-                Next
-              </button>
-            </div>
-          </div>
+          <Pagination
+            page={orders.meta.page}
+            totalPages={orders.meta.totalPages}
+            totalItems={orders.meta.totalItems}
+            itemLabel='order'
+            loading={orders.loading}
+            onPageChange={orders.changePage}
+          />
         </>
-      )}
-    </main>
+      ) : null}
+    </div>
   );
 }
 
