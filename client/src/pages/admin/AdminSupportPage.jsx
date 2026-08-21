@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Link } from 'react-router';
 
@@ -38,6 +38,12 @@ function AdminSupportPage() {
   const [filterForm, setFilterForm] = useState(DEFAULT_FILTERS);
 
   const [query, setQuery] = useState(DEFAULT_QUERY);
+
+  const queryRef = useRef(query);
+
+  useEffect(() => {
+    queryRef.current = query;
+  }, [query]);
 
   const [conversations, setConversations] = useState([]);
 
@@ -79,23 +85,24 @@ function AdminSupportPage() {
     }
   }, [query]);
 
-  const refreshConversationsSilently = useCallback(async () => {
-    try {
-      const result = await fetchAdminSupportConversations(query);
+const refreshConversationsSilently = useCallback(async () => {
+  try {
+    const result = await fetchAdminSupportConversations(queryRef.current);
 
-      setConversations(result.items);
-      setMeta(result.meta);
-      setLiveError(null);
-    } catch {
-      /*
-       * Existing REST-rendered content remains
-       * usable even if live refresh fails.
-       */
-      setLiveError(
-        'A live Support update could not be refreshed. Reload if needed.',
-      );
-    }
-  }, [query]);
+    setConversations(result.items);
+    setMeta(result.meta);
+    setLiveError(null);
+  } catch {
+    /*
+     * Do not remove currently rendered
+     * authoritative REST content merely because
+     * background synchronization failed.
+     */
+    setLiveError(
+      'A live Support update could not be synchronized. Refresh if needed.',
+    );
+  }
+}, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -117,14 +124,23 @@ function AdminSupportPage() {
 
     let effectActive = true;
 
-    function handleConnect() {
-      if (!effectActive) {
-        return;
-      }
+   function handleConnect() {
+     if (!effectActive) {
+       return;
+     }
 
-      setLiveStatus('live');
-      setLiveError(null);
-    }
+     setLiveStatus('live');
+     setLiveError(null);
+
+     /*
+      * notification:new events emitted while this
+      * browser was disconnected cannot be replayed.
+      *
+      * Refresh the authoritative REST inbox after
+      * every successful connection/reconnection.
+      */
+     void refreshConversationsSilently();
+   }
 
     function handleDisconnect() {
       if (!effectActive) {

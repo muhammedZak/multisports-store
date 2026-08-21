@@ -88,6 +88,8 @@ function SupportPage() {
 
   const [liveError, setLiveError] = useState(null);
 
+  const [syncError, setSyncError] = useState(null);
+
   const messagesEndRef = useRef(null);
 
   const shouldScrollToBottomRef = useRef(false);
@@ -108,6 +110,62 @@ function SupportPage() {
       );
     }
   }, []);
+
+  const reconcileLatestMessages = useCallback(async () => {
+    try {
+      const result = await fetchMySupportMessages({
+        page: 1,
+        limit: MESSAGE_LIMIT,
+      });
+
+      /*
+       * Socket.IO is delivery only.
+       *
+       * After reconnecting, MongoDB/REST is used to recover
+       * any persisted Messages that may have been created
+       * while this browser was disconnected.
+       */
+      setMessages((current) => {
+        const currentMessageIds = new Set(current.map((message) => message.id));
+
+        const recoveredNewMessage = result.items.some(
+          (message) => !currentMessageIds.has(message.id),
+        );
+
+        if (recoveredNewMessage) {
+          shouldScrollToBottomRef.current = true;
+        }
+
+        return mergeUniqueMessages(current, result.items);
+      });
+
+      /*
+       * Keep the number of already-loaded older pages.
+       * Only refresh authoritative collection totals.
+       */
+      setMeta((current) => ({
+        ...current,
+
+        totalItems: result.meta.totalItems,
+        totalPages: result.meta.totalPages,
+      }));
+
+      /*
+       * The page is actively displaying the recovered
+       * persisted history.
+       */
+      await markConversationRead();
+
+      setSyncError(null);
+    } catch (requestError) {
+      setSyncError(
+        normalizeApiError(
+          requestError,
+          'Live connection was restored, but the latest persisted messages could not be synchronized.',
+        ),
+      );
+    }
+  }, [markConversationRead]);
 
   const loadSupport = useCallback(async () => {
     setLoading(true);
@@ -136,7 +194,7 @@ function SupportPage() {
 
       shouldScrollToBottomRef.current = true;
 
-      setMessages(result.items);
+      setMessages((current) => mergeUniqueMessages(current, result.items));
       setMeta(result.meta);
 
       /*
@@ -221,6 +279,15 @@ function SupportPage() {
           if (response?.success) {
             setLiveStatus('live');
             setLiveError(null);
+
+            /*
+             * Room membership has been restored.
+             *
+             * Socket.IO does not replay Messages that were
+             * emitted while this browser was disconnected,
+             * so recover persisted truth through REST.
+             */
+            void reconcileLatestMessages();
 
             return;
           }
@@ -332,7 +399,7 @@ function SupportPage() {
 
       socket.disconnect();
     };
-  }, [conversation?.id, markConversationRead]);
+  }, [conversation?.id, markConversationRead, reconcileLatestMessages]);
 
   async function handleLoadOlder() {
     if (olderLoading || meta.page >= meta.totalPages) {
@@ -540,6 +607,15 @@ function SupportPage() {
           className='mt-6 border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800'>
           Live updates are currently unavailable. You can still send messages
           normally. Refreshing the conversation will load persisted replies.
+        </div>
+      )}
+
+      {!loading && !error && syncError && conversation && (
+        <div
+          role='status'
+          className='mt-6 border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800'>
+          {syncError.message} Refresh the page to load the authoritative Support
+          history.
         </div>
       )}
 

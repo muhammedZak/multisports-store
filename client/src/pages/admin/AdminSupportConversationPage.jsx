@@ -89,6 +89,8 @@ function AdminSupportConversationPage() {
 
   const [liveError, setLiveError] = useState(null);
 
+  const [syncError, setSyncError] = useState(null);
+
   const messagesEndRef = useRef(null);
 
   const shouldScrollToBottomRef = useRef(false);
@@ -111,6 +113,52 @@ function AdminSupportConversationPage() {
     }
   }, [conversationId]);
 
+  const reconcileLatestMessages = useCallback(async () => {
+    try {
+      const result = await fetchAdminSupportMessages(conversationId, {
+        page: 1,
+        limit: MESSAGE_LIMIT,
+      });
+
+      setMessages((current) => {
+        const currentMessageIds = new Set(current.map((message) => message.id));
+
+        const recoveredNewMessage = result.items.some(
+          (message) => !currentMessageIds.has(message.id),
+        );
+
+        if (recoveredNewMessage) {
+          shouldScrollToBottomRef.current = true;
+        }
+
+        return mergeUniqueMessages(current, result.items);
+      });
+
+      setMeta((current) => ({
+        ...current,
+
+        totalItems: result.meta.totalItems,
+
+        totalPages: result.meta.totalPages,
+      }));
+
+      /*
+       * The Admin is actively viewing the
+       * reconciled persisted history.
+       */
+      await markConversationRead();
+
+      setSyncError(null);
+    } catch (requestError) {
+      setSyncError(
+        normalizeApiError(
+          requestError,
+          'Live connection was restored, but the latest persisted messages could not be synchronized.',
+        ),
+      );
+    }
+  }, [conversationId, markConversationRead]);
+
   const loadConversation = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -129,7 +177,9 @@ function AdminSupportConversationPage() {
 
       shouldScrollToBottomRef.current = true;
 
-      setMessages(messageResult.items);
+      setMessages((current) =>
+        mergeUniqueMessages(current, messageResult.items),
+      );
       setMeta(messageResult.meta);
 
       /*
@@ -201,6 +251,12 @@ function AdminSupportConversationPage() {
           if (response?.success) {
             setLiveStatus('live');
             setLiveError(null);
+
+            /*
+             * Recover any MongoDB Messages created
+             * during the disconnected interval.
+             */
+            void reconcileLatestMessages();
 
             return;
           }
@@ -310,7 +366,7 @@ function AdminSupportConversationPage() {
 
       socket.disconnect();
     };
-  }, [conversation?.id, markConversationRead]);
+  }, [conversation?.id, markConversationRead, reconcileLatestMessages]);
 
   async function handleLoadOlder() {
     if (olderLoading || meta.page >= meta.totalPages) {
@@ -481,6 +537,12 @@ function AdminSupportConversationPage() {
             <div className='mt-5 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800'>
               Live updates are currently unavailable. REST messaging remains
               available.
+            </div>
+          )}
+
+          {syncError && (
+            <div className='mt-5 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800'>
+              {syncError.message} Refresh the conversation if needed.
             </div>
           )}
 
