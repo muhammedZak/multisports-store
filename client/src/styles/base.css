@@ -1,99 +1,103 @@
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-html {
-  scroll-behavior: smooth;
-  background: var(--color-canvas);
-}
+  html {
+    scroll-behavior: smooth;
+    background: var(--color-canvas);
+  }
 
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
 
-  background: var(--color-canvas);
-  color: var(--color-ink);
+    background: var(--color-canvas);
+    color: var(--color-ink);
 
-  font-family: var(--font-sans);
-  line-height: 1.5;
+    font-family: var(--font-sans);
+    line-height: 1.5;
 
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-}
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
 
-::selection {
-  background: var(--color-ink);
-  color: var(--color-canvas);
-}
+  ::selection {
+    background: var(--color-ink);
+    color: var(--color-canvas);
+  }
 
-button,
-input,
-textarea,
-select {
-  font: inherit;
-}
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
 
-button:not(:disabled),
-[role="button"]:not([aria-disabled="true"]) {
-  cursor: pointer;
-}
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
 
-button:disabled,
-input:disabled,
-textarea:disabled,
-select:disabled {
-  cursor: not-allowed;
-}
+  button:disabled,
+  input:disabled,
+  textarea:disabled,
+  select:disabled {
+    cursor: not-allowed;
+  }
 
-a {
-  color: inherit;
-}
+  a {
+    color: inherit;
+  }
 
-img,
-svg,
-video {
-  display: block;
-  max-width: 100%;
-}
+  img,
+  svg,
+  video {
+    display: block;
+    max-width: 100%;
+  }
 
-h1,
-h2,
-h3,
-h4,
-p {
-  margin-top: 0;
-}
+  h1,
+  h2,
+  h3,
+  h4,
+  p {
+    margin-top: 0;
+  }
 
-:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 3px;
-}
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 3px;
+  }
 
-dialog::backdrop {
-  background: rgb(17 17 17 / 0.48);
-}
-
-.ds-container {
-  width: min(
-    calc(100% - 32px),
-    var(--content-standard)
-  );
-
-  margin-inline: auto;
-}
-
-@media (min-width: 768px) {
-  .ds-container {
-    width: min(
-      calc(100% - 64px),
-      var(--content-standard)
-    );
+  dialog::backdrop {
+    background: rgb(17 17 17 / 0.48);
   }
 }
 
-.ds-tabular-nums {
-  font-variant-numeric: tabular-nums;
+@layer utilities {
+  .ds-container {
+    width: min(
+      calc(100% - 32px),
+      var(--content-standard)
+    );
+
+    margin-inline: auto;
+  }
+
+  @media (min-width: 768px) {
+    .ds-container {
+      width: min(
+        calc(100% - 64px),
+        var(--content-standard)
+      );
+    }
+  }
+
+  .ds-tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
 }
