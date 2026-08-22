@@ -9,6 +9,7 @@ import {
 import { resetProducts } from './product.persistence.seed.js';
 import { validateProductDefinitions } from './products.seed.js';
 import { resetCoupons } from './coupon.seed.js';
+import { resetCarts } from './cart.seed.js';
 import {
   resetInventoryCatalog,
   resolveSeedLowStockThreshold,
@@ -65,6 +66,7 @@ async function runSelectiveReset() {
       registry,
       categories: expectedCategories,
     });
+    const cartResult = await resetCarts({ registry, clock });
     const inventoryResult = await resetInventoryCatalog({
       definitions: lockedProducts.definitions,
       registry,
@@ -91,8 +93,9 @@ async function runSelectiveReset() {
     console.log('Demo Seed Reset');
     console.log(`Database: ${connection.db.databaseName}`);
     console.log(
-      'Scope: deterministic InventoryAdjustments, Inventory, Products, Categories, Coupons, then Users',
+      'Scope: deterministic Carts, InventoryAdjustments, Inventory, Products, Categories, Coupons, then Users',
     );
+    console.log(`Carts deleted: ${cartResult.deleted}`);
     console.log(
       `InventoryAdjustments deleted: ${inventoryResult.adjustmentsDeleted}`,
     );

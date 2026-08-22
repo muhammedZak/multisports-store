@@ -4,6 +4,7 @@ import test from 'node:test';
 import * as argon2 from 'argon2';
 
 import { validateCouponForSubtotal } from '../../modules/coupon/coupon.service.js';
+import { getCurrentProductPrice } from '../../modules/catalog/product.service.js';
 import {
   INVENTORY_ADJUSTMENT_REASONS,
 } from '../../modules/inventory/inventory.constants.js';
@@ -73,6 +74,19 @@ import {
   findLegacyCouponPlaceholders,
   validateCouponDefinitions,
 } from './coupon.seed.js';
+import {
+  CART_CLASSIFICATIONS,
+  CART_DEFINITIONS,
+  CART_FREE_USER_KEYS,
+  LEGACY_CART_KEYS,
+  assertCheckoutPreviewScenarios,
+  assertResolvedCartScenarios,
+  buildExpectedCarts,
+  classifyCartRecord,
+  exactCartOwnershipFilter,
+  preflightCarts,
+  validateCartDefinitions,
+} from './cart.seed.js';
 import {
   DEMO_USER_CLASSIFICATIONS,
   DEMO_USER_DEFINITIONS,
@@ -209,7 +223,9 @@ test('the locked manifest and complete registry validate', async () => {
   assert.equal(registry.counts.inventory, 105);
   assert.equal(registry.counts.inventoryAdjustments, 104);
   assert.equal(registry.counts.coupons, 8);
-  assert.equal(registry.entries.length, 523);
+  assert.equal(registry.counts.carts, 3);
+  assert.equal(registry.counts.cartItems, 6);
+  assert.equal(registry.entries.length, 525);
   assert.equal(new Set(ids).size, ids.length);
 });
 
@@ -1510,4 +1526,390 @@ test('scenario clock remains stable during one execution', () => {
     }).format(clock.atLocalTime(clock.daysAgo(1), { hour: 10 })),
     '10',
   );
+});
+
+async function cartFixture() {
+  const manifest = await loadAndValidateProductManifest();
+  const registry = createSeedRegistry(manifest);
+  const clock = createSeedClock({
+    anchorDate: '2026-08-22',
+    timeZone: 'Asia/Kolkata',
+  });
+  const categories = await validateCategoryDefinitions({
+    registry,
+    clock,
+    manifest,
+  });
+  const products = validateProductDefinitions({
+    manifest,
+    registry,
+    categories,
+  });
+  const inventory = await validateInventoryDefinitions({
+    definitions: products.definitions,
+    registry,
+    clock,
+    threshold: 5,
+  });
+  const coupons = await validateCouponDefinitions({ registry, clock });
+  const carts = await validateCartDefinitions({ registry, clock });
+
+  return {
+    manifest,
+    registry,
+    clock,
+    categories,
+    products,
+    inventory,
+    coupons,
+    ...carts,
+  };
+}
+
+test('Cart registry contains only three persisted Carts and six embedded items', async () => {
+  const { registry } = await cartFixture();
+
+  assert.deepEqual(registry.keysByEntity.carts, [
+    'cart:user:checkout',
+    'cart:user:orders',
+    'cart:user:support',
+  ]);
+  assert.deepEqual(registry.keysByEntity.cartItems, [
+    'cart-item:user:checkout:01',
+    'cart-item:user:checkout:02',
+    'cart-item:user:checkout:03',
+    'cart-item:user:orders:01',
+    'cart-item:user:orders:02',
+    'cart-item:user:support:01',
+  ]);
+  assert.equal(
+    registry.entries.filter((entry) =>
+      [...LEGACY_CART_KEYS].includes(entry.key),
+    ).length,
+    0,
+  );
+  assert.equal(
+    new Set(
+      [...registry.keysByEntity.carts, ...registry.keysByEntity.cartItems].map(
+        (key) => registry.idFor(key).toString(),
+      ),
+    ).size,
+    9,
+  );
+});
+
+test('Cart definitions lock exact owners, item distribution, variants, and timestamps', async () => {
+  const { carts, counts, registry } = await cartFixture();
+
+  assert.equal(CART_DEFINITIONS.length, 3);
+  assert.deepEqual(counts, {
+    carts: 3,
+    items: 6,
+    simpleItems: 2,
+    variantItems: 4,
+  });
+  assert.deepEqual(
+    carts.map((cart) => cart.customerSeedKey),
+    ['user:checkout', 'user:orders', 'user:support'],
+  );
+  assert.deepEqual(
+    carts.map((cart) => cart.items.length),
+    [3, 2, 1],
+  );
+  assert.equal(carts[0].appliedCouponSeedKey, 'coupon:DEMO10');
+  assert.equal(carts[1].appliedCouponId, null);
+  assert.equal(carts[2].appliedCouponId, null);
+  assert.ok(
+    carts
+      .flatMap((cart) => cart.items)
+      .filter((item) => item.variantSeedKey === null)
+      .every((item) => item.variantId === null),
+  );
+  assert.equal(
+    carts[2].items[0].variantId.toString(),
+    registry
+      .idFor('variant:product:running:temporun-daily-trainers:04')
+      .toString(),
+  );
+  assert.deepEqual(
+    carts.map((cart) => cart.createdAt.toISOString()),
+    [
+      '2026-08-21T04:30:00.000Z',
+      '2026-08-19T04:30:00.000Z',
+      '2026-08-20T04:30:00.000Z',
+    ],
+  );
+  assert.deepEqual(CART_FREE_USER_KEYS, [
+    'user:admin',
+    'user:fresh',
+    'user:reviews',
+    'user:ratings',
+    'user:refunds',
+  ]);
+});
+
+test('locked Cart Products, support availability, Inventory, and pricing remain exact', async () => {
+  const { carts, products, inventory, coupons, registry, clock } =
+    await cartFixture();
+  const productsByKey = new Map(
+    products.definitions.map((product) => [product.seedKey, product]),
+  );
+  const totals = new Map();
+
+  for (const item of carts.flatMap((cart) => cart.items)) {
+    const product = productsByKey.get(item.productSeedKey);
+    totals.set(item.seedKey, getCurrentProductPrice(product) * item.quantity);
+  }
+
+  const checkoutSubtotal = carts[0].items.reduce(
+    (total, item) => total + totals.get(item.seedKey),
+    0,
+  );
+  const ordersSubtotal = carts[1].items.reduce(
+    (total, item) => total + totals.get(item.seedKey),
+    0,
+  );
+  const demo10 = coupons.coupons.find((coupon) => coupon.code === 'DEMO10');
+  const couponResult = validateCouponForSubtotal({
+    coupon: demo10,
+    subtotal: checkoutSubtotal,
+    now: clock.anchorTime,
+  });
+  const supportProduct = productsByKey.get(
+    'product:running:temporun-daily-trainers',
+  );
+  const supportVariant = supportProduct.variants.find(
+    (variant) =>
+      variant._id.toString() ===
+      registry
+        .idFor('variant:product:running:temporun-daily-trainers:04')
+        .toString(),
+  );
+  const supportInventory = inventory.positions.find(
+    (position) =>
+      position.seedKey ===
+      'inventory:product:running:temporun-daily-trainers:variant:04',
+  );
+
+  assert.equal(checkoutSubtotal, 629610);
+  assert.equal(couponResult.discountAmount, 62961);
+  assert.equal(couponResult.totalAmount, 566649);
+  assert.equal(ordersSubtotal, 1499800);
+  assert.equal(supportProduct.isActive, true);
+  assert.equal(supportVariant.isActive, false);
+  assert.ok(supportInventory.quantity > 5);
+  assert.equal(supportInventory.variantActive, false);
+});
+
+test('Cart classification covers missing, exact, Customer conflict, and ID conflict', async () => {
+  const { carts } = await cartFixture();
+  const expected = carts[0];
+
+  assert.equal(
+    classifyCartRecord({ expected }).classification,
+    CART_CLASSIFICATIONS.MISSING,
+  );
+  assert.equal(
+    classifyCartRecord({
+      expected,
+      recordById: expected,
+      recordByCustomer: expected,
+    }).classification,
+    CART_CLASSIFICATIONS.EXACT,
+  );
+  assert.equal(
+    classifyCartRecord({
+      expected,
+      recordByCustomer: {
+        ...expected,
+        _id: deterministicObjectId('conflict:cart:customer'),
+      },
+    }).classification,
+    CART_CLASSIFICATIONS.CUSTOMER_CONFLICT,
+  );
+  assert.equal(
+    classifyCartRecord({
+      expected,
+      recordById: {
+        ...expected,
+        customerId: deterministicObjectId('conflict:cart:id'),
+      },
+    }).classification,
+    CART_CLASSIFICATIONS.ID_CONFLICT,
+  );
+});
+
+test('Cart classification rejects item, quantity, Coupon, timestamp, and item-set drift', async () => {
+  const { carts } = await cartFixture();
+  const expected = carts[0];
+  const drifted = [
+    {
+      ...expected,
+      items: [
+        { ...expected.items[0], productId: deterministicObjectId('drift:product') },
+        ...expected.items.slice(1),
+      ],
+    },
+    {
+      ...expected,
+      items: [
+        { ...expected.items[0], quantity: 9 },
+        ...expected.items.slice(1),
+      ],
+    },
+    { ...expected, appliedCouponId: null },
+    { ...expected, updatedAt: new Date(expected.updatedAt.getTime() + 1) },
+    { ...expected, items: expected.items.slice(1) },
+    {
+      ...expected,
+      items: [
+        ...expected.items,
+        {
+          ...expected.items[0],
+          _id: deterministicObjectId('drift:cart-item'),
+        },
+      ],
+    },
+  ];
+
+  for (const record of drifted) {
+    assert.equal(
+      classifyCartRecord({
+        expected,
+        recordById: record,
+        recordByCustomer: record,
+      }).classification,
+      CART_CLASSIFICATIONS.DRIFT,
+    );
+  }
+});
+
+test('Cart preflight accepts exact state and rejects legacy or Cart-free ownership', async () => {
+  const { carts, registry } = await cartFixture();
+  const exact = await preflightCarts({
+    expectedCarts: carts,
+    registry,
+    records: carts,
+  });
+
+  assert.ok(
+    exact.every(
+      (result) => result.classification === CART_CLASSIFICATIONS.EXACT,
+    ),
+  );
+  await assert.rejects(
+    preflightCarts({
+      expectedCarts: carts,
+      registry,
+      records: [
+        ...carts,
+        {
+          _id: deterministicObjectId('cart:user:fresh'),
+          customerId: deterministicObjectId('unrelated:customer'),
+        },
+      ],
+    }),
+    (error) => error.code === 'DEMO_SEED_DRIFT',
+  );
+  await assert.rejects(
+    preflightCarts({
+      expectedCarts: carts,
+      registry,
+      records: [
+        ...carts,
+        {
+          _id: deterministicObjectId('unrelated:cart'),
+          customerId: registry.idFor('user:admin'),
+        },
+      ],
+    }),
+    (error) => error.code === 'DEMO_SEED_DRIFT',
+  );
+});
+
+test('Cart resolution and Checkout preview guards encode exact valid/stale outcomes', () => {
+  const checkoutPricing = {
+    subtotal: 629610,
+    discountAmount: 62961,
+    totalAmount: 566649,
+  };
+  const ordersPricing = {
+    subtotal: 1499800,
+    discountAmount: 0,
+    totalAmount: 1499800,
+  };
+  const staleIssue = { code: 'CART_ITEM_UNAVAILABLE', message: 'stale' };
+
+  assert.doesNotThrow(() =>
+    assertResolvedCartScenarios({
+      checkout: {
+        items: [{}, {}, {}],
+        issues: [],
+        warnings: [],
+        canCheckout: true,
+        coupon: { code: 'DEMO10' },
+        pricing: checkoutPricing,
+      },
+      orders: {
+        items: [{}, {}],
+        issues: [],
+        warnings: [],
+        canCheckout: true,
+        coupon: null,
+        pricing: ordersPricing,
+      },
+      support: {
+        items: [
+          {
+            issues: [staleIssue],
+            availability: { isAvailable: false },
+          },
+        ],
+        issues: [{ cartItemId: 'item', ...staleIssue }],
+        warnings: [],
+        canCheckout: false,
+      },
+    }),
+  );
+  assert.doesNotThrow(() =>
+    assertCheckoutPreviewScenarios({
+      checkout: {
+        preview: { canProceed: true },
+        checkoutSnapshot: {
+          items: [{}, {}, {}],
+          coupon: { code: 'DEMO10' },
+          ...checkoutPricing,
+        },
+      },
+      orders: {
+        preview: { canProceed: true },
+        checkoutSnapshot: {
+          items: [{}, {}],
+          coupon: null,
+          ...ordersPricing,
+        },
+      },
+      support: {
+        preview: { canProceed: false, issues: [staleIssue] },
+        checkoutSnapshot: null,
+      },
+    }),
+  );
+});
+
+test('Cart selective reset filter is exact and never broad', async () => {
+  const { carts } = await cartFixture();
+  const filter = exactCartOwnershipFilter(carts);
+
+  assert.equal(filter.$or.length, 3);
+  assert.deepEqual(
+    filter.$or.map((entry) => Object.keys(entry).sort()),
+    [
+      ['_id', 'customerId'],
+      ['_id', 'customerId'],
+      ['_id', 'customerId'],
+    ],
+  );
+  assert.equal(Object.hasOwn(filter, 'role'), false);
+  assert.equal(JSON.stringify(filter).includes('deleteMany({})'), false);
 });

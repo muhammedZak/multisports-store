@@ -237,9 +237,6 @@ export function createSeedRegistry(manifest) {
       ),
     ),
   ].sort();
-  const customerKeys = DEMO_USER_IDENTITIES.filter(
-    (identity) => identity.role === 'customer',
-  ).map((identity) => identity.key);
   const inventoryPlan = buildInventoryRegistryPlan(manifest);
 
   const keysByEntity = Object.freeze({
@@ -258,7 +255,19 @@ export function createSeedRegistry(manifest) {
       (position) => position.adjustmentKeys,
     ),
     coupons: DEMO_COUPON_IDENTITIES.map((identity) => identity.key),
-    carts: customerKeys.map((key) => `cart:${key}`),
+    carts: Object.freeze([
+      'cart:user:checkout',
+      'cart:user:orders',
+      'cart:user:support',
+    ]),
+    cartItems: Object.freeze([
+      'cart-item:user:checkout:01',
+      'cart-item:user:checkout:02',
+      'cart-item:user:checkout:03',
+      'cart-item:user:orders:01',
+      'cart-item:user:orders:02',
+      'cart-item:user:support:01',
+    ]),
     payments: numberedKeys('payment:scenario', 8),
     orders: numberedKeys('order:scenario', 8),
     refunds: numberedKeys('refund:scenario', 4),

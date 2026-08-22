@@ -1,4 +1,5 @@
 import { AuthChallenge } from '../../modules/auth/authChallenge.model.js';
+import { Cart } from '../../modules/cart/cart.model.js';
 import { Category } from '../../modules/catalog/category.model.js';
 import { Product } from '../../modules/catalog/product.model.js';
 import { Inventory } from '../../modules/inventory/inventory.model.js';
@@ -14,6 +15,7 @@ import {
 } from './product.persistence.seed.js';
 import { validateProductDefinitions } from './products.seed.js';
 import { seedCoupons, validateCouponDefinitions } from './coupon.seed.js';
+import { seedCarts, validateCartDefinitions } from './cart.seed.js';
 import {
   assertPersistedInventoryStructure,
   resolveSeedLowStockThreshold,
@@ -130,6 +132,20 @@ async function snapshotUnrelatedInventoryAdjustments(expectedAdjustments) {
   return JSON.stringify(documents);
 }
 
+async function snapshotUnrelatedCarts(expectedCarts) {
+  const documents = await Cart.collection
+    .find({
+      $and: [
+        { _id: { $nin: expectedCarts.map((cart) => cart._id) } },
+        { customerId: { $nin: expectedCarts.map((cart) => cart.customerId) } },
+      ],
+    })
+    .sort({ _id: 1 })
+    .toArray();
+
+  return JSON.stringify(documents);
+}
+
 async function countSeededAuthChallenges(expectedUsers) {
   return AuthChallenge.countDocuments({
     $or: [
@@ -203,6 +219,10 @@ export async function runDemoSeed() {
       registry,
       clock,
     });
+    const expectedCartResult = await validateCartDefinitions({
+      registry,
+      clock,
+    });
     const beforeCounts = await snapshotCollectionCounts(connection);
     const beforeUnrelatedUsers = await snapshotUnrelatedUsers(expectedUsers);
     const beforeUnrelatedCategories =
@@ -216,6 +236,9 @@ export async function runDemoSeed() {
       await snapshotUnrelatedInventoryAdjustments(
         expectedInventoryResult.adjustments,
       );
+    const beforeUnrelatedCarts = await snapshotUnrelatedCarts(
+      expectedCartResult.carts,
+    );
     const beforeProductCount = await Product.countDocuments({});
     const beforeChallenges = await countSeededAuthChallenges(expectedUsers);
 
@@ -253,6 +276,11 @@ export async function runDemoSeed() {
       clock,
       validatedCoupons: expectedCouponResult,
     });
+    const cartResult = await seedCarts({
+      registry,
+      clock,
+      threshold: lowStockThreshold,
+    });
 
     await assertPersistedInventoryStructure(inventoryResult.positions);
 
@@ -269,6 +297,9 @@ export async function runDemoSeed() {
       await snapshotUnrelatedInventoryAdjustments(
         expectedInventoryResult.adjustments,
       );
+    const afterUnrelatedCarts = await snapshotUnrelatedCarts(
+      expectedCartResult.carts,
+    );
     const afterProductCount = await Product.countDocuments({});
     const afterChallenges = await countSeededAuthChallenges(expectedUsers);
 
@@ -279,6 +310,7 @@ export async function runDemoSeed() {
       inventories: inventoryResult.created,
       inventoryAdjustments: inventoryResult.adjustmentsCreated,
       coupons: couponResult.created,
+      carts: cartResult.created,
     });
 
     if (beforeUnrelatedUsers !== afterUnrelatedUsers) {
@@ -326,6 +358,13 @@ export async function runDemoSeed() {
       );
     }
 
+    if (beforeUnrelatedCarts !== afterUnrelatedCarts) {
+      throw new SeedValidationError(
+        'DEMO_SEED_UNRELATED_CARTS_CHANGED',
+        'Pre-existing unrelated Carts changed during demo seeding.',
+      );
+    }
+
     if (beforeChallenges !== afterChallenges || afterChallenges !== 0) {
       throw new SeedValidationError(
         'DEMO_SEED_AUTH_CHALLENGE_CHANGED',
@@ -366,6 +405,11 @@ export async function runDemoSeed() {
     console.log('Coupons:');
     console.log(`  Created: ${couponResult.created}`);
     console.log(`  Skipped: ${couponResult.skipped}`);
+    console.log('Carts:');
+    console.log(`  Created: ${cartResult.created}`);
+    console.log(`  Skipped: ${cartResult.skipped}`);
+    console.log('Cart Items:');
+    console.log(`  Persisted/Exact: ${cartResult.itemsPersisted}`);
     console.log('Authentication: Admin and Checkout Customer verified');
     console.log('AuthChallenges created: 0');
 
@@ -375,6 +419,7 @@ export async function runDemoSeed() {
       products: productResult,
       inventory: inventoryResult,
       coupons: couponResult,
+      carts: cartResult,
     };
   } finally {
     await disconnectSeedDatabase();
