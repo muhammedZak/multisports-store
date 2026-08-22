@@ -11,7 +11,7 @@ cloudinary.config({
 });
 
 const PROFILE_PHOTO_FOLDER = 'multisports-store/profile-photos';
-const PRODUCT_IMAGE_FOLDER = 'multisports-store/product-images';
+export const PRODUCT_IMAGE_FOLDER = 'multisports-store/product-images';
 
 function createCloudinaryError(message) {
   return new AppError(502, 'EXTERNAL_SERVICE_ERROR', message);

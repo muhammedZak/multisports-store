@@ -31,6 +31,20 @@ import {
   validateProductDefinitions,
 } from './products.seed.js';
 import {
+  PRODUCT_CLASSIFICATIONS,
+  assertNoProductResetDependencies,
+  buildExpectedPersistedProducts,
+  buildFinalProductPayloads,
+  classifyProductRecord,
+  cleanupCurrentRunUploads,
+  cloudinaryPermissionIsRequired,
+  exactProductOwnershipFilter,
+  missingProductResults,
+  validateCloudinaryImageMetadata,
+  validateFinalProductPayloads,
+  verifyRequiredProductAssets,
+} from './product.persistence.seed.js';
+import {
   DEMO_USER_CLASSIFICATIONS,
   DEMO_USER_DEFINITIONS,
   buildExpectedDemoUsers,
@@ -397,6 +411,238 @@ test('Product definitions contain only scalar specifications and no inventory st
       (counts) => Object.values(counts).every((count) => count === 3),
     ),
   );
+});
+
+async function productPersistenceFixture() {
+  const { manifest, registry, clock, categories } = await categoryFixture();
+  const productResult = validateProductDefinitions({
+    manifest,
+    registry,
+    categories,
+  });
+  const expectedProducts = buildExpectedPersistedProducts({
+    definitions: productResult.definitions,
+    clock,
+  });
+  const existingProducts = expectedProducts.map((product, productIndex) => ({
+    ...product,
+    images: product.images.map((image, imageIndex) => ({
+      ...image,
+      publicId:
+        `multisports-store/product-images/test-${productIndex}-${imageIndex}`,
+      url: `https://res.cloudinary.com/example/image/upload/test-${productIndex}-${imageIndex}.webp`,
+    })),
+  }));
+
+  return {
+    expectedProducts,
+    existingProducts,
+    productImageFolder: 'multisports-store/product-images',
+  };
+}
+
+test('Product persistence identities and timestamps are deterministic', async () => {
+  const { expectedProducts } = await productPersistenceFixture();
+
+  assert.equal(expectedProducts.length, 42);
+  assert.equal(
+    new Set(expectedProducts.map((product) => product._id.toString())).size,
+    42,
+  );
+  assert.ok(
+    expectedProducts.every(
+      (product) =>
+        product.createdAt instanceof Date &&
+        product.createdAt.toISOString() === product.updatedAt.toISOString(),
+    ),
+  );
+});
+
+test('Product preflight classification covers missing and exact records', async () => {
+  const { expectedProducts, existingProducts, productImageFolder } =
+    await productPersistenceFixture();
+  const expected = expectedProducts[0];
+  const existingRecord = existingProducts[0];
+
+  assert.equal(
+    classifyProductRecord({ expected, productImageFolder }).classification,
+    PRODUCT_CLASSIFICATIONS.MISSING,
+  );
+  assert.equal(
+    classifyProductRecord({
+      expected,
+      existingRecord,
+      productImageFolder,
+    }).classification,
+    PRODUCT_CLASSIFICATIONS.EXACT,
+  );
+});
+
+test('Product preflight detects deterministic ID conflict and locked-field drift', async () => {
+  const { expectedProducts, existingProducts, productImageFolder } =
+    await productPersistenceFixture();
+  const expected = expectedProducts[0];
+  const existingRecord = existingProducts[0];
+
+  assert.equal(
+    classifyProductRecord({
+      expected,
+      existingRecord: { ...existingRecord, name: 'Another Product' },
+      productImageFolder,
+    }).classification,
+    PRODUCT_CLASSIFICATIONS.ID_CONFLICT,
+  );
+  assert.equal(
+    classifyProductRecord({
+      expected,
+      existingRecord: { ...existingRecord, basePrice: 12345 },
+      productImageFolder,
+    }).classification,
+    PRODUCT_CLASSIFICATIONS.DRIFT,
+  );
+});
+
+test('Cloudinary mutation permission depends only on missing Products', () => {
+  const exact = Array.from({ length: 42 }, () => ({
+    classification: PRODUCT_CLASSIFICATIONS.EXACT,
+  }));
+  const withMissing = [
+    ...exact.slice(0, 41),
+    { classification: PRODUCT_CLASSIFICATIONS.MISSING },
+  ];
+
+  assert.equal(cloudinaryPermissionIsRequired(exact), false);
+  assert.equal(cloudinaryPermissionIsRequired(withMissing), true);
+  assert.equal(missingProductResults(exact).length, 0);
+  assert.equal(missingProductResults(withMissing).length, 1);
+});
+
+test('Cloudinary image metadata requires the Product folder and HTTPS', () => {
+  const folder = 'multisports-store/product-images';
+
+  assert.equal(
+    validateCloudinaryImageMetadata(
+      {
+        publicId: `${folder}/asset-01`,
+        url: 'https://res.cloudinary.com/example/image/upload/asset-01.webp',
+      },
+      folder,
+    ),
+    true,
+  );
+  assert.equal(
+    validateCloudinaryImageMetadata(
+      { publicId: 'another-folder/asset-01', url: 'https://example.test/a' },
+      folder,
+    ),
+    false,
+  );
+  assert.equal(
+    validateCloudinaryImageMetadata(
+      { publicId: `${folder}/asset-01`, url: 'http://example.test/a' },
+      folder,
+    ),
+    false,
+  );
+});
+
+test('all 84 required local WebP assets pass pre-upload integrity', async () => {
+  const { expectedProducts } = await productPersistenceFixture();
+  const missing = expectedProducts.map((expected) => ({
+    expected,
+    classification: PRODUCT_CLASSIFICATIONS.MISSING,
+  }));
+  const verified = await verifyRequiredProductAssets(missing);
+
+  assert.equal(verified.length, 84);
+  assert.equal(
+    new Set(verified.map((file) => file.imageId.toString())).size,
+    84,
+  );
+  assert.ok(verified.every((file) => file.buffer.length > 0));
+});
+
+test('final Product payloads retain embedded IDs and exclude seed-only fields', async () => {
+  const { expectedProducts, productImageFolder } =
+    await productPersistenceFixture();
+  const missing = expectedProducts.map((expected) => ({
+    expected,
+    classification: PRODUCT_CLASSIFICATIONS.MISSING,
+  }));
+  const uploadedAssets = expectedProducts.flatMap((product, productIndex) =>
+    product.images.map((image, imageIndex) => ({
+      productSeedKey: product.seedKey,
+      productId: product._id,
+      imageId: image._id,
+      sortOrder: image.sortOrder,
+      publicId: `${productImageFolder}/payload-${productIndex}-${imageIndex}`,
+      url: `https://res.cloudinary.com/example/image/upload/payload-${productIndex}-${imageIndex}.webp`,
+    })),
+  );
+  const payloads = buildFinalProductPayloads({
+    missingResults: missing,
+    uploadedAssets,
+  });
+
+  await validateFinalProductPayloads({ payloads, productImageFolder });
+
+  assert.equal(payloads.length, 42);
+  assert.ok(
+    payloads.every(
+      (payload, index) =>
+        !Object.hasOwn(payload, 'seedKey') &&
+        !Object.hasOwn(payload, 'slug') &&
+        !Object.hasOwn(payload, 'productType') &&
+        payload.images.length === 2 &&
+        payload.images.filter((image) => image.isPrimary).length === 1 &&
+        payload.images.every(
+          (image, imageIndex) =>
+            image._id.toString() ===
+            expectedProducts[index].images[imageIndex]._id.toString(),
+        ) &&
+        payload.variants.every(
+          (variant, variantIndex) =>
+            variant._id.toString() ===
+            expectedProducts[index].variants[variantIndex]._id.toString(),
+        ),
+    ),
+  );
+});
+
+test('upload cleanup is restricted to current-run public IDs', async () => {
+  const uploadedAssets = [
+    { publicId: 'multisports-store/product-images/current-01' },
+    { publicId: 'multisports-store/product-images/current-02' },
+  ];
+  const deleted = [];
+  const cleanup = await cleanupCurrentRunUploads(
+    uploadedAssets,
+    async (publicId) => deleted.push(publicId),
+  );
+
+  assert.deepEqual(deleted, uploadedAssets.map((asset) => asset.publicId));
+  assert.deepEqual(cleanup, { attempted: 2, deleted: 2, failed: 0 });
+});
+
+test('Product reset ownership is exact and Inventory dependencies are refused', async () => {
+  const { expectedProducts } = await productPersistenceFixture();
+  const [expected] = expectedProducts;
+
+  assert.deepEqual(exactProductOwnershipFilter([expected]), {
+    $or: [
+      {
+        _id: expected._id,
+        name: expected.name,
+        sport: expected.sport,
+        categoryId: expected.categoryId,
+      },
+    ],
+  });
+  assert.throws(
+    () => assertNoProductResetDependencies(['Inventory']),
+    (error) => error.code === 'DEMO_PRODUCT_RESET_DEPENDENCY',
+  );
+  assert.doesNotThrow(() => assertNoProductResetDependencies([]));
 });
 
 test('locked User definitions contain the exact role and identity counts', () => {

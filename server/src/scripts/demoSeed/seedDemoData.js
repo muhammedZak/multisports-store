@@ -6,8 +6,15 @@ import {
   seedCategories,
   validateCategoryDefinitions,
 } from './categories.seed.js';
+import {
+  buildExpectedPersistedProducts,
+  seedProducts,
+} from './product.persistence.seed.js';
 import { validateProductDefinitions } from './products.seed.js';
-import { requireDemoSeedPassword } from './seed.config.js';
+import {
+  assertDemoCloudinaryUploadAllowed,
+  requireDemoSeedPassword,
+} from './seed.config.js';
 import {
   seedDemoUsers,
   validateDemoSeedPassword,
@@ -15,7 +22,6 @@ import {
 } from './users.seed.js';
 import {
   SeedValidationError,
-  SeedSafetyError,
   connectSeedDatabase,
   disconnectSeedDatabase,
   printSeedError,
@@ -80,6 +86,17 @@ async function snapshotUnrelatedCategories(expectedCategories) {
   return JSON.stringify(documents);
 }
 
+async function snapshotUnrelatedProducts(expectedProducts) {
+  const documents = await Product.collection
+    .find({
+      _id: { $nin: expectedProducts.map((product) => product._id) },
+    })
+    .sort({ _id: 1 })
+    .toArray();
+
+  return JSON.stringify(documents);
+}
+
 async function countSeededAuthChallenges(expectedUsers) {
   return AuthChallenge.countDocuments({
     $or: [
@@ -115,16 +132,14 @@ export async function runDemoSeed() {
     await createSeedFoundationContext();
   const password = validateDemoSeedPassword(requireDemoSeedPassword(config));
 
-  if (config.allowCloudinaryUpload) {
-    throw new SeedSafetyError(
-      'DEMO_USER_SEED_CLOUDINARY_FLAG_ENABLED',
-      'ALLOW_DEMO_CLOUDINARY_UPLOAD must remain false during this demo seed.',
-    );
-  }
-
   const { authenticatePassword } = await import(
     '../../modules/auth/auth.service.js'
   );
+  const {
+    PRODUCT_IMAGE_FOLDER,
+    deleteProductImageAsset,
+    uploadProductImageAsset,
+  } = await import('../../integrations/cloudinary.js');
   let connection;
 
   try {
@@ -135,10 +150,21 @@ export async function runDemoSeed() {
       clock,
       manifest,
     });
+    const lockedProductResult = validateProductDefinitions({
+      manifest,
+      registry,
+      categories: expectedCategories,
+    });
+    const expectedProducts = buildExpectedPersistedProducts({
+      definitions: lockedProductResult.definitions,
+      clock,
+    });
     const beforeCounts = await snapshotCollectionCounts(connection);
     const beforeUnrelatedUsers = await snapshotUnrelatedUsers(expectedUsers);
     const beforeUnrelatedCategories =
       await snapshotUnrelatedCategories(expectedCategories);
+    const beforeUnrelatedProducts =
+      await snapshotUnrelatedProducts(expectedProducts);
     const beforeProductCount = await Product.countDocuments({});
     const beforeChallenges = await countSeededAuthChallenges(expectedUsers);
 
@@ -155,22 +181,29 @@ export async function runDemoSeed() {
       clock,
       manifest,
     });
-    const productResult = validateProductDefinitions({
-      manifest,
-      registry,
-      categories: categoryResult.expectedCategories,
+    const productResult = await seedProducts({
+      definitions: lockedProductResult.definitions,
+      clock,
+      productImageFolder: PRODUCT_IMAGE_FOLDER,
+      assertUploadAllowed: () =>
+        assertDemoCloudinaryUploadAllowed(config),
+      uploadAsset: uploadProductImageAsset,
+      deleteAsset: deleteProductImageAsset,
     });
 
     const afterCounts = await snapshotCollectionCounts(connection);
     const afterUnrelatedUsers = await snapshotUnrelatedUsers(expectedUsers);
     const afterUnrelatedCategories =
       await snapshotUnrelatedCategories(expectedCategories);
+    const afterUnrelatedProducts =
+      await snapshotUnrelatedProducts(expectedProducts);
     const afterProductCount = await Product.countDocuments({});
     const afterChallenges = await countSeededAuthChallenges(expectedUsers);
 
     assertCollectionDeltas(beforeCounts, afterCounts, {
       users: userResult.created,
       categories: categoryResult.created,
+      products: productResult.created,
     });
 
     if (beforeUnrelatedUsers !== afterUnrelatedUsers) {
@@ -187,10 +220,17 @@ export async function runDemoSeed() {
       );
     }
 
-    if (beforeProductCount !== afterProductCount) {
+    if (afterProductCount !== beforeProductCount + productResult.created) {
       throw new SeedValidationError(
-        'DEMO_SEED_PRODUCT_PERSISTENCE_FORBIDDEN',
-        'Product collection count changed during definition-only validation.',
+        'DEMO_SEED_PRODUCT_DELTA_INVALID',
+        'Product collection count changed outside the exact seeded delta.',
+      );
+    }
+
+    if (beforeUnrelatedProducts !== afterUnrelatedProducts) {
+      throw new SeedValidationError(
+        'DEMO_SEED_UNRELATED_PRODUCTS_CHANGED',
+        'Pre-existing unrelated Products changed during demo seeding.',
       );
     }
 
@@ -218,11 +258,16 @@ export async function runDemoSeed() {
     console.log(`  Created: ${categoryResult.created}`);
     console.log(`  Skipped: ${categoryResult.skipped}`);
     console.log('Product Definitions:');
-    console.log(`  Validated: ${productResult.counts.products}`);
-    console.log('  Persisted: 0');
+    console.log(`  Validated: ${lockedProductResult.counts.products}`);
+    console.log('Products:');
+    console.log(`  Created: ${productResult.created}`);
+    console.log(`  Skipped: ${productResult.skipped}`);
+    console.log('Cloudinary:');
+    console.log(`  Uploaded: ${productResult.uploaded}`);
+    console.log('Inventory:');
+    console.log('  Created: 0');
     console.log('Authentication: Admin and Checkout Customer verified');
     console.log('AuthChallenges created: 0');
-    console.log('Cloudinary: disabled');
 
     return {
       users: userResult,
