@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import * as argon2 from 'argon2';
 
+import { validateCouponForSubtotal } from '../../modules/coupon/coupon.service.js';
 import {
   INVENTORY_ADJUSTMENT_REASONS,
 } from '../../modules/inventory/inventory.constants.js';
@@ -25,6 +26,7 @@ import {
 } from './categories.seed.js';
 import {
   DEMO_ADDRESS_KEYS,
+  DEMO_COUPON_IDENTITIES,
   DEMO_USER_IDENTITIES,
   buildInventoryRegistryPlan,
   createSeedRegistry,
@@ -61,6 +63,16 @@ import {
   resolveSeedLowStockThreshold,
   validateInventoryDefinitions,
 } from './inventory.seed.js';
+import {
+  COUPON_CLASSIFICATIONS,
+  COUPON_DEFINITIONS,
+  LEGACY_DEMO_COUPON_CODES,
+  assertNoCouponResetDependencies,
+  classifyCouponRecord,
+  exactCouponOwnershipFilter,
+  findLegacyCouponPlaceholders,
+  validateCouponDefinitions,
+} from './coupon.seed.js';
 import {
   DEMO_USER_CLASSIFICATIONS,
   DEMO_USER_DEFINITIONS,
@@ -978,6 +990,276 @@ test('Inventory reset ownership is exact and adjustments precede positions', asy
   assert.equal(filter.$or[1].variantId.toString(), variant.variantId.toString());
   assert.equal(filter.$or[0]._id.toString(), simple._id.toString());
   assert.equal(filter.$or[1]._id.toString(), variant._id.toString());
+});
+
+async function couponFixture() {
+  const manifest = await loadAndValidateProductManifest();
+  const registry = createSeedRegistry(manifest);
+  const clock = createSeedClock({
+    anchorDate: '2026-08-22',
+    timeZone: 'Asia/Kolkata',
+  });
+  const result = await validateCouponDefinitions({ registry, clock });
+
+  return { manifest, registry, clock, ...result };
+}
+
+test('Coupon registry replaces every old placeholder with the eight locked codes', async () => {
+  const { registry } = await couponFixture();
+  const expectedCodes = [
+    'DEMO10',
+    'SAVE500',
+    'MAX20',
+    'INACTIVE15',
+    'EXPIRED12',
+    'NEXTWEEK15',
+    'USEDUP250',
+    'LIMITED5',
+  ];
+  const registeredCodes = DEMO_COUPON_IDENTITIES.map(
+    (identity) => identity.code,
+  );
+
+  assert.deepEqual(registeredCodes, expectedCodes);
+  assert.deepEqual(
+    registry.keysByEntity.coupons,
+    expectedCodes.map((code) => `coupon:${code}`),
+  );
+  assert.ok(
+    LEGACY_DEMO_COUPON_CODES.every(
+      (code) => !registeredCodes.includes(code),
+    ),
+  );
+  assert.equal(new Set(registry.keysByEntity.coupons).size, 8);
+});
+
+test('Coupon definitions lock exact configuration and scenario totals', async () => {
+  const { coupons, counts } = await couponFixture();
+
+  assert.equal(COUPON_DEFINITIONS.length, 8);
+  assert.deepEqual(counts, {
+    coupons: 8,
+    percentage: 6,
+    fixed: 2,
+    active: 7,
+    inactive: 1,
+    unlimited: 6,
+    limited: 2,
+    exhausted: 1,
+    partiallyUsedLimited: 1,
+    maximumDiscount: 1,
+    upcoming: 1,
+    expired: 1,
+  });
+  assert.equal(new Set(coupons.map((coupon) => coupon.code)).size, 8);
+  assert.ok(
+    coupons.every(
+      (coupon) =>
+        Number.isSafeInteger(coupon.minimumOrderAmount) &&
+        coupon.minimumOrderAmount >= 0 &&
+        coupon.code === coupon.code.trim().toUpperCase(),
+    ),
+  );
+  assert.equal(
+    coupons.filter((coupon) => coupon.maximumDiscount !== null).length,
+    1,
+  );
+  assert.equal(
+    coupons.find((coupon) => coupon.code === 'USEDUP250').usedCount,
+    4,
+  );
+  assert.equal(
+    coupons.find((coupon) => coupon.code === 'LIMITED5').usedCount,
+    3,
+  );
+});
+
+test('Coupon dates and timestamps are deterministic relative to the anchor', async () => {
+  const { coupons, clock } = await couponFixture();
+  const expired = coupons.find((coupon) => coupon.code === 'EXPIRED12');
+  const upcoming = coupons.find((coupon) => coupon.code === 'NEXTWEEK15');
+
+  assert.ok(expired.startsAt < expired.expiresAt);
+  assert.ok(expired.expiresAt < clock.anchorTime);
+  assert.ok(upcoming.startsAt > clock.anchorTime);
+  assert.ok(upcoming.startsAt < upcoming.expiresAt);
+  assert.ok(
+    coupons.every(
+      (coupon) =>
+        coupon.createdAt instanceof Date &&
+        coupon.createdAt.toISOString() === coupon.updatedAt.toISOString(),
+    ),
+  );
+  assert.equal(
+    clock.daysAfter(7).toISOString(),
+    createSeedClock({
+      anchorDate: '2026-08-29',
+      timeZone: 'Asia/Kolkata',
+    }).anchorTime.toISOString(),
+  );
+});
+
+test('Coupon preflight classification covers missing and exact records', async () => {
+  const { coupons } = await couponFixture();
+  const expected = coupons[0];
+
+  assert.equal(
+    classifyCouponRecord({ expected }).classification,
+    COUPON_CLASSIFICATIONS.MISSING,
+  );
+  assert.equal(
+    classifyCouponRecord({
+      expected,
+      recordById: expected,
+      recordByCode: expected,
+    }).classification,
+    COUPON_CLASSIFICATIONS.EXACT,
+  );
+});
+
+test('Coupon preflight detects code, ID, configuration, usage, and timestamp drift', async () => {
+  const { coupons } = await couponFixture();
+  const expected = coupons[0];
+
+  assert.equal(
+    classifyCouponRecord({
+      expected,
+      recordByCode: {
+        ...expected,
+        _id: deterministicObjectId('conflict:coupon:code'),
+      },
+    }).classification,
+    COUPON_CLASSIFICATIONS.CODE_CONFLICT,
+  );
+  assert.equal(
+    classifyCouponRecord({
+      expected,
+      recordById: { ...expected, code: 'ANOTHER' },
+    }).classification,
+    COUPON_CLASSIFICATIONS.ID_CONFLICT,
+  );
+
+  for (const existing of [
+    { ...expected, discountValue: expected.discountValue + 1 },
+    { ...expected, usedCount: expected.usedCount + 1 },
+    {
+      ...expected,
+      updatedAt: new Date(expected.updatedAt.getTime() + 1000),
+    },
+  ]) {
+    assert.equal(
+      classifyCouponRecord({
+        expected,
+        recordById: existing,
+        recordByCode: existing,
+      }).classification,
+      COUPON_CLASSIFICATIONS.DRIFT,
+    );
+  }
+});
+
+test('legacy Coupon placeholder persistence is detected before ownership changes', () => {
+  const records = [
+    {
+      _id: deterministicObjectId('coupon:WELCOME10'),
+      code: 'WELCOME10',
+    },
+  ];
+
+  assert.equal(findLegacyCouponPlaceholders(records).length, 1);
+  assert.equal(
+    findLegacyCouponPlaceholders([
+      {
+        _id: deterministicObjectId('unrelated:coupon'),
+        code: 'UNRELATED',
+      },
+    ]).length,
+    0,
+  );
+});
+
+test('Coupon pricing uses existing service arithmetic for all successful scenarios', async () => {
+  const { coupons, clock } = await couponFixture();
+  const byCode = new Map(coupons.map((coupon) => [coupon.code, coupon]));
+  const expectedPricing = {
+    DEMO10: { discountAmount: 50000, totalAmount: 450000 },
+    SAVE500: { discountAmount: 50000, totalAmount: 450000 },
+    MAX20: { discountAmount: 75000, totalAmount: 425000 },
+    LIMITED5: { discountAmount: 25000, totalAmount: 475000 },
+  };
+
+  for (const [code, expected] of Object.entries(expectedPricing)) {
+    const beforeUsedCount = byCode.get(code).usedCount;
+    const result = validateCouponForSubtotal({
+      coupon: byCode.get(code),
+      subtotal: 500000,
+      now: clock.anchorTime,
+    });
+
+    assert.equal(result.discountAmount, expected.discountAmount);
+    assert.equal(result.totalAmount, expected.totalAmount);
+    assert.equal(byCode.get(code).usedCount, beforeUsedCount);
+  }
+});
+
+test('Coupon service preserves exact inactive, date, usage, and minimum errors', async () => {
+  const { coupons, clock } = await couponFixture();
+  const byCode = new Map(coupons.map((coupon) => [coupon.code, coupon]));
+  const scenarios = [
+    ['INACTIVE15', 500000, 'COUPON_INACTIVE'],
+    ['EXPIRED12', 500000, 'COUPON_EXPIRED'],
+    ['NEXTWEEK15', 500000, 'COUPON_NOT_STARTED'],
+    ['USEDUP250', 500000, 'COUPON_USAGE_LIMIT_REACHED'],
+    ['SAVE500', 299899, 'COUPON_MINIMUM_NOT_MET'],
+  ];
+
+  for (const [code, subtotal, errorCode] of scenarios) {
+    assert.throws(
+      () =>
+        validateCouponForSubtotal({
+          coupon: byCode.get(code),
+          subtotal,
+          now: clock.anchorTime,
+        }),
+      (error) => error.code === errorCode,
+    );
+  }
+});
+
+test('Coupon reset filter is exact and dependency conflicts are refused', async () => {
+  const { coupons } = await couponFixture();
+  const expected = coupons[0];
+
+  assert.deepEqual(exactCouponOwnershipFilter([expected]), {
+    $or: [{ _id: expected._id, code: expected.code }],
+  });
+  assert.throws(
+    () => assertNoCouponResetDependencies(['Cart']),
+    (error) => error.code === 'DEMO_COUPON_RESET_DEPENDENCY',
+  );
+  assert.doesNotThrow(() => assertNoCouponResetDependencies([]));
+});
+
+test('exact Coupon second-run classification does not mutate usage counters', async () => {
+  const { coupons } = await couponFixture();
+  const beforeUsage = coupons.map((coupon) => coupon.usedCount);
+  const results = coupons.map((expected) =>
+    classifyCouponRecord({
+      expected,
+      recordById: expected,
+      recordByCode: expected,
+    }),
+  );
+
+  assert.ok(
+    results.every(
+      (result) => result.classification === COUPON_CLASSIFICATIONS.EXACT,
+    ),
+  );
+  assert.deepEqual(
+    coupons.map((coupon) => coupon.usedCount),
+    beforeUsage,
+  );
 });
 
 test('locked User definitions contain the exact role and identity counts', () => {

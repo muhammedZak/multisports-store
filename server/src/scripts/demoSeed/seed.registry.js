@@ -61,14 +61,14 @@ export const DEMO_ADDRESS_KEYS = Object.freeze([
 ]);
 
 export const DEMO_COUPON_IDENTITIES = Object.freeze([
-  'WELCOME10',
-  'SPORTS15',
-  'TRAINING20',
-  'RUNNER500',
-  'COURT10',
-  'FITNESS15',
-  'FREESHIP',
-  'DEMO25',
+  'DEMO10',
+  'SAVE500',
+  'MAX20',
+  'INACTIVE15',
+  'EXPIRED12',
+  'NEXTWEEK15',
+  'USEDUP250',
+  'LIMITED5',
 ].map((code) => Object.freeze({ key: `coupon:${code}`, code })));
 
 function numberedKeys(namespace, count) {

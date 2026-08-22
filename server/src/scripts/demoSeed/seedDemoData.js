@@ -13,6 +13,7 @@ import {
   seedProducts,
 } from './product.persistence.seed.js';
 import { validateProductDefinitions } from './products.seed.js';
+import { seedCoupons, validateCouponDefinitions } from './coupon.seed.js';
 import {
   assertPersistedInventoryStructure,
   resolveSeedLowStockThreshold,
@@ -198,6 +199,10 @@ export async function runDemoSeed() {
       clock,
       threshold: lowStockThreshold,
     });
+    const expectedCouponResult = await validateCouponDefinitions({
+      registry,
+      clock,
+    });
     const beforeCounts = await snapshotCollectionCounts(connection);
     const beforeUnrelatedUsers = await snapshotUnrelatedUsers(expectedUsers);
     const beforeUnrelatedCategories =
@@ -243,6 +248,11 @@ export async function runDemoSeed() {
       threshold: lowStockThreshold,
       productImageFolder: PRODUCT_IMAGE_FOLDER,
     });
+    const couponResult = await seedCoupons({
+      registry,
+      clock,
+      validatedCoupons: expectedCouponResult,
+    });
 
     await assertPersistedInventoryStructure(inventoryResult.positions);
 
@@ -268,6 +278,7 @@ export async function runDemoSeed() {
       products: productResult.created,
       inventories: inventoryResult.created,
       inventoryAdjustments: inventoryResult.adjustmentsCreated,
+      coupons: couponResult.created,
     });
 
     if (beforeUnrelatedUsers !== afterUnrelatedUsers) {
@@ -352,6 +363,9 @@ export async function runDemoSeed() {
     console.log('InventoryAdjustments:');
     console.log(`  Created: ${inventoryResult.adjustmentsCreated}`);
     console.log(`  Skipped: ${inventoryResult.adjustmentsSkipped}`);
+    console.log('Coupons:');
+    console.log(`  Created: ${couponResult.created}`);
+    console.log(`  Skipped: ${couponResult.skipped}`);
     console.log('Authentication: Admin and Checkout Customer verified');
     console.log('AuthChallenges created: 0');
 
@@ -360,6 +374,7 @@ export async function runDemoSeed() {
       categories: categoryResult,
       products: productResult,
       inventory: inventoryResult,
+      coupons: couponResult,
     };
   } finally {
     await disconnectSeedDatabase();

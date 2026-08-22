@@ -201,6 +201,13 @@ export function createSeedClock({
 
       return shiftedCalendarDate({ days });
     },
+    daysAfter(days) {
+      if (!Number.isInteger(days) || days < 0) {
+        throw new TypeError('daysAfter requires a non-negative integer.');
+      }
+
+      return shiftedCalendarDate({ days: -days });
+    },
     monthsAgo(months) {
       if (!Number.isInteger(months) || months < 0) {
         throw new TypeError('monthsAgo requires a non-negative integer.');

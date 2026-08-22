@@ -8,6 +8,7 @@ import {
 } from './categories.seed.js';
 import { resetProducts } from './product.persistence.seed.js';
 import { validateProductDefinitions } from './products.seed.js';
+import { resetCoupons } from './coupon.seed.js';
 import {
   resetInventoryCatalog,
   resolveSeedLowStockThreshold,
@@ -84,12 +85,13 @@ async function runSelectiveReset() {
       clock,
       manifest,
     });
+    const couponResult = await resetCoupons({ registry, clock });
     const userResult = await resetDemoUsers({ registry, clock, password });
 
     console.log('Demo Seed Reset');
     console.log(`Database: ${connection.db.databaseName}`);
     console.log(
-      'Scope: deterministic InventoryAdjustments, Inventory, Products, Categories, then Users',
+      'Scope: deterministic InventoryAdjustments, Inventory, Products, Categories, Coupons, then Users',
     );
     console.log(
       `InventoryAdjustments deleted: ${inventoryResult.adjustmentsDeleted}`,
@@ -100,6 +102,7 @@ async function runSelectiveReset() {
       `Product Cloudinary assets deleted: ${productResult.cloudinaryDeleted}`,
     );
     console.log(`Categories deleted: ${categoryResult.deleted}`);
+    console.log(`Coupons deleted: ${couponResult.deleted}`);
     console.log(`Users deleted: ${userResult.deleted}`);
   } finally {
     await disconnectSeedDatabase();
