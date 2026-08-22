@@ -8,6 +8,10 @@ import {
 } from './categories.seed.js';
 import { resetProducts } from './product.persistence.seed.js';
 import { validateProductDefinitions } from './products.seed.js';
+import {
+  resetInventoryCatalog,
+  resolveSeedLowStockThreshold,
+} from './inventory.seed.js';
 import { resetDemoUsers, validateDemoSeedPassword } from './users.seed.js';
 import {
   connectSeedDatabase,
@@ -42,6 +46,7 @@ async function runSelectiveReset() {
   const { config, manifest, registry, clock } =
     await createSeedFoundationContext();
   const password = validateDemoSeedPassword(requireDemoSeedPassword(config));
+  const lowStockThreshold = resolveSeedLowStockThreshold();
   const { PRODUCT_IMAGE_FOLDER, deleteProductImageAsset } = await import(
     '../../integrations/cloudinary.js'
   );
@@ -58,6 +63,13 @@ async function runSelectiveReset() {
       manifest,
       registry,
       categories: expectedCategories,
+    });
+    const inventoryResult = await resetInventoryCatalog({
+      definitions: lockedProducts.definitions,
+      registry,
+      clock,
+      threshold: lowStockThreshold,
+      productImageFolder: PRODUCT_IMAGE_FOLDER,
     });
     const productResult = await resetProducts({
       definitions: lockedProducts.definitions,
@@ -76,7 +88,13 @@ async function runSelectiveReset() {
 
     console.log('Demo Seed Reset');
     console.log(`Database: ${connection.db.databaseName}`);
-    console.log('Scope: deterministic Products, Categories, then Users');
+    console.log(
+      'Scope: deterministic InventoryAdjustments, Inventory, Products, Categories, then Users',
+    );
+    console.log(
+      `InventoryAdjustments deleted: ${inventoryResult.adjustmentsDeleted}`,
+    );
+    console.log(`Inventory deleted: ${inventoryResult.inventoryDeleted}`);
     console.log(`Products deleted: ${productResult.deleted}`);
     console.log(
       `Product Cloudinary assets deleted: ${productResult.cloudinaryDeleted}`,

@@ -78,6 +78,137 @@ function numberedKeys(namespace, count) {
   );
 }
 
+const LOW_STOCK_ACTIVE_SIMPLE_ORDINALS = new Set([3, 7, 11, 15, 19]);
+const OUT_OF_STOCK_ACTIVE_SIMPLE_ORDINALS = new Set([4, 8, 12, 16]);
+const RESTOCK_IN_STOCK_ORDINALS = new Set([2, 8, 14, 20, 27, 34, 41, 48]);
+const MANUAL_IN_STOCK_ORDINALS = new Set([5, 11, 17, 25, 33, 45]);
+const HISTORICAL_OUT_OF_STOCK_ORDINALS = new Set([1, 6, 11, 16, 21]);
+
+export function buildInventoryRegistryPlan(manifest) {
+  let activeSimpleOrdinal = 0;
+  let inactiveSimpleOrdinal = 0;
+  let variantProductOrdinal = 0;
+  const positions = [];
+
+  for (const product of manifest.products) {
+    if (product.productType === 'simple') {
+      const simpleOrdinal = product.active
+        ? (activeSimpleOrdinal += 1)
+        : (inactiveSimpleOrdinal += 1);
+      let stockState = 'in_stock';
+
+      if (
+        product.active &&
+        LOW_STOCK_ACTIVE_SIMPLE_ORDINALS.has(simpleOrdinal)
+      ) {
+        stockState = 'low_stock';
+      } else if (
+        product.active &&
+        OUT_OF_STOCK_ACTIVE_SIMPLE_ORDINALS.has(simpleOrdinal)
+      ) {
+        stockState = 'out_of_stock';
+      }
+
+      positions.push({
+        productSeedKey: product.seedKey,
+        productType: product.productType,
+        productActive: product.active,
+        simpleOrdinal,
+        stockState,
+        inventoryKey: `inventory:${product.seedKey}:simple`,
+      });
+      continue;
+    }
+
+    variantProductOrdinal += 1;
+
+    for (let variantOrdinal = 1; variantOrdinal <= 4; variantOrdinal += 1) {
+      positions.push({
+        productSeedKey: product.seedKey,
+        productType: product.productType,
+        productActive: product.active,
+        variantProductOrdinal,
+        variantOrdinal,
+        stockState:
+          variantOrdinal === 2
+            ? 'low_stock'
+            : variantOrdinal === 3
+              ? 'out_of_stock'
+              : 'in_stock',
+        inventoryKey:
+          `inventory:${product.seedKey}:variant:` +
+          String(variantOrdinal).padStart(2, '0'),
+      });
+    }
+  }
+
+  let inStockOrdinal = 0;
+  let outOfStockOrdinal = 0;
+
+  const plannedPositions = positions.map((position) => {
+    let historyType = 'initial_only';
+
+    if (position.stockState === 'in_stock') {
+      inStockOrdinal += 1;
+
+      if (RESTOCK_IN_STOCK_ORDINALS.has(inStockOrdinal)) {
+        historyType = 'restock';
+      } else if (MANUAL_IN_STOCK_ORDINALS.has(inStockOrdinal)) {
+        historyType = 'manual_correction';
+      }
+    } else if (position.stockState === 'out_of_stock') {
+      outOfStockOrdinal += 1;
+      historyType = HISTORICAL_OUT_OF_STOCK_ORDINALS.has(outOfStockOrdinal)
+        ? 'historical_zero'
+        : 'zero_no_history';
+    }
+
+    const adjustmentCount =
+      historyType === 'zero_no_history'
+        ? 0
+        : ['restock', 'manual_correction', 'historical_zero'].includes(
+              historyType,
+            )
+          ? 2
+          : 1;
+
+    return Object.freeze({
+      ...position,
+      ...(position.stockState === 'in_stock' ? { inStockOrdinal } : {}),
+      ...(position.stockState === 'out_of_stock'
+        ? { outOfStockOrdinal }
+        : {}),
+      historyType,
+      adjustmentKeys: Object.freeze(
+        numberedKeys(
+          `inventory-adjustment:${position.inventoryKey}`,
+          adjustmentCount,
+        ),
+      ),
+    });
+  });
+
+  if (
+    plannedPositions.length !== 105 ||
+    plannedPositions.filter((position) => position.stockState === 'in_stock')
+      .length !== 54 ||
+    plannedPositions.filter((position) => position.stockState === 'low_stock')
+      .length !== 26 ||
+    plannedPositions.filter(
+      (position) => position.stockState === 'out_of_stock',
+    ).length !== 25 ||
+    plannedPositions.flatMap((position) => position.adjustmentKeys).length !==
+      104
+  ) {
+    throw new SeedValidationError(
+      'DEMO_INVENTORY_REGISTRY_PLAN_INVALID',
+      'The deterministic Inventory registry plan has unexpected totals.',
+    );
+  }
+
+  return Object.freeze(plannedPositions);
+}
+
 export function deterministicObjectId(seedKey) {
   if (typeof seedKey !== 'string' || seedKey.trim().length === 0) {
     throw new TypeError('A non-empty seed key is required.');
@@ -109,6 +240,7 @@ export function createSeedRegistry(manifest) {
   const customerKeys = DEMO_USER_IDENTITIES.filter(
     (identity) => identity.role === 'customer',
   ).map((identity) => identity.key);
+  const inventoryPlan = buildInventoryRegistryPlan(manifest);
 
   const keysByEntity = Object.freeze({
     users: DEMO_USER_IDENTITIES.map((identity) => identity.key),
@@ -121,9 +253,9 @@ export function createSeedRegistry(manifest) {
     productImages: productKeys.flatMap((key) =>
       numberedKeys(`product-image:${key}`, 2),
     ),
-    inventory: productKeys.map((key) => `inventory:${key}`),
-    inventoryAdjustments: productKeys.map(
-      (key) => `inventory-adjustment:${key}:opening`,
+    inventory: inventoryPlan.map((position) => position.inventoryKey),
+    inventoryAdjustments: inventoryPlan.flatMap(
+      (position) => position.adjustmentKeys,
     ),
     coupons: DEMO_COUPON_IDENTITIES.map((identity) => identity.key),
     carts: customerKeys.map((key) => `cart:${key}`),

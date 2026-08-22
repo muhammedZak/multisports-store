@@ -4,6 +4,10 @@ import test from 'node:test';
 import * as argon2 from 'argon2';
 
 import {
+  INVENTORY_ADJUSTMENT_REASONS,
+} from '../../modules/inventory/inventory.constants.js';
+
+import {
   assertDemoCloudinaryUploadAllowed,
   assertSeedRuntimeSafety,
   createSeedConfig,
@@ -22,6 +26,7 @@ import {
 import {
   DEMO_ADDRESS_KEYS,
   DEMO_USER_IDENTITIES,
+  buildInventoryRegistryPlan,
   createSeedRegistry,
   deterministicObjectId,
 } from './seed.registry.js';
@@ -44,6 +49,18 @@ import {
   validateFinalProductPayloads,
   verifyRequiredProductAssets,
 } from './product.persistence.seed.js';
+import {
+  DEMO_INVENTORY_RECONCILIATION_NOTE,
+  INVENTORY_CLASSIFICATIONS,
+  INVENTORY_RESET_ORDER,
+  classifyInventoryPosition,
+  exactInventoryOwnershipFilter,
+  getSeedStockState,
+  naturalInventoryIdentity,
+  reconcileInventoryLedgers,
+  resolveSeedLowStockThreshold,
+  validateInventoryDefinitions,
+} from './inventory.seed.js';
 import {
   DEMO_USER_CLASSIFICATIONS,
   DEMO_USER_DEFINITIONS,
@@ -177,8 +194,10 @@ test('the locked manifest and complete registry validate', async () => {
   assert.equal(registry.counts.products, 42);
   assert.equal(registry.counts.variants, 84);
   assert.equal(registry.counts.productImages, 84);
+  assert.equal(registry.counts.inventory, 105);
+  assert.equal(registry.counts.inventoryAdjustments, 104);
   assert.equal(registry.counts.coupons, 8);
-  assert.equal(registry.entries.length, 398);
+  assert.equal(registry.entries.length, 523);
   assert.equal(new Set(ids).size, ids.length);
 });
 
@@ -643,6 +662,322 @@ test('Product reset ownership is exact and Inventory dependencies are refused', 
     (error) => error.code === 'DEMO_PRODUCT_RESET_DEPENDENCY',
   );
   assert.doesNotThrow(() => assertNoProductResetDependencies([]));
+});
+
+async function inventoryFixture(threshold = 5) {
+  const { manifest, registry, clock, categories } = await categoryFixture();
+  const productResult = validateProductDefinitions({
+    manifest,
+    registry,
+    categories,
+  });
+  const inventoryResult = await validateInventoryDefinitions({
+    definitions: productResult.definitions,
+    registry,
+    clock,
+    threshold,
+  });
+
+  return {
+    manifest,
+    registry,
+    clock,
+    definitions: productResult.definitions,
+    ...inventoryResult,
+  };
+}
+
+test('demo Inventory threshold is seed-side parsed and must be positive', () => {
+  assert.equal(resolveSeedLowStockThreshold({}), 5);
+  assert.equal(resolveSeedLowStockThreshold({ LOW_STOCK_THRESHOLD: '7' }), 7);
+
+  for (const value of ['0', '-1', '1.5', 'invalid']) {
+    assert.throws(
+      () =>
+        resolveSeedLowStockThreshold({
+          LOW_STOCK_THRESHOLD: value,
+        }),
+      (error) =>
+        [
+          'DEMO_INVENTORY_THRESHOLD_INVALID',
+          'DEMO_INVENTORY_THRESHOLD_ZERO',
+        ].includes(error.code),
+    );
+  }
+});
+
+test('Inventory registry plan contains exact position and adjustment identities', async () => {
+  const { manifest, registry } = await inventoryFixture();
+  const plan = buildInventoryRegistryPlan(manifest);
+  const inventoryKeys = plan.map((position) => position.inventoryKey);
+  const adjustmentKeys = plan.flatMap(
+    (position) => position.adjustmentKeys,
+  );
+
+  assert.equal(plan.length, 105);
+  assert.equal(
+    plan.filter((position) => position.productType === 'simple').length,
+    21,
+  );
+  assert.equal(
+    plan.filter((position) => position.productType === 'variant').length,
+    84,
+  );
+  assert.equal(adjustmentKeys.length, 104);
+  assert.equal(new Set(inventoryKeys).size, 105);
+  assert.equal(new Set(adjustmentKeys).size, 104);
+  assert.deepEqual(registry.keysByEntity.inventory, inventoryKeys);
+  assert.deepEqual(registry.keysByEntity.inventoryAdjustments, adjustmentKeys);
+});
+
+test('Inventory definitions have 21 simple and 84 exact Variant positions', async () => {
+  const { positions } = await inventoryFixture();
+  const simple = positions.filter(
+    (position) => position.productType === 'simple',
+  );
+  const variant = positions.filter(
+    (position) => position.productType === 'variant',
+  );
+  const naturalIdentities = positions.map(naturalInventoryIdentity);
+
+  assert.equal(positions.length, 105);
+  assert.equal(simple.length, 21);
+  assert.equal(variant.length, 84);
+  assert.ok(simple.every((position) => !Object.hasOwn(position, 'variantId')));
+  assert.ok(variant.every((position) => Object.hasOwn(position, 'variantId')));
+  assert.equal(new Set(naturalIdentities).size, 105);
+});
+
+test('Inventory quantities lock position and public Product stock distributions', async () => {
+  const threshold = 5;
+  const { positions, counts } = await inventoryFixture(threshold);
+
+  assert.deepEqual(counts.stock, {
+    out_of_stock: 25,
+    low_stock: 26,
+    in_stock: 54,
+  });
+  assert.deepEqual(counts.publicStock, {
+    out_of_stock: 4,
+    low_stock: 5,
+    in_stock: 29,
+  });
+  assert.ok(
+    positions.every(
+      (position) =>
+        getSeedStockState(position.quantity, threshold) === position.stockState,
+    ),
+  );
+  assert.equal(
+    positions.filter(
+      (position) =>
+        position.productType === 'variant' &&
+        position.variantActive === false &&
+        position.quantity > threshold,
+    ).length,
+    21,
+  );
+});
+
+test('foundational InventoryAdjustment ledger has exact reasons and ownership', async () => {
+  const { adjustments, counts, registry } = await inventoryFixture();
+  const adminId = registry.idFor('user:admin').toString();
+
+  assert.equal(adjustments.length, 104);
+  assert.deepEqual(counts.reasons, {
+    initial_stock: 85,
+    restock: 8,
+    manual_correction: 11,
+    order_purchase: 0,
+    order_cancellation: 0,
+    refund_return: 0,
+  });
+  assert.ok(
+    adjustments.every(
+      (adjustment) =>
+        !Object.hasOwn(adjustment, 'sourceType') &&
+        !Object.hasOwn(adjustment, 'sourceId'),
+    ),
+  );
+  assert.ok(
+    adjustments
+      .filter(
+        (adjustment) =>
+          adjustment.reason === INVENTORY_ADJUSTMENT_REASONS.INITIAL_STOCK,
+      )
+      .every((adjustment) => !Object.hasOwn(adjustment, 'performedBy')),
+  );
+  assert.ok(
+    adjustments
+      .filter((adjustment) =>
+        [
+          INVENTORY_ADJUSTMENT_REASONS.RESTOCK,
+          INVENTORY_ADJUSTMENT_REASONS.MANUAL_CORRECTION,
+        ].includes(adjustment.reason),
+      )
+      .every((adjustment) => adjustment.performedBy.toString() === adminId),
+  );
+  assert.ok(
+    adjustments
+      .filter(
+        (adjustment) =>
+          adjustment.reason ===
+          INVENTORY_ADJUSTMENT_REASONS.MANUAL_CORRECTION,
+      )
+      .every(
+        (adjustment) =>
+          adjustment.note === DEMO_INVENTORY_RECONCILIATION_NOTE,
+      ),
+  );
+});
+
+test('Inventory and adjustment IDs are deterministic and ledgers reconcile', async () => {
+  const { positions, adjustments, counts } = await inventoryFixture();
+  const inventoryIds = positions.map((position) => position._id.toString());
+  const adjustmentIds = adjustments.map((adjustment) =>
+    adjustment._id.toString(),
+  );
+
+  assert.equal(new Set(inventoryIds).size, 105);
+  assert.equal(new Set(adjustmentIds).size, 104);
+  assert.equal(reconcileInventoryLedgers(positions), 105);
+  assert.equal(counts.reconciled, 105);
+  assert.ok(
+    positions.every(
+      (position) =>
+        position.createdAt > position.productCreatedAt &&
+        (position.adjustments.length === 0 ||
+          position.adjustments[0].createdAt > position.createdAt),
+    ),
+  );
+});
+
+test('Inventory preflight classification covers missing and exact ledgers', async () => {
+  const { positions } = await inventoryFixture();
+  const expected = positions[0];
+
+  assert.equal(
+    classifyInventoryPosition({ expected }).classification,
+    INVENTORY_CLASSIFICATIONS.MISSING,
+  );
+  assert.equal(
+    classifyInventoryPosition({
+      expected,
+      recordById: expected,
+      recordByNaturalIdentity: expected,
+      existingAdjustments: expected.adjustments,
+    }).classification,
+    INVENTORY_CLASSIFICATIONS.EXACT,
+  );
+});
+
+test('Inventory preflight rejects natural key, deterministic ID, and quantity conflicts', async () => {
+  const { positions } = await inventoryFixture();
+  const expected = positions[0];
+
+  assert.equal(
+    classifyInventoryPosition({
+      expected,
+      recordByNaturalIdentity: {
+        ...expected,
+        _id: deterministicObjectId('conflict:inventory:natural'),
+      },
+    }).classification,
+    INVENTORY_CLASSIFICATIONS.NATURAL_KEY_CONFLICT,
+  );
+  assert.equal(
+    classifyInventoryPosition({
+      expected,
+      recordById: {
+        ...expected,
+        productId: deterministicObjectId('conflict:inventory:product'),
+      },
+    }).classification,
+    INVENTORY_CLASSIFICATIONS.ID_CONFLICT,
+  );
+  assert.equal(
+    classifyInventoryPosition({
+      expected,
+      recordById: { ...expected, quantity: expected.quantity + 1 },
+      recordByNaturalIdentity: expected,
+      existingAdjustments: expected.adjustments,
+    }).classification,
+    INVENTORY_CLASSIFICATIONS.DRIFT,
+  );
+});
+
+test('Inventory preflight rejects missing, changed, or extra ledger history', async () => {
+  const { positions } = await inventoryFixture();
+  const expected = positions.find((position) => position.adjustments.length > 0);
+  const changedAdjustment = {
+    ...expected.adjustments[0],
+    quantityChange: expected.adjustments[0].quantityChange + 1,
+  };
+  const extraAdjustment = {
+    ...expected.adjustments[0],
+    _id: deterministicObjectId('conflict:inventory:extra-adjustment'),
+  };
+
+  for (const existingAdjustments of [
+    [],
+    [changedAdjustment, ...expected.adjustments.slice(1)],
+    [...expected.adjustments, extraAdjustment],
+  ]) {
+    assert.equal(
+      classifyInventoryPosition({
+        expected,
+        recordById: expected,
+        recordByNaturalIdentity: expected,
+        existingAdjustments,
+      }).classification,
+      INVENTORY_CLASSIFICATIONS.DRIFT,
+    );
+  }
+});
+
+test('unchanged second-run Inventory classifications require zero creation', async () => {
+  const { positions } = await inventoryFixture();
+  const results = positions.map((expected) =>
+    classifyInventoryPosition({
+      expected,
+      recordById: expected,
+      recordByNaturalIdentity: expected,
+      existingAdjustments: expected.adjustments,
+    }),
+  );
+
+  assert.equal(
+    results.filter(
+      (result) => result.classification === INVENTORY_CLASSIFICATIONS.MISSING,
+    ).length,
+    0,
+  );
+  assert.ok(
+    results.every(
+      (result) => result.classification === INVENTORY_CLASSIFICATIONS.EXACT,
+    ),
+  );
+});
+
+test('Inventory reset ownership is exact and adjustments precede positions', async () => {
+  const { positions } = await inventoryFixture();
+  const simple = positions.find(
+    (position) => position.productType === 'simple',
+  );
+  const variant = positions.find(
+    (position) => position.productType === 'variant',
+  );
+  const filter = exactInventoryOwnershipFilter([simple, variant]);
+
+  assert.deepEqual(INVENTORY_RESET_ORDER, [
+    'inventoryAdjustments',
+    'inventory',
+  ]);
+  assert.equal(filter.$or.length, 2);
+  assert.deepEqual(filter.$or[0].variantId, { $exists: false });
+  assert.equal(filter.$or[1].variantId.toString(), variant.variantId.toString());
+  assert.equal(filter.$or[0]._id.toString(), simple._id.toString());
+  assert.equal(filter.$or[1]._id.toString(), variant._id.toString());
 });
 
 test('locked User definitions contain the exact role and identity counts', () => {

@@ -1,6 +1,8 @@
 import { AuthChallenge } from '../../modules/auth/authChallenge.model.js';
 import { Category } from '../../modules/catalog/category.model.js';
 import { Product } from '../../modules/catalog/product.model.js';
+import { Inventory } from '../../modules/inventory/inventory.model.js';
+import { InventoryAdjustment } from '../../modules/inventory/inventoryAdjustment.model.js';
 import { User } from '../../modules/users/user.model.js';
 import {
   seedCategories,
@@ -11,6 +13,12 @@ import {
   seedProducts,
 } from './product.persistence.seed.js';
 import { validateProductDefinitions } from './products.seed.js';
+import {
+  assertPersistedInventoryStructure,
+  resolveSeedLowStockThreshold,
+  seedInventoryCatalog,
+  validateInventoryDefinitions,
+} from './inventory.seed.js';
 import {
   assertDemoCloudinaryUploadAllowed,
   requireDemoSeedPassword,
@@ -97,6 +105,30 @@ async function snapshotUnrelatedProducts(expectedProducts) {
   return JSON.stringify(documents);
 }
 
+async function snapshotUnrelatedInventory(expectedPositions) {
+  const documents = await Inventory.collection
+    .find({
+      _id: { $nin: expectedPositions.map((position) => position._id) },
+    })
+    .sort({ _id: 1 })
+    .toArray();
+
+  return JSON.stringify(documents);
+}
+
+async function snapshotUnrelatedInventoryAdjustments(expectedAdjustments) {
+  const documents = await InventoryAdjustment.collection
+    .find({
+      _id: {
+        $nin: expectedAdjustments.map((adjustment) => adjustment._id),
+      },
+    })
+    .sort({ _id: 1 })
+    .toArray();
+
+  return JSON.stringify(documents);
+}
+
 async function countSeededAuthChallenges(expectedUsers) {
   return AuthChallenge.countDocuments({
     $or: [
@@ -131,6 +163,7 @@ export async function runDemoSeed() {
   const { config, manifest, registry, clock } =
     await createSeedFoundationContext();
   const password = validateDemoSeedPassword(requireDemoSeedPassword(config));
+  const lowStockThreshold = resolveSeedLowStockThreshold();
 
   const { authenticatePassword } = await import(
     '../../modules/auth/auth.service.js'
@@ -159,12 +192,25 @@ export async function runDemoSeed() {
       definitions: lockedProductResult.definitions,
       clock,
     });
+    const expectedInventoryResult = await validateInventoryDefinitions({
+      definitions: lockedProductResult.definitions,
+      registry,
+      clock,
+      threshold: lowStockThreshold,
+    });
     const beforeCounts = await snapshotCollectionCounts(connection);
     const beforeUnrelatedUsers = await snapshotUnrelatedUsers(expectedUsers);
     const beforeUnrelatedCategories =
       await snapshotUnrelatedCategories(expectedCategories);
     const beforeUnrelatedProducts =
       await snapshotUnrelatedProducts(expectedProducts);
+    const beforeUnrelatedInventory = await snapshotUnrelatedInventory(
+      expectedInventoryResult.positions,
+    );
+    const beforeUnrelatedInventoryAdjustments =
+      await snapshotUnrelatedInventoryAdjustments(
+        expectedInventoryResult.adjustments,
+      );
     const beforeProductCount = await Product.countDocuments({});
     const beforeChallenges = await countSeededAuthChallenges(expectedUsers);
 
@@ -190,6 +236,15 @@ export async function runDemoSeed() {
       uploadAsset: uploadProductImageAsset,
       deleteAsset: deleteProductImageAsset,
     });
+    const inventoryResult = await seedInventoryCatalog({
+      definitions: lockedProductResult.definitions,
+      registry,
+      clock,
+      threshold: lowStockThreshold,
+      productImageFolder: PRODUCT_IMAGE_FOLDER,
+    });
+
+    await assertPersistedInventoryStructure(inventoryResult.positions);
 
     const afterCounts = await snapshotCollectionCounts(connection);
     const afterUnrelatedUsers = await snapshotUnrelatedUsers(expectedUsers);
@@ -197,6 +252,13 @@ export async function runDemoSeed() {
       await snapshotUnrelatedCategories(expectedCategories);
     const afterUnrelatedProducts =
       await snapshotUnrelatedProducts(expectedProducts);
+    const afterUnrelatedInventory = await snapshotUnrelatedInventory(
+      expectedInventoryResult.positions,
+    );
+    const afterUnrelatedInventoryAdjustments =
+      await snapshotUnrelatedInventoryAdjustments(
+        expectedInventoryResult.adjustments,
+      );
     const afterProductCount = await Product.countDocuments({});
     const afterChallenges = await countSeededAuthChallenges(expectedUsers);
 
@@ -204,6 +266,8 @@ export async function runDemoSeed() {
       users: userResult.created,
       categories: categoryResult.created,
       products: productResult.created,
+      inventories: inventoryResult.created,
+      inventoryAdjustments: inventoryResult.adjustmentsCreated,
     });
 
     if (beforeUnrelatedUsers !== afterUnrelatedUsers) {
@@ -234,6 +298,23 @@ export async function runDemoSeed() {
       );
     }
 
+    if (beforeUnrelatedInventory !== afterUnrelatedInventory) {
+      throw new SeedValidationError(
+        'DEMO_SEED_UNRELATED_INVENTORY_CHANGED',
+        'Pre-existing unrelated Inventory changed during demo seeding.',
+      );
+    }
+
+    if (
+      beforeUnrelatedInventoryAdjustments !==
+      afterUnrelatedInventoryAdjustments
+    ) {
+      throw new SeedValidationError(
+        'DEMO_SEED_UNRELATED_INVENTORY_ADJUSTMENTS_CHANGED',
+        'Pre-existing unrelated InventoryAdjustment records changed during demo seeding.',
+      );
+    }
+
     if (beforeChallenges !== afterChallenges || afterChallenges !== 0) {
       throw new SeedValidationError(
         'DEMO_SEED_AUTH_CHALLENGE_CHANGED',
@@ -251,6 +332,7 @@ export async function runDemoSeed() {
     );
     console.log(`Registry: valid (${registry.entries.length} reserved IDs)`);
     console.log(`Anchor date: ${clock.anchorDate} (${clock.timeZone})`);
+    console.log(`Low-stock threshold: ${lowStockThreshold}`);
     console.log('Users:');
     console.log(`  Created: ${userResult.created}`);
     console.log(`  Skipped: ${userResult.skipped}`);
@@ -265,7 +347,11 @@ export async function runDemoSeed() {
     console.log('Cloudinary:');
     console.log(`  Uploaded: ${productResult.uploaded}`);
     console.log('Inventory:');
-    console.log('  Created: 0');
+    console.log(`  Created: ${inventoryResult.created}`);
+    console.log(`  Skipped: ${inventoryResult.skipped}`);
+    console.log('InventoryAdjustments:');
+    console.log(`  Created: ${inventoryResult.adjustmentsCreated}`);
+    console.log(`  Skipped: ${inventoryResult.adjustmentsSkipped}`);
     console.log('Authentication: Admin and Checkout Customer verified');
     console.log('AuthChallenges created: 0');
 
@@ -273,6 +359,7 @@ export async function runDemoSeed() {
       users: userResult,
       categories: categoryResult,
       products: productResult,
+      inventory: inventoryResult,
     };
   } finally {
     await disconnectSeedDatabase();
