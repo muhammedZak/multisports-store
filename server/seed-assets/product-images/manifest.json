@@ -1,0 +1,558 @@
+{
+  "schemaVersion": 1,
+  "plannedImageCountPerProduct": 2,
+  "products": [
+    {
+      "seedKey": "product:football:matchcore-training-football",
+      "name": "MatchCore Training Football",
+      "slug": "matchcore-training-football",
+      "sport": "football",
+      "categoryKey": "football-balls",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "football/matchcore-training-football/01.webp", "altText": "MatchCore Training Football full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "football/matchcore-training-football/02.webp", "altText": "MatchCore Training Football panel and surface detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:football:stride-control-boots",
+      "name": "Stride Control Football Boots",
+      "slug": "stride-control-boots",
+      "sport": "football",
+      "categoryKey": "football-footwear",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "football/stride-control-boots/01.webp", "altText": "Stride Control Football Boots full pair view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "football/stride-control-boots/02.webp", "altText": "Stride Control Football Boots sole and stud detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:football:pivot-agility-cones",
+      "name": "Pivot Agility Cone Set",
+      "slug": "pivot-agility-cones",
+      "sport": "football",
+      "categoryKey": "football-training",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "football/pivot-agility-cones/01.webp", "altText": "Pivot Agility Cone Set full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "football/pivot-agility-cones/02.webp", "altText": "Pivot Agility Cone Set stacked detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:football:goalguard-training-net",
+      "name": "GoalGuard Training Net",
+      "slug": "goalguard-training-net",
+      "sport": "football",
+      "categoryKey": "football-training",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "football/goalguard-training-net/01.webp", "altText": "GoalGuard Training Net full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "football/goalguard-training-net/02.webp", "altText": "GoalGuard Training Net mesh and fastening detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:football:touchline-shin-guards",
+      "name": "TouchLine Shin Guards",
+      "slug": "touchline-shin-guards",
+      "sport": "football",
+      "categoryKey": "football-training",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "football/touchline-shin-guards/01.webp", "altText": "TouchLine Shin Guards full pair view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "football/touchline-shin-guards/02.webp", "altText": "TouchLine Shin Guards padding detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:football:fieldmark-disc-set",
+      "name": "FieldMark Training Disc Set",
+      "slug": "fieldmark-disc-set",
+      "sport": "football",
+      "categoryKey": "football-training",
+      "productType": "variant",
+      "active": false,
+      "images": [
+        { "file": "football/fieldmark-disc-set/01.webp", "altText": "FieldMark Training Disc Set full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "football/fieldmark-disc-set/02.webp", "altText": "FieldMark Training Disc Set flexible edge detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+
+    {
+      "seedKey": "product:cricket:willowcraft-english-bat",
+      "name": "WillowCraft English Cricket Bat",
+      "slug": "willowcraft-english-bat",
+      "sport": "cricket",
+      "categoryKey": "cricket-bats",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "cricket/willowcraft-english-bat/01.webp", "altText": "WillowCraft English Cricket Bat full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "cricket/willowcraft-english-bat/02.webp", "altText": "WillowCraft English Cricket Bat blade grain and handle detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:cricket:paceline-training-ball-set",
+      "name": "PaceLine Training Ball Set",
+      "slug": "paceline-training-ball-set",
+      "sport": "cricket",
+      "categoryKey": "cricket-balls",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "cricket/paceline-training-ball-set/01.webp", "altText": "PaceLine Cricket Training Ball Set full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "cricket/paceline-training-ball-set/02.webp", "altText": "PaceLine Cricket Training Ball seam detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:cricket:guardflex-batting-pads",
+      "name": "GuardFlex Batting Pads",
+      "slug": "guardflex-batting-pads",
+      "sport": "cricket",
+      "categoryKey": "cricket-protection",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "cricket/guardflex-batting-pads/01.webp", "altText": "GuardFlex Batting Pads full pair view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "cricket/guardflex-batting-pads/02.webp", "altText": "GuardFlex Batting Pads knee roll and strap detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:cricket:creasekeeper-wicket-gloves",
+      "name": "CreaseKeeper Wicket Gloves",
+      "slug": "creasekeeper-wicket-gloves",
+      "sport": "cricket",
+      "categoryKey": "cricket-protection",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "cricket/creasekeeper-wicket-gloves/01.webp", "altText": "CreaseKeeper Wicket Gloves full pair view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "cricket/creasekeeper-wicket-gloves/02.webp", "altText": "CreaseKeeper Wicket Gloves palm grip detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:cricket:stumpstead-practice-wickets",
+      "name": "StumpStead Practice Wickets",
+      "slug": "stumpstead-practice-wickets",
+      "sport": "cricket",
+      "categoryKey": "cricket-protection",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "cricket/stumpstead-practice-wickets/01.webp", "altText": "StumpStead Practice Wickets full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "cricket/stumpstead-practice-wickets/02.webp", "altText": "StumpStead Practice Wickets base and bail detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:cricket:innings-carry-kit-bag",
+      "name": "Innings Carry Kit Bag",
+      "slug": "innings-carry-kit-bag",
+      "sport": "cricket",
+      "categoryKey": "cricket-protection",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "cricket/innings-carry-kit-bag/01.webp", "altText": "Innings Carry Cricket Kit Bag full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "cricket/innings-carry-kit-bag/02.webp", "altText": "Innings Carry Cricket Kit Bag compartment detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+
+    {
+      "seedKey": "product:basketball:courtarc-indoor-basketball",
+      "name": "CourtArc Indoor Basketball",
+      "slug": "courtarc-indoor-basketball",
+      "sport": "basketball",
+      "categoryKey": "basketball-balls",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "basketball/courtarc-indoor-basketball/01.webp", "altText": "CourtArc Indoor Basketball full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "basketball/courtarc-indoor-basketball/02.webp", "altText": "CourtArc Indoor Basketball channel and surface detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:basketball:elevate-court-shoes",
+      "name": "Elevate Court Basketball Shoes",
+      "slug": "elevate-court-shoes",
+      "sport": "basketball",
+      "categoryKey": "basketball-footwear",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "basketball/elevate-court-shoes/01.webp", "altText": "Elevate Court Basketball Shoes full pair view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "basketball/elevate-court-shoes/02.webp", "altText": "Elevate Court Basketball Shoes outsole and ankle support detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:basketball:rebound-marker-set",
+      "name": "Rebound Training Marker Set",
+      "slug": "rebound-marker-set",
+      "sport": "basketball",
+      "categoryKey": "basketball-training",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "basketball/rebound-marker-set/01.webp", "altText": "Rebound Training Marker Set full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "basketball/rebound-marker-set/02.webp", "altText": "Rebound Training Marker Set textured surface detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:basketball:rimrise-portable-hoop",
+      "name": "RimRise Portable Practice Hoop",
+      "slug": "rimrise-portable-hoop",
+      "sport": "basketball",
+      "categoryKey": "basketball-training",
+      "productType": "simple",
+      "active": false,
+      "images": [
+        { "file": "basketball/rimrise-portable-hoop/01.webp", "altText": "RimRise Portable Practice Hoop full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "basketball/rimrise-portable-hoop/02.webp", "altText": "RimRise Portable Practice Hoop rim and net detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:basketball:driveguard-knee-sleeves",
+      "name": "DriveGuard Knee Sleeve Pair",
+      "slug": "driveguard-knee-sleeves",
+      "sport": "basketball",
+      "categoryKey": "basketball-training",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "basketball/driveguard-knee-sleeves/01.webp", "altText": "DriveGuard Knee Sleeve Pair full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "basketball/driveguard-knee-sleeves/02.webp", "altText": "DriveGuard Knee Sleeve knit and padding detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:basketball:fastbreak-training-bib",
+      "name": "FastBreak Training Bib",
+      "slug": "fastbreak-training-bib",
+      "sport": "basketball",
+      "categoryKey": "basketball-training",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "basketball/fastbreak-training-bib/01.webp", "altText": "FastBreak Training Bib full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "basketball/fastbreak-training-bib/02.webp", "altText": "FastBreak Training Bib breathable mesh detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+
+    {
+      "seedKey": "product:tennis:rallypoint-control-racquet",
+      "name": "RallyPoint Control Tennis Racquet",
+      "slug": "rallypoint-control-racquet",
+      "sport": "tennis",
+      "categoryKey": "tennis-racquets",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "tennis/rallypoint-control-racquet/01.webp", "altText": "RallyPoint Control Tennis Racquet full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "tennis/rallypoint-control-racquet/02.webp", "altText": "RallyPoint Control Tennis Racquet strings and grip detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:tennis:baseline-training-ball-tube",
+      "name": "Baseline Training Ball Tube",
+      "slug": "baseline-training-ball-tube",
+      "sport": "tennis",
+      "categoryKey": "tennis-balls",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "tennis/baseline-training-ball-tube/01.webp", "altText": "Baseline Tennis Training Ball Tube full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "tennis/baseline-training-ball-tube/02.webp", "altText": "Baseline Tennis Training Ball felt and seam detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:tennis:courtcarry-racquet-bag",
+      "name": "CourtCarry Racquet Bag",
+      "slug": "courtcarry-racquet-bag",
+      "sport": "tennis",
+      "categoryKey": "tennis-accessories",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "tennis/courtcarry-racquet-bag/01.webp", "altText": "CourtCarry Tennis Racquet Bag full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "tennis/courtcarry-racquet-bag/02.webp", "altText": "CourtCarry Tennis Racquet Bag compartment detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:tennis:netline-wristband-set",
+      "name": "NetLine Wristband Set",
+      "slug": "netline-wristband-set",
+      "sport": "tennis",
+      "categoryKey": "tennis-accessories",
+      "productType": "variant",
+      "active": false,
+      "images": [
+        { "file": "tennis/netline-wristband-set/01.webp", "altText": "NetLine Tennis Wristband Set full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "tennis/netline-wristband-set/02.webp", "altText": "NetLine Tennis Wristband knit texture detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:tennis:servespot-target-cones",
+      "name": "ServeSpot Target Cone Set",
+      "slug": "servespot-target-cones",
+      "sport": "tennis",
+      "categoryKey": "tennis-accessories",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "tennis/servespot-target-cones/01.webp", "altText": "ServeSpot Tennis Target Cone Set full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "tennis/servespot-target-cones/02.webp", "altText": "ServeSpot Tennis Target Cone flexible edge detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:tennis:spinpath-overgrip-pack",
+      "name": "SpinPath Overgrip Pack",
+      "slug": "spinpath-overgrip-pack",
+      "sport": "tennis",
+      "categoryKey": "tennis-accessories",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "tennis/spinpath-overgrip-pack/01.webp", "altText": "SpinPath Tennis Overgrip Pack full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "tennis/spinpath-overgrip-pack/02.webp", "altText": "SpinPath Tennis Overgrip surface texture detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+
+    {
+      "seedKey": "product:badminton:aerostrike-control-racquet",
+      "name": "AeroStrike Control Badminton Racquet",
+      "slug": "aerostrike-control-racquet",
+      "sport": "badminton",
+      "categoryKey": "badminton-racquets",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "badminton/aerostrike-control-racquet/01.webp", "altText": "AeroStrike Control Badminton Racquet full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "badminton/aerostrike-control-racquet/02.webp", "altText": "AeroStrike Control Badminton Racquet strings and grip detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:badminton:featherflight-shuttle-tube",
+      "name": "FeatherFlight Shuttle Tube",
+      "slug": "featherflight-shuttle-tube",
+      "sport": "badminton",
+      "categoryKey": "badminton-shuttles",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "badminton/featherflight-shuttle-tube/01.webp", "altText": "FeatherFlight Badminton Shuttle Tube full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "badminton/featherflight-shuttle-tube/02.webp", "altText": "FeatherFlight Badminton Shuttle feather and cork detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:badminton:swiftcourt-indoor-shoes",
+      "name": "SwiftCourt Indoor Badminton Shoes",
+      "slug": "swiftcourt-indoor-shoes",
+      "sport": "badminton",
+      "categoryKey": "badminton-footwear",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "badminton/swiftcourt-indoor-shoes/01.webp", "altText": "SwiftCourt Indoor Badminton Shoes full pair view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "badminton/swiftcourt-indoor-shoes/02.webp", "altText": "SwiftCourt Indoor Badminton Shoes non-marking sole detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:badminton:netglide-racquet-bag",
+      "name": "NetGlide Racquet Bag",
+      "slug": "netglide-racquet-bag",
+      "sport": "badminton",
+      "categoryKey": "badminton-racquets",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "badminton/netglide-racquet-bag/01.webp", "altText": "NetGlide Badminton Racquet Bag full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "badminton/netglide-racquet-bag/02.webp", "altText": "NetGlide Badminton Racquet Bag zipper and compartment detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:badminton:cleardrop-training-net",
+      "name": "ClearDrop Training Net",
+      "slug": "cleardrop-training-net",
+      "sport": "badminton",
+      "categoryKey": "badminton-racquets",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "badminton/cleardrop-training-net/01.webp", "altText": "ClearDrop Badminton Training Net full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "badminton/cleardrop-training-net/02.webp", "altText": "ClearDrop Badminton Training Net mesh and pole detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:badminton:gripwing-overgrip-pack",
+      "name": "GripWing Overgrip Pack",
+      "slug": "gripwing-overgrip-pack",
+      "sport": "badminton",
+      "categoryKey": "badminton-racquets",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "badminton/gripwing-overgrip-pack/01.webp", "altText": "GripWing Badminton Overgrip Pack full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "badminton/gripwing-overgrip-pack/02.webp", "altText": "GripWing Badminton Overgrip perforated texture detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+
+    {
+      "seedKey": "product:running:temporun-daily-trainers",
+      "name": "TempoRun Daily Trainers",
+      "slug": "temporun-daily-trainers",
+      "sport": "running",
+      "categoryKey": "running-footwear",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "running/temporun-daily-trainers/01.webp", "altText": "TempoRun Daily Trainers full pair view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "running/temporun-daily-trainers/02.webp", "altText": "TempoRun Daily Trainers outsole and cushioning detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:running:endurance-breathable-tee",
+      "name": "Endurance Breathable Running Tee",
+      "slug": "endurance-breathable-tee",
+      "sport": "running",
+      "categoryKey": "running-apparel",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "running/endurance-breathable-tee/01.webp", "altText": "Endurance Breathable Running Tee full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "running/endurance-breathable-tee/02.webp", "altText": "Endurance Breathable Running Tee fabric and seam detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:running:paceband-running-belt",
+      "name": "PaceBand Running Belt",
+      "slug": "paceband-running-belt",
+      "sport": "running",
+      "categoryKey": "running-accessories",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "running/paceband-running-belt/01.webp", "altText": "PaceBand Running Belt full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "running/paceband-running-belt/02.webp", "altText": "PaceBand Running Belt pocket and buckle detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:running:strideflow-shorts",
+      "name": "StrideFlow Running Shorts",
+      "slug": "strideflow-shorts",
+      "sport": "running",
+      "categoryKey": "running-apparel",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "running/strideflow-shorts/01.webp", "altText": "StrideFlow Running Shorts full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "running/strideflow-shorts/02.webp", "altText": "StrideFlow Running Shorts waistband and pocket detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:running:nightpath-safety-vest",
+      "name": "NightPath Running Safety Vest",
+      "slug": "nightpath-safety-vest",
+      "sport": "running",
+      "categoryKey": "running-accessories",
+      "productType": "simple",
+      "active": false,
+      "images": [
+        { "file": "running/nightpath-safety-vest/01.webp", "altText": "NightPath Running Safety Vest full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "running/nightpath-safety-vest/02.webp", "altText": "NightPath Running Safety Vest reflective trim detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:running:recoverstep-calf-sleeves",
+      "name": "RecoverStep Calf Sleeve Pair",
+      "slug": "recoverstep-calf-sleeves",
+      "sport": "running",
+      "categoryKey": "running-accessories",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "running/recoverstep-calf-sleeves/01.webp", "altText": "RecoverStep Calf Sleeve Pair full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "running/recoverstep-calf-sleeves/02.webp", "altText": "RecoverStep Calf Sleeve compression knit detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+
+    {
+      "seedKey": "product:fitness:corelift-cast-kettlebell",
+      "name": "CoreLift Cast Kettlebell",
+      "slug": "corelift-cast-kettlebell",
+      "sport": "fitness",
+      "categoryKey": "fitness-strength",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "fitness/corelift-cast-kettlebell/01.webp", "altText": "CoreLift Cast Kettlebell full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "fitness/corelift-cast-kettlebell/02.webp", "altText": "CoreLift Cast Kettlebell handle and powder-coat detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:fitness:balanceflow-yoga-mat",
+      "name": "BalanceFlow Yoga Mat",
+      "slug": "balanceflow-yoga-mat",
+      "sport": "fitness",
+      "categoryKey": "fitness-yoga",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "fitness/balanceflow-yoga-mat/01.webp", "altText": "BalanceFlow Yoga Mat full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "fitness/balanceflow-yoga-mat/02.webp", "altText": "BalanceFlow Yoga Mat textured surface and edge detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:fitness:restore-grid-foam-roller",
+      "name": "Restore Grid Foam Roller",
+      "slug": "restore-grid-foam-roller",
+      "sport": "fitness",
+      "categoryKey": "fitness-recovery",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "fitness/restore-grid-foam-roller/01.webp", "altText": "Restore Grid Foam Roller full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "fitness/restore-grid-foam-roller/02.webp", "altText": "Restore Grid Foam Roller textured ridge detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:fitness:powerloop-resistance-band-set",
+      "name": "PowerLoop Resistance Band Set",
+      "slug": "powerloop-resistance-band-set",
+      "sport": "fitness",
+      "categoryKey": "fitness-strength",
+      "productType": "variant",
+      "active": true,
+      "images": [
+        { "file": "fitness/powerloop-resistance-band-set/01.webp", "altText": "PowerLoop Resistance Band Set full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "fitness/powerloop-resistance-band-set/02.webp", "altText": "PowerLoop Resistance Band Set material and thickness detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:fitness:motionbase-step-platform",
+      "name": "MotionBase Step Platform",
+      "slug": "motionbase-step-platform",
+      "sport": "fitness",
+      "categoryKey": "fitness-strength",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "fitness/motionbase-step-platform/01.webp", "altText": "MotionBase Fitness Step Platform full product view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "fitness/motionbase-step-platform/02.webp", "altText": "MotionBase Fitness Step Platform grip surface and riser detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    },
+    {
+      "seedKey": "product:fitness:steadygrip-push-up-bars",
+      "name": "SteadyGrip Push-Up Bars",
+      "slug": "steadygrip-push-up-bars",
+      "sport": "fitness",
+      "categoryKey": "fitness-strength",
+      "productType": "simple",
+      "active": true,
+      "images": [
+        { "file": "fitness/steadygrip-push-up-bars/01.webp", "altText": "SteadyGrip Push-Up Bars full pair view", "isPrimary": true, "sortOrder": 0 },
+        { "file": "fitness/steadygrip-push-up-bars/02.webp", "altText": "SteadyGrip Push-Up Bars handle and foot detail", "isPrimary": false, "sortOrder": 1 }
+      ]
+    }
+  ]
+}
