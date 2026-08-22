@@ -32,6 +32,10 @@ import {
   validateHistoricalPersistenceDefinitions,
 } from './commerce.persistence.seed.js';
 import {
+  seedReviews,
+  validateReviewDefinitions,
+} from './reviews.seed.js';
+import {
   assertPersistedInventoryStructure,
   resolveSeedLowStockThreshold,
   seedInventoryCatalog,
@@ -254,6 +258,13 @@ export async function runDemoSeed() {
         registry,
         foundationalPositions: expectedInventoryResult.positions,
       });
+    const expectedReviewResult = await validateReviewDefinitions({
+      registry,
+      clock,
+      matrix: commerceMatrix,
+      productDefinitions: lockedProductResult.definitions,
+      users: expectedUsers,
+    });
     const initialHistoricalPreflight =
       await preflightHistoricalCommerce(historicalDefinitions);
     const beforeCounts = await snapshotCollectionCounts(connection);
@@ -324,6 +335,10 @@ export async function runDemoSeed() {
     const historicalResult = await seedHistoricalCommerce(
       historicalDefinitions,
     );
+    const reviewResult = await seedReviews({
+      validated: expectedReviewResult,
+      historicalDefinitions,
+    });
 
     await verifyPersistedCartResolutions(expectedCartResult.carts);
     await verifyCheckoutPreviews({ registry });
@@ -366,6 +381,7 @@ export async function runDemoSeed() {
       carts: cartResult.created,
       payments: historicalResult.createdPayments,
       orders: historicalResult.createdOrders,
+      reviews: reviewResult.created,
     });
 
     if (beforeUnrelatedUsers !== afterUnrelatedUsers) {
@@ -490,6 +506,11 @@ export async function runDemoSeed() {
     console.log(
       `Historical Inventory affected: ${historicalResult.updatedInventory}`,
     );
+    console.log('Reviews:');
+    console.log(`  Created: ${reviewResult.created}`);
+    console.log(`  Skipped: ${reviewResult.skipped}`);
+    console.log(`  Visible: ${reviewResult.counts.visible}`);
+    console.log(`  Hidden: ${reviewResult.counts.hidden}`);
     console.log('Authentication: Admin and Checkout Customer verified');
     console.log('AuthChallenges created: 0');
 
@@ -502,6 +523,7 @@ export async function runDemoSeed() {
       carts: cartResult,
       commerceMatrix,
       historicalCommerce: historicalResult,
+      reviews: reviewResult,
     };
   } finally {
     await disconnectSeedDatabase();

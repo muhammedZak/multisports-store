@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import * as argon2 from 'argon2';
@@ -112,6 +113,16 @@ import {
   validateDemoSeedPassword,
   validateDemoUserDefinitions,
 } from './users.seed.js';
+import {
+  LEGACY_REVIEW_KEYS,
+  REVIEW_CLASSIFICATIONS,
+  REVIEW_DEFINITIONS,
+  classifyReviewRecord,
+  exactReviewOwnershipFilter,
+  findLegacyReviewPlaceholders,
+  preflightReviews,
+  validateReviewDefinitions,
+} from './reviews.seed.js';
 
 const TEST_DATABASE = 'multisports_seed_test';
 
@@ -245,7 +256,7 @@ test('the locked manifest and complete registry validate', async () => {
   assert.equal(registry.counts.payments, 46);
   assert.equal(registry.counts.orders, 42);
   assert.equal(registry.counts.historicalInventoryAdjustments, 53);
-  assert.equal(registry.entries.length, 703);
+  assert.equal(registry.entries.length, 709);
   assert.equal(new Set(ids).size, ids.length);
 });
 
@@ -2401,7 +2412,7 @@ test('historical adjustment registry contains exact 49 purchase and four cancell
   assert.equal(keys.filter((key) => key.includes(':purchase:')).length, 49);
   assert.equal(keys.filter((key) => key.includes(':cancellation:')).length, 4);
   assert.equal(new Set(ids).size, 53);
-  assert.equal(registry.entries.length, 703);
+  assert.equal(registry.entries.length, 709);
   assert.ok(
     keys.every((key) =>
       /^inventory-adjustment:historical:order:\d{2}:(purchase|cancellation):\d{2}$/.test(
@@ -2657,4 +2668,361 @@ test('historical reset scope is exact and downstream Refund dependencies refuse 
   );
   assert.equal(JSON.stringify(paymentFilter).includes('status'), false);
   assert.equal(JSON.stringify(orderFilter).includes('orderStatus'), false);
+});
+
+let reviewFixturePromise;
+
+async function reviewFixture() {
+  reviewFixturePromise ??= (async () => {
+    const fixture = await historicalPersistenceFixture();
+    const validatedReviews = await validateReviewDefinitions({
+      registry: fixture.registry,
+      clock: fixture.clock,
+      matrix: fixture.matrix,
+      productDefinitions: fixture.products.definitions,
+      users: fixture.users,
+    });
+
+    return { ...fixture, validatedReviews };
+  })();
+
+  return reviewFixturePromise;
+}
+
+test('Review registry replaces eight placeholders with fourteen semantic identities', async () => {
+  const { registry } = await reviewFixture();
+  const keys = registry.keysByEntity.reviews;
+  const ids = keys.map((key) => registry.idFor(key).toString());
+
+  assert.equal(keys.length, 14);
+  assert.equal(registry.entries.length, 709);
+  assert.equal(new Set(ids).size, 14);
+  assert.equal(keys.some((key) => key.startsWith('review:scenario:')), false);
+  assert.deepEqual(keys.slice(0, 2), [
+    'review:user:reviews:01',
+    'review:user:reviews:02',
+  ]);
+  assert.equal(keys.at(-1), 'review:user:ratings:07');
+  assert.equal(LEGACY_REVIEW_KEYS.length, 8);
+  assert.equal(
+    findLegacyReviewPlaceholders(
+      LEGACY_REVIEW_KEYS.map((key) => ({ _id: deterministicObjectId(key) })),
+    ).length,
+    8,
+  );
+});
+
+test('Review definitions lock exact Product order, texts, and Customer ownership', async () => {
+  const { validatedReviews } = await reviewFixture();
+  const reviews = validatedReviews.reviews;
+
+  assert.equal(reviews.length, 14);
+  assert.deepEqual(
+    reviews.map((review) => review.productName),
+    [
+      'Stride Control Football Boots',
+      'TouchLine Shin Guards',
+      'WillowCraft English Cricket Bat',
+      'GuardFlex Batting Pads',
+      'Elevate Court Basketball Shoes',
+      'DriveGuard Knee Sleeve Pair',
+      'RallyPoint Control Tennis Racquet',
+      'SpinPath Overgrip Pack',
+      'AeroStrike Control Badminton Racquet',
+      'SwiftCourt Indoor Badminton Shoes',
+      'TempoRun Daily Trainers',
+      'Endurance Breathable Running Tee',
+      'CoreLift Cast Kettlebell',
+      'BalanceFlow Yoga Mat',
+    ],
+  );
+  assert.deepEqual(
+    reviews.map((review) => review.text),
+    REVIEW_DEFINITIONS.map((definition) => definition.text),
+  );
+  assert.equal(
+    reviews.filter((review) => review.customerSeedKey === 'user:reviews').length,
+    7,
+  );
+  assert.equal(
+    reviews.filter((review) => review.customerSeedKey === 'user:ratings').length,
+    7,
+  );
+  assert.equal(
+    new Set(
+      reviews.map(
+        (review) => `${review.customerId.toString()}:${review.productId.toString()}`,
+      ),
+    ).size,
+    14,
+  );
+});
+
+test('Review rating and moderation distributions match visible and complete locks', async () => {
+  const { validatedReviews } = await reviewFixture();
+  const reviews = validatedReviews.reviews;
+  const visible = reviews.filter(
+    (review) => review.moderationStatus === 'visible',
+  );
+  const hidden = reviews.filter(
+    (review) => review.moderationStatus === 'hidden',
+  );
+  const countsFor = (values) =>
+    Object.fromEntries(
+      [1, 2, 3, 4, 5].map((rating) => [
+        rating,
+        values.filter((review) => review.rating === rating).length,
+      ]),
+    );
+
+  assert.deepEqual(countsFor(reviews), { 1: 1, 2: 1, 3: 4, 4: 4, 5: 4 });
+  assert.deepEqual(countsFor(visible), { 1: 1, 2: 0, 3: 2, 4: 3, 5: 4 });
+  assert.equal(visible.length, 10);
+  assert.equal(hidden.length, 4);
+  assert.equal(visible.reduce((total, review) => total + review.rating, 0), 39);
+  assert.equal(validatedReviews.counts.visibleAverage, 3.9);
+  assert.deepEqual(
+    hidden.map((review) => review.seedKey),
+    [
+      'review:user:reviews:02',
+      'review:user:reviews:04',
+      'review:user:ratings:03',
+      'review:user:ratings:05',
+    ],
+  );
+});
+
+test('Review eligibility, timestamps, moderation audit, and sport coverage are exact', async () => {
+  const { matrix, validatedReviews } = await reviewFixture();
+  const ordersById = new Map(
+    matrix.orders.map((order) => [order._id.toString(), order]),
+  );
+  const paymentsById = new Map(
+    matrix.payments.map((payment) => [payment._id.toString(), payment]),
+  );
+  const visibleSports = new Set();
+
+  for (const review of validatedReviews.reviews) {
+    const order = ordersById.get(review.orderId.toString());
+    const payment = paymentsById.get(review.paymentId.toString());
+    const item = order.items.find(
+      (candidate) => candidate._id.toString() === review.itemId.toString(),
+    );
+
+    assert.equal(order.orderStatus, 'delivered');
+    assert.equal(order.customerId.toString(), review.customerId.toString());
+    assert.equal(item.productId.toString(), review.productId.toString());
+    assert.equal(payment.status, 'succeeded');
+    assert.equal(payment.commerceResolution, 'order');
+    assert.equal(payment.customerId.toString(), review.customerId.toString());
+    assert.ok(review.createdAt > order.updatedAt);
+    assert.ok(review.createdAt <= review.anchorTime);
+
+    if (review.moderationStatus === 'hidden') {
+      assert.ok(review.moderationReason);
+      assert.equal(
+        review.moderatedBy.toString(),
+        validatedReviews.authorities.admin._id.toString(),
+      );
+      assert.ok(review.moderatedAt > review.createdAt);
+      assert.equal(review.updatedAt.toISOString(), review.moderatedAt.toISOString());
+    } else {
+      visibleSports.add(review.sport);
+      assert.equal(review.moderationReason, null);
+      assert.equal(review.moderatedBy, null);
+      assert.equal(review.moderatedAt, null);
+      assert.equal(review.updatedAt.toISOString(), review.createdAt.toISOString());
+    }
+  }
+
+  assert.deepEqual([...visibleSports].sort(), [
+    'badminton',
+    'basketball',
+    'cricket',
+    'fitness',
+    'football',
+    'running',
+    'tennis',
+  ]);
+});
+
+test('Review classification covers missing, exact, ID conflict, and natural conflict', async () => {
+  const { validatedReviews } = await reviewFixture();
+  const expected = validatedReviews.reviews[0];
+
+  assert.equal(
+    classifyReviewRecord({ expected }).classification,
+    REVIEW_CLASSIFICATIONS.MISSING,
+  );
+  assert.equal(
+    classifyReviewRecord({
+      expected,
+      recordById: expected,
+      recordByNatural: expected,
+    }).classification,
+    REVIEW_CLASSIFICATIONS.EXACT,
+  );
+  assert.equal(
+    classifyReviewRecord({
+      expected,
+      recordById: {
+        ...expected,
+        productId: deterministicObjectId('review:conflict:product'),
+      },
+    }).classification,
+    REVIEW_CLASSIFICATIONS.ID_CONFLICT,
+  );
+  assert.equal(
+    classifyReviewRecord({
+      expected,
+      recordByNatural: {
+        ...expected,
+        _id: deterministicObjectId('review:conflict:id'),
+      },
+    }).classification,
+    REVIEW_CLASSIFICATIONS.NATURAL_KEY_CONFLICT,
+  );
+});
+
+test('Review classification rejects rating, text, moderation, audit, and timestamp drift', async () => {
+  const { validatedReviews } = await reviewFixture();
+  const visible = validatedReviews.reviews.find(
+    (review) => review.moderationStatus === 'visible',
+  );
+  const hidden = validatedReviews.reviews.find(
+    (review) => review.moderationStatus === 'hidden',
+  );
+  const driftedRecords = [
+    { ...visible, rating: visible.rating - 1 },
+    { ...visible, text: `${visible.text} changed` },
+    { ...visible, moderationStatus: 'hidden' },
+    { ...hidden, moderationReason: 'Changed reason.' },
+    { ...hidden, moderatedBy: deterministicObjectId('review:other:admin') },
+    { ...hidden, moderatedAt: new Date(hidden.moderatedAt.getTime() + 1) },
+    { ...visible, createdAt: new Date(visible.createdAt.getTime() + 1) },
+    { ...visible, updatedAt: new Date(visible.updatedAt.getTime() + 1) },
+  ];
+
+  for (const record of driftedRecords) {
+    const expected =
+      record._id.toString() === hidden._id.toString() ? hidden : visible;
+
+    assert.equal(
+      classifyReviewRecord({
+        expected,
+        recordById: record,
+        recordByNatural: record,
+      }).classification,
+      REVIEW_CLASSIFICATIONS.DRIFT,
+    );
+  }
+});
+
+test('Review preflight rejects legacy ownership and accepts only missing or exact records', async () => {
+  const { validatedReviews } = await reviewFixture();
+  const expected = validatedReviews.reviews;
+
+  assert.ok(
+    (await preflightReviews(expected, [])).every(
+      (result) => result.classification === REVIEW_CLASSIFICATIONS.MISSING,
+    ),
+  );
+  assert.ok(
+    (await preflightReviews(expected, expected)).every(
+      (result) => result.classification === REVIEW_CLASSIFICATIONS.EXACT,
+    ),
+  );
+  await assert.rejects(
+    preflightReviews(expected, [
+      { _id: deterministicObjectId(LEGACY_REVIEW_KEYS[0]) },
+    ]),
+    (error) => error.code === 'DEMO_SEED_DRIFT',
+  );
+});
+
+test('public, Customer, Admin, and rating-summary projections exclude hidden Reviews correctly', async () => {
+  const { validatedReviews } = await reviewFixture();
+  const reviews = validatedReviews.reviews;
+  const visible = reviews.filter(
+    (review) => review.moderationStatus === 'visible',
+  );
+  const hidden = reviews.filter(
+    (review) => review.moderationStatus === 'hidden',
+  );
+
+  assert.equal(reviews.length, 14);
+  assert.equal(visible.length, 10);
+  assert.equal(hidden.length, 4);
+  assert.equal(
+    reviews.filter((review) => review.customerSeedKey === 'user:reviews').length,
+    7,
+  );
+  assert.equal(
+    reviews.filter((review) => review.customerSeedKey === 'user:ratings').length,
+    7,
+  );
+  assert.deepEqual(
+    [1, 2, 3, 4, 5].map(
+      (rating) => reviews.filter((review) => review.rating === rating).length,
+    ),
+    [1, 1, 4, 4, 4],
+  );
+  assert.deepEqual(
+    hidden.map((review) => review.productName),
+    [
+      'TouchLine Shin Guards',
+      'GuardFlex Batting Pads',
+      'SwiftCourt Indoor Badminton Shoes',
+      'Endurance Breathable Running Tee',
+    ],
+  );
+  assert.ok(
+    hidden.every(
+      (review) =>
+        visible.filter(
+          (candidate) =>
+            candidate.productId.toString() === review.productId.toString(),
+        ).length === 0,
+    ),
+  );
+});
+
+test('Review reset filter requires all exact ID, Customer, and Product identities', async () => {
+  const { validatedReviews } = await reviewFixture();
+  const filter = exactReviewOwnershipFilter(validatedReviews.reviews);
+
+  assert.equal(filter.$or.length, 14);
+  assert.ok(
+    filter.$or.every(
+      (entry) =>
+        entry._id && entry.customerId && entry.productId &&
+        Object.keys(entry).length === 3,
+    ),
+  );
+  assert.equal(JSON.stringify(filter).includes('moderationStatus'), false);
+  assert.throws(
+    () => exactReviewOwnershipFilter(validatedReviews.reviews.slice(1)),
+    (error) => error.code === 'DEMO_REVIEW_RESET_SCOPE_INVALID',
+  );
+});
+
+test('Review reset executes before historical commerce and contains no broad delete', () => {
+  const resetSource = readFileSync(
+    new URL('./resetDemoData.js', import.meta.url),
+    'utf8',
+  );
+  const reviewSource = readFileSync(
+    new URL('./reviews.seed.js', import.meta.url),
+    'utf8',
+  );
+  const reviewResetIndex = resetSource.indexOf('await resetReviews');
+  const historicalResetIndex = resetSource.indexOf(
+    'await resetHistoricalCommerce',
+  );
+
+  assert.ok(reviewResetIndex >= 0);
+  assert.ok(historicalResetIndex > reviewResetIndex);
+  assert.equal(reviewSource.includes('Review.deleteMany({})'), false);
+  assert.equal(reviewSource.includes('deleteMany({ customerId'), false);
+  assert.equal(reviewSource.includes('deleteMany({ productId'), false);
 });

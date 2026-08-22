@@ -320,7 +320,10 @@ export function createSeedRegistry(manifest) {
     ],
     orders: numberedKeys('order:historical', 42),
     refunds: numberedKeys('refund:scenario', 4),
-    reviews: numberedKeys('review:scenario', 8),
+    reviews: Object.freeze([
+      ...numberedKeys('review:user:reviews', 7),
+      ...numberedKeys('review:user:ratings', 7),
+    ]),
     notifications: numberedKeys('notification:scenario', 12),
     supportConversations: numberedKeys('support-conversation:scenario', 4),
     supportMessages: numberedKeys('support-message:scenario', 8),
