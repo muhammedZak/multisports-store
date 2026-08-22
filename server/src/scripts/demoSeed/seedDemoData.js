@@ -1,5 +1,12 @@
 import { AuthChallenge } from '../../modules/auth/authChallenge.model.js';
+import { Category } from '../../modules/catalog/category.model.js';
+import { Product } from '../../modules/catalog/product.model.js';
 import { User } from '../../modules/users/user.model.js';
+import {
+  seedCategories,
+  validateCategoryDefinitions,
+} from './categories.seed.js';
+import { validateProductDefinitions } from './products.seed.js';
 import { requireDemoSeedPassword } from './seed.config.js';
 import {
   seedDemoUsers,
@@ -54,6 +61,25 @@ async function snapshotUnrelatedUsers(expectedUsers) {
   return JSON.stringify(documents);
 }
 
+async function snapshotUnrelatedCategories(expectedCategories) {
+  const documents = await Category.collection
+    .find({
+      $and: [
+        { _id: { $nin: expectedCategories.map((category) => category._id) } },
+        {
+          $nor: expectedCategories.map((category) => ({
+            sport: category.sport,
+            nameKey: category.nameKey,
+          })),
+        },
+      ],
+    })
+    .sort({ _id: 1 })
+    .toArray();
+
+  return JSON.stringify(documents);
+}
+
 async function countSeededAuthChallenges(expectedUsers) {
   return AuthChallenge.countDocuments({
     $or: [
@@ -84,7 +110,7 @@ async function verifyPasswordAuthentication({
   }
 }
 
-export async function runDemoUserSeed() {
+export async function runDemoSeed() {
   const { config, manifest, registry, clock } =
     await createSeedFoundationContext();
   const password = validateDemoSeedPassword(requireDemoSeedPassword(config));
@@ -92,7 +118,7 @@ export async function runDemoUserSeed() {
   if (config.allowCloudinaryUpload) {
     throw new SeedSafetyError(
       'DEMO_USER_SEED_CLOUDINARY_FLAG_ENABLED',
-      'ALLOW_DEMO_CLOUDINARY_UPLOAD must remain false during demo User seeding.',
+      'ALLOW_DEMO_CLOUDINARY_UPLOAD must remain false during this demo seed.',
     );
   }
 
@@ -104,8 +130,16 @@ export async function runDemoUserSeed() {
   try {
     connection = await connectSeedDatabase(config);
     const expectedUsers = await validateDemoUserDefinitions({ registry, clock });
+    const expectedCategories = await validateCategoryDefinitions({
+      registry,
+      clock,
+      manifest,
+    });
     const beforeCounts = await snapshotCollectionCounts(connection);
     const beforeUnrelatedUsers = await snapshotUnrelatedUsers(expectedUsers);
+    const beforeUnrelatedCategories =
+      await snapshotUnrelatedCategories(expectedCategories);
+    const beforeProductCount = await Product.countDocuments({});
     const beforeChallenges = await countSeededAuthChallenges(expectedUsers);
 
     if (beforeChallenges !== 0) {
@@ -115,20 +149,48 @@ export async function runDemoUserSeed() {
       );
     }
 
-    const result = await seedDemoUsers({ registry, clock, password });
+    const userResult = await seedDemoUsers({ registry, clock, password });
+    const categoryResult = await seedCategories({
+      registry,
+      clock,
+      manifest,
+    });
+    const productResult = validateProductDefinitions({
+      manifest,
+      registry,
+      categories: categoryResult.expectedCategories,
+    });
 
     const afterCounts = await snapshotCollectionCounts(connection);
     const afterUnrelatedUsers = await snapshotUnrelatedUsers(expectedUsers);
+    const afterUnrelatedCategories =
+      await snapshotUnrelatedCategories(expectedCategories);
+    const afterProductCount = await Product.countDocuments({});
     const afterChallenges = await countSeededAuthChallenges(expectedUsers);
 
     assertCollectionDeltas(beforeCounts, afterCounts, {
-      users: result.created,
+      users: userResult.created,
+      categories: categoryResult.created,
     });
 
     if (beforeUnrelatedUsers !== afterUnrelatedUsers) {
       throw new SeedValidationError(
         'DEMO_SEED_UNRELATED_USERS_CHANGED',
         'Pre-existing unrelated Users changed during demo User seeding.',
+      );
+    }
+
+    if (beforeUnrelatedCategories !== afterUnrelatedCategories) {
+      throw new SeedValidationError(
+        'DEMO_SEED_UNRELATED_CATEGORIES_CHANGED',
+        'Pre-existing unrelated Categories changed during demo seeding.',
+      );
+    }
+
+    if (beforeProductCount !== afterProductCount) {
+      throw new SeedValidationError(
+        'DEMO_SEED_PRODUCT_PERSISTENCE_FORBIDDEN',
+        'Product collection count changed during definition-only validation.',
       );
     }
 
@@ -150,13 +212,23 @@ export async function runDemoUserSeed() {
     console.log(`Registry: valid (${registry.entries.length} reserved IDs)`);
     console.log(`Anchor date: ${clock.anchorDate} (${clock.timeZone})`);
     console.log('Users:');
-    console.log(`  Created: ${result.created}`);
-    console.log(`  Skipped: ${result.skipped}`);
+    console.log(`  Created: ${userResult.created}`);
+    console.log(`  Skipped: ${userResult.skipped}`);
+    console.log('Categories:');
+    console.log(`  Created: ${categoryResult.created}`);
+    console.log(`  Skipped: ${categoryResult.skipped}`);
+    console.log('Product Definitions:');
+    console.log(`  Validated: ${productResult.counts.products}`);
+    console.log('  Persisted: 0');
     console.log('Authentication: Admin and Checkout Customer verified');
     console.log('AuthChallenges created: 0');
     console.log('Cloudinary: disabled');
 
-    return result;
+    return {
+      users: userResult,
+      categories: categoryResult,
+      products: productResult,
+    };
   } finally {
     await disconnectSeedDatabase();
   }
@@ -164,7 +236,7 @@ export async function runDemoUserSeed() {
 
 async function main() {
   try {
-    await runDemoUserSeed();
+    await runDemoSeed();
   } catch (error) {
     printSeedError(error);
     process.exitCode = 1;

@@ -93,9 +93,17 @@ export function deterministicObjectId(seedKey) {
 
 export function createSeedRegistry(manifest) {
   const productKeys = manifest.products.map((product) => product.seedKey);
+  const variantProductKeys = manifest.products
+    .filter((product) => product.productType === 'variant')
+    .map((product) => product.seedKey);
   const categoryKeys = [
     ...new Set(
-      manifest.products.map((product) => `category:${product.categoryKey}`),
+      manifest.products.map(
+        (product) =>
+          `category:${product.sport}:${product.categoryKey.slice(
+            product.sport.length + 1,
+          )}`,
+      ),
     ),
   ].sort();
   const customerKeys = DEMO_USER_IDENTITIES.filter(
@@ -107,6 +115,12 @@ export function createSeedRegistry(manifest) {
     addresses: DEMO_ADDRESS_KEYS,
     categories: categoryKeys,
     products: productKeys,
+    variants: variantProductKeys.flatMap((key) =>
+      numberedKeys(`variant:${key}`, 4),
+    ),
+    productImages: productKeys.flatMap((key) =>
+      numberedKeys(`product-image:${key}`, 2),
+    ),
     inventory: productKeys.map((key) => `inventory:${key}`),
     inventoryAdjustments: productKeys.map(
       (key) => `inventory-adjustment:${key}:opening`,

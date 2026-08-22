@@ -11,12 +11,25 @@ import {
 } from './seed.config.js';
 import { createSeedClock } from './seed.clock.js';
 import {
+  CATEGORY_CLASSIFICATIONS,
+  CATEGORY_DEFINITIONS,
+  buildExpectedCategories,
+  classifyCategoryRecord,
+  createCategoryNameKey,
+  exactCategoryOwnershipFilter,
+  validateCategoryDefinitions,
+} from './categories.seed.js';
+import {
   DEMO_ADDRESS_KEYS,
   DEMO_USER_IDENTITIES,
   createSeedRegistry,
   deterministicObjectId,
 } from './seed.registry.js';
 import { loadAndValidateProductManifest } from './seed.validation.js';
+import {
+  normalizedVariantKey,
+  validateProductDefinitions,
+} from './products.seed.js';
 import {
   DEMO_USER_CLASSIFICATIONS,
   DEMO_USER_DEFINITIONS,
@@ -148,8 +161,242 @@ test('the locked manifest and complete registry validate', async () => {
   assert.equal(registry.counts.addresses, 8);
   assert.equal(registry.counts.categories, 21);
   assert.equal(registry.counts.products, 42);
+  assert.equal(registry.counts.variants, 84);
+  assert.equal(registry.counts.productImages, 84);
   assert.equal(registry.counts.coupons, 8);
+  assert.equal(registry.entries.length, 398);
   assert.equal(new Set(ids).size, ids.length);
+});
+
+test('locked Category definitions match service normalization and sport coverage', () => {
+  const naturalKeys = CATEGORY_DEFINITIONS.map(
+    (category) => `${category.sport}:${category.nameKey}`,
+  );
+
+  assert.equal(CATEGORY_DEFINITIONS.length, 21);
+  assert.equal(new Set(naturalKeys).size, 21);
+  assert.equal(
+    new Set(CATEGORY_DEFINITIONS.map((category) => category.categoryKey)).size,
+    21,
+  );
+  assert.ok(CATEGORY_DEFINITIONS.every((category) => category.isActive));
+  assert.equal(createCategoryNameKey('  Training   Equipment  '), 'training equipment');
+
+  for (const sport of [
+    'football',
+    'cricket',
+    'basketball',
+    'tennis',
+    'badminton',
+    'running',
+    'fitness',
+  ]) {
+    assert.equal(
+      CATEGORY_DEFINITIONS.filter((category) => category.sport === sport)
+        .length,
+      3,
+    );
+  }
+});
+
+async function categoryFixture() {
+  const manifest = await loadAndValidateProductManifest();
+  const registry = createSeedRegistry(manifest);
+  const clock = createSeedClock({
+    anchorDate: '2026-08-22',
+    timeZone: 'Asia/Kolkata',
+  });
+  const categories = await validateCategoryDefinitions({
+    registry,
+    clock,
+    manifest,
+  });
+
+  return { manifest, registry, clock, categories, expected: categories[0] };
+}
+
+test('Category definitions have deterministic IDs and exact manifest coverage', async () => {
+  const { manifest, categories } = await categoryFixture();
+  const ids = categories.map((category) => category._id.toString());
+  const manifestKeys = new Set(
+    manifest.products.map((product) => product.categoryKey),
+  );
+
+  assert.equal(categories.length, 21);
+  assert.equal(new Set(ids).size, 21);
+  assert.deepEqual(
+    new Set(categories.map((category) => category.categoryKey)),
+    manifestKeys,
+  );
+});
+
+test('Category preflight classification covers missing and exact records', async () => {
+  const { expected } = await categoryFixture();
+
+  assert.equal(
+    classifyCategoryRecord({ expected }).classification,
+    CATEGORY_CLASSIFICATIONS.MISSING,
+  );
+  assert.equal(
+    classifyCategoryRecord({
+      expected,
+      recordById: expected,
+      recordByNaturalKey: expected,
+    }).classification,
+    CATEGORY_CLASSIFICATIONS.EXACT,
+  );
+});
+
+test('Category preflight classification detects natural, ID, and field conflicts', async () => {
+  const { expected } = await categoryFixture();
+  const naturalConflict = {
+    ...expected,
+    _id: deterministicObjectId('conflict:category:natural'),
+  };
+  const idConflict = {
+    ...expected,
+    sport: 'cricket',
+    nameKey: 'different',
+  };
+  const drift = { ...expected, name: 'Changed Name' };
+
+  assert.equal(
+    classifyCategoryRecord({ expected, recordByNaturalKey: naturalConflict })
+      .classification,
+    CATEGORY_CLASSIFICATIONS.NATURAL_KEY_CONFLICT,
+  );
+  assert.equal(
+    classifyCategoryRecord({ expected, recordById: idConflict }).classification,
+    CATEGORY_CLASSIFICATIONS.ID_CONFLICT,
+  );
+  assert.equal(
+    classifyCategoryRecord({ expected, recordById: drift }).classification,
+    CATEGORY_CLASSIFICATIONS.DRIFT,
+  );
+});
+
+test('Category reset ownership filter requires exact ID, sport, and nameKey', async () => {
+  const { expected } = await categoryFixture();
+
+  assert.deepEqual(exactCategoryOwnershipFilter([expected]), {
+    $or: [
+      {
+        _id: expected._id,
+        sport: expected.sport,
+        nameKey: expected.nameKey,
+      },
+    ],
+  });
+});
+
+test('complete Product definitions match all locked catalog totals', async () => {
+  const { manifest, registry, categories } = await categoryFixture();
+  const result = validateProductDefinitions({
+    manifest,
+    registry,
+    categories,
+  });
+
+  assert.deepEqual(result.counts, {
+    products: 42,
+    simple: 21,
+    variant: 21,
+    active: 38,
+    inactive: 4,
+    variants: 84,
+    images: 84,
+    noDiscount: 21,
+    percentageDiscount: 14,
+    fixedDiscount: 7,
+    minimumPrice: 29900,
+    maximumPrice: 899900,
+  });
+  assert.ok(Object.values(result.sportCounts).every((count) => count === 6));
+  assert.equal(
+    Object.values(result.categoryCounts).reduce(
+      (total, count) => total + count,
+      0,
+    ),
+    42,
+  );
+});
+
+test('Product IDs, Variant IDs, and image blueprint IDs are unique', async () => {
+  const { manifest, registry, categories } = await categoryFixture();
+  const { definitions } = validateProductDefinitions({
+    manifest,
+    registry,
+    categories,
+  });
+  const productIds = definitions.map((product) => product._id.toString());
+  const variants = definitions.flatMap((product) => product.variants);
+  const images = definitions.flatMap((product) => product.images);
+
+  assert.equal(new Set(productIds).size, 42);
+  assert.equal(new Set(variants.map((variant) => variant._id.toString())).size, 84);
+  assert.equal(new Set(images.map((image) => image._id.toString())).size, 84);
+  assert.equal(new Set(images.map((image) => image.file)).size, 84);
+  assert.ok(
+    images.every(
+      (image) =>
+        !Object.hasOwn(image, 'publicId') && !Object.hasOwn(image, 'url'),
+    ),
+  );
+});
+
+test('Product variants have four unique option combinations and 3/1 activity', async () => {
+  const { manifest, registry, categories } = await categoryFixture();
+  const { definitions } = validateProductDefinitions({
+    manifest,
+    registry,
+    categories,
+  });
+
+  for (const product of definitions) {
+    if (product.productType === 'simple') {
+      assert.equal(product.variants.length, 0);
+      continue;
+    }
+
+    assert.equal(product.variants.length, 4);
+    assert.equal(
+      new Set(
+        product.variants.map((variant) =>
+          normalizedVariantKey(variant.options),
+        ),
+      ).size,
+      4,
+    );
+    assert.deepEqual(
+      product.variants.map((variant) => variant.isActive),
+      [true, true, true, false],
+    );
+  }
+});
+
+test('Product definitions contain only scalar specifications and no inventory state', async () => {
+  const { manifest, registry, categories } = await categoryFixture();
+  const { definitions, brandCounts } = validateProductDefinitions({
+    manifest,
+    registry,
+    categories,
+  });
+
+  assert.ok(
+    definitions.every(
+      (product) =>
+        !Object.hasOwn(product, 'initialQuantity') &&
+        !Object.hasOwn(product, 'stockQuantity') &&
+        Object.values(product.specifications).every((value) =>
+          ['string', 'number', 'boolean'].includes(typeof value),
+        ),
+    ),
+  );
+  assert.ok(
+    Object.values(brandCounts).every(
+      (counts) => Object.values(counts).every((count) => count === 3),
+    ),
+  );
 });
 
 test('locked User definitions contain the exact role and identity counts', () => {
