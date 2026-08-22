@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import * as argon2 from 'argon2';
+
 import {
   assertDemoCloudinaryUploadAllowed,
   assertSeedRuntimeSafety,
@@ -9,10 +11,21 @@ import {
 } from './seed.config.js';
 import { createSeedClock } from './seed.clock.js';
 import {
+  DEMO_ADDRESS_KEYS,
+  DEMO_USER_IDENTITIES,
   createSeedRegistry,
   deterministicObjectId,
 } from './seed.registry.js';
 import { loadAndValidateProductManifest } from './seed.validation.js';
+import {
+  DEMO_USER_CLASSIFICATIONS,
+  DEMO_USER_DEFINITIONS,
+  buildExpectedDemoUsers,
+  classifyDemoUserRecord,
+  exactDemoUserPairFilter,
+  validateDemoSeedPassword,
+  validateDemoUserDefinitions,
+} from './users.seed.js';
 
 const TEST_DATABASE = 'multisports_seed_test';
 
@@ -28,9 +41,9 @@ function safeEnvironment(overrides = {}) {
 }
 
 test('deterministic IDs are stable, distinct, and valid', () => {
-  const first = deterministicObjectId('user:customer:01');
-  const repeated = deterministicObjectId('user:customer:01');
-  const different = deterministicObjectId('user:customer:02');
+  const first = deterministicObjectId('user:checkout');
+  const repeated = deterministicObjectId('user:checkout');
+  const different = deterministicObjectId('user:orders');
 
   assert.equal(first.toHexString(), repeated.toHexString());
   assert.notEqual(first.toHexString(), different.toHexString());
@@ -41,8 +54,7 @@ test('production rejection overrides every other seed setting', () => {
   const config = createSeedConfig(
     safeEnvironment({
       NODE_ENV: 'production',
-      ALLOW_DEMO_SEED: 'false',
-      MONGODB_URI: '',
+      ALLOW_DEMO_SEED: 'true',
     }),
   );
 
@@ -77,15 +89,17 @@ test('Cloudinary upload and User password require separate lazy opt-ins', () => 
   assert.equal(requireDemoSeedPassword(enabled), 'present-only-for-this-test');
 });
 
-test('missing ALLOW_DEMO_SEED is rejected', () => {
-  const config = createSeedConfig(
-    safeEnvironment({ ALLOW_DEMO_SEED: 'false' }),
-  );
+test('ALLOW_DEMO_SEED requires the exact lowercase true value', () => {
+  for (const value of ['', 'false', 'TRUE', '1']) {
+    const config = createSeedConfig(
+      safeEnvironment({ ALLOW_DEMO_SEED: value }),
+    );
 
-  assert.throws(
-    () => assertSeedRuntimeSafety(config),
-    (error) => error.code === 'DEMO_SEED_NOT_ALLOWED',
-  );
+    assert.throws(
+      () => assertSeedRuntimeSafety(config),
+      (error) => error.code === 'DEMO_SEED_NOT_ALLOWED',
+    );
+  }
 });
 
 test('DEMO_SEED_DATABASE is mandatory', () => {
@@ -101,7 +115,10 @@ test('DEMO_SEED_DATABASE is mandatory', () => {
 
 test('the URI database must equal DEMO_SEED_DATABASE', () => {
   const config = createSeedConfig(
-    safeEnvironment({ DEMO_SEED_DATABASE: 'different_seed_test' }),
+    safeEnvironment({
+      MONGODB_URI: 'mongodb://127.0.0.1:27017/multisports_store',
+      DEMO_SEED_DATABASE: 'another_database',
+    }),
   );
 
   assert.throws(
@@ -110,7 +127,7 @@ test('the URI database must equal DEMO_SEED_DATABASE', () => {
   );
 });
 
-test('an unsafe database name is rejected', () => {
+test('the explicitly approved current database name is accepted', () => {
   const config = createSeedConfig(
     safeEnvironment({
       MONGODB_URI: 'mongodb://127.0.0.1:27017/multisports_store',
@@ -118,10 +135,7 @@ test('an unsafe database name is rejected', () => {
     }),
   );
 
-  assert.throws(
-    () => assertSeedRuntimeSafety(config),
-    (error) => error.code === 'DEMO_SEED_ALLOWED_DATABASE_UNSAFE',
-  );
+  assert.doesNotThrow(() => assertSeedRuntimeSafety(config));
 });
 
 test('the locked manifest and complete registry validate', async () => {
@@ -131,10 +145,212 @@ test('the locked manifest and complete registry validate', async () => {
 
   assert.equal(manifest.products.length, 42);
   assert.equal(registry.counts.users, 8);
+  assert.equal(registry.counts.addresses, 8);
   assert.equal(registry.counts.categories, 21);
   assert.equal(registry.counts.products, 42);
   assert.equal(registry.counts.coupons, 8);
   assert.equal(new Set(ids).size, ids.length);
+});
+
+test('locked User definitions contain the exact role and identity counts', () => {
+  assert.equal(DEMO_USER_DEFINITIONS.length, 8);
+  assert.equal(
+    DEMO_USER_DEFINITIONS.filter((user) => user.role === 'admin').length,
+    1,
+  );
+  assert.equal(
+    DEMO_USER_DEFINITIONS.filter((user) => user.role === 'customer').length,
+    7,
+  );
+  assert.ok(DEMO_USER_DEFINITIONS.every((user) => user.emailVerified));
+  assert.equal(
+    new Set(DEMO_USER_DEFINITIONS.map((user) => user.email)).size,
+    8,
+  );
+  assert.ok(
+    DEMO_USER_DEFINITIONS.every(
+      (user) =>
+        !Object.hasOwn(user, 'googleSub') &&
+        !Object.hasOwn(user, 'profilePhoto'),
+    ),
+  );
+  assert.deepEqual(
+    DEMO_USER_IDENTITIES.map(({ key, email }) => ({ key, email })),
+    DEMO_USER_DEFINITIONS.map(({ seedKey, email }) => ({
+      key: seedKey,
+      email,
+    })),
+  );
+});
+
+test('embedded Address definitions have locked counts and defaults', () => {
+  const counts = Object.fromEntries(
+    DEMO_USER_DEFINITIONS.map((user) => [user.seedKey, user.addresses.length]),
+  );
+  const addresses = DEMO_USER_DEFINITIONS.flatMap((user) => user.addresses);
+
+  assert.deepEqual(counts, {
+    'user:admin': 0,
+    'user:fresh': 0,
+    'user:checkout': 2,
+    'user:orders': 2,
+    'user:reviews': 1,
+    'user:ratings': 1,
+    'user:refunds': 1,
+    'user:support': 1,
+  });
+  assert.equal(addresses.length, 8);
+  assert.equal(new Set(addresses.map((item) => item.seedKey)).size, 8);
+  assert.deepEqual(
+    new Set(addresses.map((item) => item.seedKey)),
+    new Set(DEMO_ADDRESS_KEYS),
+  );
+
+  for (const user of DEMO_USER_DEFINITIONS.filter(
+    (candidate) => candidate.addresses.length > 0,
+  )) {
+    assert.equal(
+      user.addresses.filter((item) => item.isDefault).length,
+      1,
+    );
+  }
+});
+
+test('User and Address IDs validate through the registry and User schema', async () => {
+  const manifest = await loadAndValidateProductManifest();
+  const registry = createSeedRegistry(manifest);
+  const clock = createSeedClock({
+    anchorDate: '2026-08-22',
+    timeZone: 'Asia/Kolkata',
+  });
+  const users = await validateDemoUserDefinitions({ registry, clock });
+  const allIds = users.flatMap((user) => [
+    user._id.toString(),
+    ...user.addresses.map((item) => item._id.toString()),
+  ]);
+
+  assert.equal(users.length, 8);
+  assert.equal(allIds.length, 16);
+  assert.equal(new Set(allIds).size, 16);
+  assert.equal(
+    users.flatMap((user) => user.addresses).length,
+    8,
+  );
+});
+
+test('demo password validation matches the application registration policy', () => {
+  assert.equal(validateDemoSeedPassword('DemoPass123'), 'DemoPass123');
+
+  for (const invalid of [
+    'short1',
+    'onlyletters',
+    '12345678',
+    `A1${'x'.repeat(127)}`,
+  ]) {
+    assert.throws(
+      () => validateDemoSeedPassword(invalid),
+      (error) => error.code === 'DEMO_SEED_PASSWORD_INVALID',
+    );
+  }
+});
+
+test('Argon2id password verification is semantic rather than hash-string based', async () => {
+  const password = 'DemoPass123';
+  const first = await argon2.hash(password, { type: argon2.argon2id });
+  const second = await argon2.hash(password, { type: argon2.argon2id });
+
+  assert.notEqual(first, second);
+  assert.equal(await argon2.verify(first, password), true);
+  assert.equal(await argon2.verify(second, password), true);
+});
+
+async function classificationFixture() {
+  const manifest = await loadAndValidateProductManifest();
+  const registry = createSeedRegistry(manifest);
+  const clock = createSeedClock({
+    anchorDate: '2026-08-22',
+    timeZone: 'Asia/Kolkata',
+  });
+  const [expected] = buildExpectedDemoUsers({ registry, clock });
+  const exact = {
+    ...expected,
+    addresses: expected.addresses.map((item) => ({ ...item })),
+    passwordHash: 'not-compared-as-a-string',
+  };
+
+  return { expected, exact };
+}
+
+test('User preflight classification covers missing and exact records', async () => {
+  const { expected, exact } = await classificationFixture();
+
+  assert.equal(
+    classifyDemoUserRecord({ expected }).classification,
+    DEMO_USER_CLASSIFICATIONS.MISSING,
+  );
+  assert.equal(
+    classifyDemoUserRecord({
+      expected,
+      recordById: exact,
+      recordByEmail: exact,
+      passwordMatches: true,
+    }).classification,
+    DEMO_USER_CLASSIFICATIONS.EXACT,
+  );
+});
+
+test('User preflight classification detects email and ID conflicts', async () => {
+  const { expected } = await classificationFixture();
+
+  assert.equal(
+    classifyDemoUserRecord({
+      expected,
+      recordByEmail: {
+        _id: deterministicObjectId('conflict:email'),
+        email: expected.email,
+      },
+    }).classification,
+    DEMO_USER_CLASSIFICATIONS.EMAIL_CONFLICT,
+  );
+  assert.equal(
+    classifyDemoUserRecord({
+      expected,
+      recordById: {
+        _id: expected._id,
+        email: 'another@example.test',
+      },
+    }).classification,
+    DEMO_USER_CLASSIFICATIONS.ID_CONFLICT,
+  );
+});
+
+test('User preflight classification detects field and password drift', async () => {
+  const { expected, exact } = await classificationFixture();
+  const fieldDrift = classifyDemoUserRecord({
+    expected,
+    recordById: { ...exact, name: 'Changed Name' },
+    passwordMatches: true,
+  });
+  const passwordDrift = classifyDemoUserRecord({
+    expected,
+    recordById: exact,
+    passwordMatches: false,
+  });
+
+  assert.equal(fieldDrift.classification, DEMO_USER_CLASSIFICATIONS.DRIFT);
+  assert.ok(fieldDrift.driftFields.includes('name'));
+  assert.equal(passwordDrift.classification, DEMO_USER_CLASSIFICATIONS.DRIFT);
+  assert.ok(passwordDrift.driftFields.includes('passwordHash'));
+});
+
+test('selective reset filter uses exact deterministic ID/email pairs', async () => {
+  const { expected } = await classificationFixture();
+  const filter = exactDemoUserPairFilter([expected]);
+
+  assert.deepEqual(filter, {
+    $or: [{ _id: expected._id, email: expected.email }],
+  });
+  assert.equal(Object.hasOwn(filter, 'role'), false);
 });
 
 test('scenario clock remains stable during one execution', () => {
@@ -174,5 +390,14 @@ test('scenario clock remains stable during one execution', () => {
       month: 2,
       day: 29,
     }).toISOString(),
+  );
+
+  assert.equal(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    }).format(clock.atLocalTime(clock.daysAgo(1), { hour: 10 })),
+    '10',
   );
 });

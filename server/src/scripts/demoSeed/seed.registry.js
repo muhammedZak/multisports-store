@@ -7,15 +7,57 @@ import { SeedValidationError } from './seed.utils.js';
 const REGISTRY_NAMESPACE = 'multisports-store:demo-seed:v1';
 
 export const DEMO_USER_IDENTITIES = Object.freeze([
-  { key: 'user:admin:01', email: 'admin.demo@multisports-store.test' },
-  ...Array.from({ length: 7 }, (_, index) => {
-    const number = String(index + 1).padStart(2, '0');
-
-    return Object.freeze({
-      key: `user:customer:${number}`,
-      email: `customer${number}.demo@multisports-store.test`,
-    });
+  Object.freeze({
+    key: 'user:admin',
+    email: 'admin.demo@example.test',
+    role: 'admin',
   }),
+  Object.freeze({
+    key: 'user:fresh',
+    email: 'fresh.demo@example.test',
+    role: 'customer',
+  }),
+  Object.freeze({
+    key: 'user:checkout',
+    email: 'checkout.demo@example.test',
+    role: 'customer',
+  }),
+  Object.freeze({
+    key: 'user:orders',
+    email: 'orders.demo@example.test',
+    role: 'customer',
+  }),
+  Object.freeze({
+    key: 'user:reviews',
+    email: 'reviews.demo@example.test',
+    role: 'customer',
+  }),
+  Object.freeze({
+    key: 'user:ratings',
+    email: 'ratings.demo@example.test',
+    role: 'customer',
+  }),
+  Object.freeze({
+    key: 'user:refunds',
+    email: 'refunds.demo@example.test',
+    role: 'customer',
+  }),
+  Object.freeze({
+    key: 'user:support',
+    email: 'support.demo@example.test',
+    role: 'customer',
+  }),
+]);
+
+export const DEMO_ADDRESS_KEYS = Object.freeze([
+  'address:checkout:primary',
+  'address:checkout:secondary',
+  'address:orders:primary',
+  'address:orders:secondary',
+  'address:reviews:primary',
+  'address:ratings:primary',
+  'address:refunds:primary',
+  'address:support:primary',
 ]);
 
 export const DEMO_COUPON_IDENTITIES = Object.freeze([
@@ -56,12 +98,13 @@ export function createSeedRegistry(manifest) {
       manifest.products.map((product) => `category:${product.categoryKey}`),
     ),
   ].sort();
-  const customerKeys = DEMO_USER_IDENTITIES.filter((identity) =>
-    identity.key.startsWith('user:customer:'),
+  const customerKeys = DEMO_USER_IDENTITIES.filter(
+    (identity) => identity.role === 'customer',
   ).map((identity) => identity.key);
 
   const keysByEntity = Object.freeze({
     users: DEMO_USER_IDENTITIES.map((identity) => identity.key),
+    addresses: DEMO_ADDRESS_KEYS,
     categories: categoryKeys,
     products: productKeys,
     inventory: productKeys.map((key) => `inventory:${key}`),

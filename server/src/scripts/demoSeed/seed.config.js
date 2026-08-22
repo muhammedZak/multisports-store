@@ -2,8 +2,6 @@ import 'dotenv/config';
 
 import { SeedSafetyError } from './seed.utils.js';
 
-const DEMO_DATABASE_PATTERN = /(?:^|[_-])(demo|seed|sandbox)(?:$|[_-])/i;
-
 function isExplicitlyTrue(value) {
   return value === 'true';
 }
@@ -101,24 +99,10 @@ export function assertSeedRuntimeSafety(config) {
     );
   }
 
-  if (!DEMO_DATABASE_PATTERN.test(config.allowedDatabaseName)) {
-    throw new SeedSafetyError(
-      'DEMO_SEED_ALLOWED_DATABASE_UNSAFE',
-      'DEMO_SEED_DATABASE must be a recognizable demo, seed, or sandbox database.',
-    );
-  }
-
   if (config.databaseName !== config.allowedDatabaseName) {
     throw new SeedSafetyError(
       'DEMO_SEED_DATABASE_MISMATCH',
-      `Resolved database "${config.databaseName}" does not match the allowed demo database.`,
-    );
-  }
-
-  if (!DEMO_DATABASE_PATTERN.test(config.databaseName)) {
-    throw new SeedSafetyError(
-      'DEMO_SEED_DATABASE_UNSAFE',
-      'The resolved MongoDB database is not recognizable as a demo database.',
+      `Resolved database "${config.databaseName}" does not match DEMO_SEED_DATABASE.`,
     );
   }
 

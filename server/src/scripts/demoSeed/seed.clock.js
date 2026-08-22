@@ -174,6 +174,26 @@ export function createSeedClock({
       return new Date(anchorMilliseconds);
     },
     localDateTime,
+    atLocalTime(
+      date,
+      { hour = 12, minute = 0, second = 0, millisecond = 0 } = {},
+    ) {
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+        throw new TypeError('atLocalTime requires a valid Date.');
+      }
+
+      const parts = readZonedParts(date, timeZone);
+
+      return localDateTime({
+        year: parts.year,
+        month: parts.month,
+        day: parts.day,
+        hour,
+        minute,
+        second,
+        millisecond,
+      });
+    },
     daysAgo(days) {
       if (!Number.isInteger(days) || days < 0) {
         throw new TypeError('daysAgo requires a non-negative integer.');

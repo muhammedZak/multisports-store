@@ -1,5 +1,11 @@
-import { printSeedError } from './seed.utils.js';
-import { verifySeedFoundation } from './seed.validation.js';
+import { requireDemoSeedPassword } from './seed.config.js';
+import { resetDemoUsers, validateDemoSeedPassword } from './users.seed.js';
+import {
+  connectSeedDatabase,
+  disconnectSeedDatabase,
+  printSeedError,
+} from './seed.utils.js';
+import { createSeedFoundationContext } from './seed.validation.js';
 
 export const RESET_ORDER = Object.freeze([
   'notifications',
@@ -23,15 +29,31 @@ export const PRODUCT_ASSET_RESET_POLICY = Object.freeze({
   publicIdSource: 'registered seeded Product documents only',
 });
 
-async function runResetFoundation() {
+async function runSelectiveReset() {
+  const { config, registry, clock } = await createSeedFoundationContext();
+  const password = validateDemoSeedPassword(requireDemoSeedPassword(config));
+  let connection;
+
   try {
-    await verifySeedFoundation({ mode: 'foundation reset verification' });
-    console.log(`Reset order reserved: ${RESET_ORDER.join(' -> ')}`);
-    console.log('Records deleted: 0');
+    connection = await connectSeedDatabase(config);
+    const result = await resetDemoUsers({ registry, clock, password });
+
+    console.log('Demo Seed Reset');
+    console.log(`Database: ${connection.db.databaseName}`);
+    console.log('Scope: exact deterministic demo User ID/email pairs only');
+    console.log(`Records deleted: ${result.deleted}`);
+  } finally {
+    await disconnectSeedDatabase();
+  }
+}
+
+async function main() {
+  try {
+    await runSelectiveReset();
   } catch (error) {
     printSeedError(error);
     process.exitCode = 1;
   }
 }
 
-await runResetFoundation();
+await main();

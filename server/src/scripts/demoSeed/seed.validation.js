@@ -203,13 +203,8 @@ export async function loadAndValidateProductManifest(
 }
 
 export async function verifySeedFoundation({ mode }) {
-  const config = assertSeedRuntimeSafety(createSeedConfig());
-  const manifest = await loadAndValidateProductManifest();
-  const registry = createSeedRegistry(manifest);
-  const clock = createSeedClock({
-    anchorDate: config.anchorDate,
-    timeZone: config.appTimezone,
-  });
+  const { config, manifest, registry, clock } =
+    await createSeedFoundationContext();
 
   let connection;
 
@@ -236,4 +231,16 @@ export async function verifySeedFoundation({ mode }) {
   } finally {
     await disconnectSeedDatabase();
   }
+}
+
+export async function createSeedFoundationContext() {
+  const config = assertSeedRuntimeSafety(createSeedConfig());
+  const manifest = await loadAndValidateProductManifest();
+  const registry = createSeedRegistry(manifest);
+  const clock = createSeedClock({
+    anchorDate: config.anchorDate,
+    timeZone: config.appTimezone,
+  });
+
+  return { config, manifest, registry, clock };
 }

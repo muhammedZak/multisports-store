@@ -115,7 +115,7 @@ export async function connectSeedDatabase(config) {
     });
   } catch {
     throw new SeedConnectionError(
-      'Unable to connect to the dedicated demo MongoDB database.',
+      'Unable to connect to the explicitly approved MongoDB database.',
     );
   }
 
