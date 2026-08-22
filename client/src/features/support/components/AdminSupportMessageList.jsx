@@ -3,29 +3,39 @@ import { Button } from '../../../components/ui/Button.jsx';
 
 import { formatSupportMessageDate } from '../support.utils.js';
 
-export function AdminSupportMessageList({ model }) {
+export function AdminSupportMessageList({
+  model: {
+    canLoadOlder,
+    olderLoading,
+    loadOlder,
+    olderError,
+    messages,
+    conversation,
+    messagesEndRef,
+  },
+}) {
   return (
     <div className='min-h-[400px] max-h-[60vh] overflow-y-auto bg-[var(--color-surface)] p-4 sm:p-6'>
-      {model.canLoadOlder ? (
+      {canLoadOlder ? (
         <div className='mb-6 text-center'>
           <Button
             type='button'
             variant='secondary'
             size='sm'
-            disabled={model.olderLoading}
-            onClick={model.loadOlder}>
-            {model.olderLoading ? 'Loading...' : 'Load earlier messages'}
+            disabled={olderLoading}
+            onClick={loadOlder}>
+            {olderLoading ? 'Loading...' : 'Load earlier messages'}
           </Button>
         </div>
       ) : null}
 
-      {model.olderError ? (
+      {olderError ? (
         <Alert variant='danger' className='mb-6'>
-          {model.olderError.message}
+          {olderError.message}
         </Alert>
       ) : null}
 
-      {model.messages.length === 0 ? (
+      {messages.length === 0 ? (
         <div className='flex min-h-[300px] items-center justify-center text-center'>
           <div>
             <h3 className='mb-0 font-black'>No messages yet</h3>
@@ -37,7 +47,7 @@ export function AdminSupportMessageList({ model }) {
         </div>
       ) : (
         <div className='space-y-5'>
-          {model.messages.map((message) => {
+          {messages.map((message) => {
             const fromAdmin = message.senderRole === 'admin';
 
             return (
@@ -55,7 +65,7 @@ export function AdminSupportMessageList({ model }) {
                     ].join(' ')}>
                     {fromAdmin
                       ? 'You'
-                      : (model.conversation.customer?.name ?? 'Customer')}
+                      : (conversation.customer?.name ?? 'Customer')}
                   </p>
 
                   <div
@@ -86,7 +96,7 @@ export function AdminSupportMessageList({ model }) {
         </div>
       )}
 
-      <div ref={model.messagesEndRef} />
+      <div ref={messagesEndRef} />
     </div>
   );
 }

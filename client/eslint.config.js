@@ -17,5 +17,10 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      // Effect-driven async loading and dependency synchronization are intentional
+      // patterns here; this stricter rule is not a project invariant yet.
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])

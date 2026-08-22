@@ -6,9 +6,9 @@ import {
   createProductReview,
   fetchMyReviews,
   fetchPublicProductReviews,
-} from '../../api/reviewApi.js';
+} from '../../../api/reviewApi.js';
 
-import { normalizeApiError } from '../../api/errors.js';
+import { normalizeApiError } from '../../../api/errors.js';
 
 const DEFAULT_QUERY = {
   page: 1,
@@ -111,11 +111,14 @@ function ProductReviewsSection({
     } finally {
       setLoading(false);
     }
-  }, [onRatingSummaryChange, productId, query, reloadKey]);
+  }, [onRatingSummaryChange, productId, query]);
 
   useEffect(() => {
+    // reloadKey intentionally retriggers this effect after a review mutation.
+    void reloadKey;
+
     loadReviews();
-  }, [loadReviews]);
+  }, [loadReviews, reloadKey]);
 
   const loadOwnReview = useCallback(async () => {
     if (!authInitialized || user?.role !== 'customer') {

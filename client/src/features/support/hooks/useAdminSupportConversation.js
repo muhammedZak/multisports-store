@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   fetchAdminSupportConversation,
@@ -48,19 +54,45 @@ export function useAdminSupportConversation(conversationId) {
 
   const [syncError, setSyncError] = useState(null);
 
+  const [conversationStateId, setConversationStateId] =
+    useState(conversationId);
+
   const messagesEndRef = useRef(null);
 
   const shouldScrollToBottomRef = useRef(false);
 
+  const activeConversationIdRef = useRef(conversationId);
+
+  const initialLoadRequestIdRef = useRef(0);
+
+  /*
+   * Invalidate async work from the
+   * previous route before the browser
+   * can paint the new conversation.
+   */
+  useLayoutEffect(() => {
+    activeConversationIdRef.current = conversationId;
+  }, [conversationId]);
+
   const markConversationRead = useCallback(async () => {
+    const requestConversationId = conversationId;
+
     try {
       const updatedConversation =
-        await markAdminSupportConversationRead(conversationId);
+        await markAdminSupportConversationRead(requestConversationId);
+
+      if (activeConversationIdRef.current !== requestConversationId) {
+        return;
+      }
 
       setConversation(updatedConversation);
 
       setReadError(null);
     } catch (requestError) {
+      if (activeConversationIdRef.current !== requestConversationId) {
+        return;
+      }
+
       setReadError(
         normalizeApiError(
           requestError,
@@ -72,9 +104,11 @@ export function useAdminSupportConversation(conversationId) {
   }, [conversationId]);
 
   const reconcileLatestMessages = useCallback(async () => {
+    const requestConversationId = conversationId;
+
     try {
       const result = await fetchAdminSupportMessages(
-        conversationId,
+        requestConversationId,
 
         {
           page: 1,
@@ -82,6 +116,10 @@ export function useAdminSupportConversation(conversationId) {
           limit: SUPPORT_MESSAGE_LIMIT,
         },
       );
+
+      if (activeConversationIdRef.current !== requestConversationId) {
+        return;
+      }
 
       setMessages((current) => {
         const currentIds = new Set(current.map((message) => message.id));
@@ -113,8 +151,16 @@ export function useAdminSupportConversation(conversationId) {
 
       await markConversationRead();
 
+      if (activeConversationIdRef.current !== requestConversationId) {
+        return;
+      }
+
       setSyncError(null);
     } catch (requestError) {
+      if (activeConversationIdRef.current !== requestConversationId) {
+        return;
+      }
+
       setSyncError(
         normalizeApiError(
           requestError,
@@ -125,17 +171,52 @@ export function useAdminSupportConversation(conversationId) {
     }
   }, [conversationId, markConversationRead]);
 
-  const loadConversation = useCallback(async () => {
+  const loadConversation = useCallback(async (options = {}) => {
+    const requestConversationId = conversationId;
+
+    const requestId = initialLoadRequestIdRef.current + 1;
+
+    initialLoadRequestIdRef.current = requestId;
+
+    const resetRouteState = options?.resetRouteState === true;
+
+    if (resetRouteState) {
+      setConversationStateId(requestConversationId);
+
+      setConversation(null);
+
+      setMessages([]);
+
+      setMeta(SUPPORT_DEFAULT_META);
+
+      setOlderLoading(false);
+      setOlderError(null);
+
+      setDraft('');
+
+      setSendStatus('idle');
+      setSendError(null);
+
+      setReadError(null);
+
+      setLiveStatus('idle');
+      setLiveError(null);
+
+      setSyncError(null);
+
+      shouldScrollToBottomRef.current = false;
+    }
+
     setLoading(true);
 
     setError(null);
 
     try {
       const [conversationResult, messageResult] = await Promise.all([
-        fetchAdminSupportConversation(conversationId),
+        fetchAdminSupportConversation(requestConversationId),
 
         fetchAdminSupportMessages(
-          conversationId,
+          requestConversationId,
 
           {
             page: 1,
@@ -145,18 +226,35 @@ export function useAdminSupportConversation(conversationId) {
         ),
       ]);
 
+      if (
+        activeConversationIdRef.current !== requestConversationId ||
+        initialLoadRequestIdRef.current !== requestId
+      ) {
+        return;
+      }
+
       setConversation(conversationResult);
 
       shouldScrollToBottomRef.current = true;
 
-      setMessages((current) =>
-        mergeUniqueSupportMessages(current, messageResult.items),
-      );
+      /*
+       * The first page establishes this
+       * route's isolated message baseline.
+       * Reconciliation paths still merge.
+       */
+      setMessages(messageResult.items);
 
       setMeta(messageResult.meta);
 
       await markConversationRead();
     } catch (requestError) {
+      if (
+        activeConversationIdRef.current !== requestConversationId ||
+        initialLoadRequestIdRef.current !== requestId
+      ) {
+        return;
+      }
+
       setError(
         normalizeApiError(
           requestError,
@@ -165,13 +263,20 @@ export function useAdminSupportConversation(conversationId) {
         ),
       );
     } finally {
-      setLoading(false);
+      if (
+        activeConversationIdRef.current === requestConversationId &&
+        initialLoadRequestIdRef.current === requestId
+      ) {
+        setLoading(false);
+      }
     }
   }, [conversationId, markConversationRead]);
 
   useEffect(() => {
-    loadConversation();
-  }, [loadConversation]);
+    void loadConversation({
+      resetRouteState: true,
+    });
+  }, [conversationId, loadConversation]);
 
   useEffect(() => {
     if (!shouldScrollToBottomRef.current) {
@@ -201,8 +306,13 @@ export function useAdminSupportConversation(conversationId) {
 
     let effectActive = true;
 
+    const roomConversationId = conversation.id;
+
     function joinConversationRoom() {
-      if (!effectActive) {
+      if (
+        !effectActive ||
+        activeConversationIdRef.current !== roomConversationId
+      ) {
         return;
       }
 
@@ -214,11 +324,14 @@ export function useAdminSupportConversation(conversationId) {
         'support:room:join',
 
         {
-          conversationId: conversation.id,
+          conversationId: roomConversationId,
         },
 
         (response) => {
-          if (!effectActive) {
+          if (
+            !effectActive ||
+            activeConversationIdRef.current !== roomConversationId
+          ) {
             return;
           }
 
@@ -246,13 +359,20 @@ export function useAdminSupportConversation(conversationId) {
     }
 
     function handleDisconnect() {
-      if (effectActive) {
+      if (
+        effectActive &&
+        activeConversationIdRef.current === roomConversationId
+      ) {
         setLiveStatus('offline');
       }
     }
 
     function handleConnectError(socketError) {
       if (!effectActive) {
+        return;
+      }
+
+      if (activeConversationIdRef.current !== roomConversationId) {
         return;
       }
 
@@ -266,7 +386,8 @@ export function useAdminSupportConversation(conversationId) {
     function handleNewMessage(payload) {
       if (
         !effectActive ||
-        payload?.conversationId !== conversation.id ||
+        activeConversationIdRef.current !== roomConversationId ||
+        payload?.conversationId !== roomConversationId ||
         !payload?.message?.id
       ) {
         return;
@@ -325,7 +446,7 @@ export function useAdminSupportConversation(conversationId) {
           'support:room:leave',
 
           {
-            conversationId: conversation.id,
+            conversationId: roomConversationId,
           },
         );
       }
@@ -347,13 +468,15 @@ export function useAdminSupportConversation(conversationId) {
       return;
     }
 
+    const requestConversationId = conversationId;
+
     setOlderLoading(true);
 
     setOlderError(null);
 
     try {
       const result = await fetchAdminSupportMessages(
-        conversationId,
+        requestConversationId,
 
         {
           page: meta.page + 1,
@@ -361,6 +484,10 @@ export function useAdminSupportConversation(conversationId) {
           limit: SUPPORT_MESSAGE_LIMIT,
         },
       );
+
+      if (activeConversationIdRef.current !== requestConversationId) {
+        return;
+      }
 
       /*
        * Older history does not
@@ -373,6 +500,10 @@ export function useAdminSupportConversation(conversationId) {
 
       setMeta(result.meta);
     } catch (requestError) {
+      if (activeConversationIdRef.current !== requestConversationId) {
+        return;
+      }
+
       setOlderError(
         normalizeApiError(
           requestError,
@@ -381,7 +512,9 @@ export function useAdminSupportConversation(conversationId) {
         ),
       );
     } finally {
-      setOlderLoading(false);
+      if (activeConversationIdRef.current === requestConversationId) {
+        setOlderLoading(false);
+      }
     }
   }
 
@@ -432,12 +565,18 @@ export function useAdminSupportConversation(conversationId) {
 
     setSendError(null);
 
+    const requestConversationId = conversationId;
+
     try {
       const message = await sendAdminSupportMessage(
-        conversationId,
+        requestConversationId,
 
         text,
       );
+
+      if (activeConversationIdRef.current !== requestConversationId) {
+        return;
+      }
 
       shouldScrollToBottomRef.current = true;
 
@@ -457,6 +596,10 @@ export function useAdminSupportConversation(conversationId) {
 
       setSendStatus('sent');
     } catch (requestError) {
+      if (activeConversationIdRef.current !== requestConversationId) {
+        return;
+      }
+
       /*
        * Preserve draft for retry.
        */
@@ -472,36 +615,45 @@ export function useAdminSupportConversation(conversationId) {
     }
   }
 
+  /*
+   * Passive route-reset effects run after
+   * render. Mask the previous route's state
+   * during that handoff so it cannot flash
+   * beneath the new conversation URL.
+   */
+  const routeStateIsCurrent =
+    conversationStateId === conversationId;
+
   return {
-    conversation,
+    conversation: routeStateIsCurrent ? conversation : null,
 
-    messages,
+    messages: routeStateIsCurrent ? messages : [],
 
-    meta,
+    meta: routeStateIsCurrent ? meta : SUPPORT_DEFAULT_META,
 
-    loading,
-    error,
+    loading: routeStateIsCurrent ? loading : true,
+    error: routeStateIsCurrent ? error : null,
 
-    olderLoading,
-    olderError,
+    olderLoading: routeStateIsCurrent ? olderLoading : false,
+    olderError: routeStateIsCurrent ? olderError : null,
 
-    draft,
+    draft: routeStateIsCurrent ? draft : '',
 
-    sendStatus,
-    sendError,
+    sendStatus: routeStateIsCurrent ? sendStatus : 'idle',
+    sendError: routeStateIsCurrent ? sendError : null,
 
-    readError,
+    readError: routeStateIsCurrent ? readError : null,
 
-    liveStatus,
-    liveError,
+    liveStatus: routeStateIsCurrent ? liveStatus : 'idle',
+    liveError: routeStateIsCurrent ? liveError : null,
 
-    syncError,
+    syncError: routeStateIsCurrent ? syncError : null,
 
     messagesEndRef,
 
-    canLoadOlder: meta.page < meta.totalPages,
+    canLoadOlder: routeStateIsCurrent && meta.page < meta.totalPages,
 
-    sending: sendStatus === 'sending',
+    sending: routeStateIsCurrent && sendStatus === 'sending',
 
     loadConversation,
 

@@ -15,7 +15,7 @@ import { ProductVariantSelector } from '../../features/products/components/Produ
 import { useProductDetails } from '../../features/products/hooks/useProductDetails.js';
 import { useProductPurchase } from '../../features/products/hooks/useProductPurchase.js';
 
-import ProductReviewsSection from '../../features/review/ProductReviewsSection.jsx';
+import ProductReviewsSection from '../../features/reviews/components/ProductReviewsSection.jsx';
 
 function ProductDetailsLoading() {
   return (
