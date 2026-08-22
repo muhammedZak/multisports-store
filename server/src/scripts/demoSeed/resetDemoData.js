@@ -8,13 +8,26 @@ import {
 } from './categories.seed.js';
 import { resetProducts } from './product.persistence.seed.js';
 import { validateProductDefinitions } from './products.seed.js';
-import { resetCoupons } from './coupon.seed.js';
+import {
+  resetCoupons,
+  validateCouponDefinitions,
+} from './coupon.seed.js';
 import { resetCarts } from './cart.seed.js';
 import {
   resetInventoryCatalog,
   resolveSeedLowStockThreshold,
+  validateInventoryDefinitions,
 } from './inventory.seed.js';
-import { resetDemoUsers, validateDemoSeedPassword } from './users.seed.js';
+import {
+  resetDemoUsers,
+  validateDemoSeedPassword,
+  validateDemoUserDefinitions,
+} from './users.seed.js';
+import { validateHistoricalCommerceScenarioMatrix } from './commerce.scenarios.seed.js';
+import {
+  resetHistoricalCommerce,
+  validateHistoricalPersistenceDefinitions,
+} from './commerce.persistence.seed.js';
 import {
   connectSeedDatabase,
   disconnectSeedDatabase,
@@ -66,6 +79,33 @@ async function runSelectiveReset() {
       registry,
       categories: expectedCategories,
     });
+    const expectedUsers = await validateDemoUserDefinitions({ registry, clock });
+    const expectedCoupons = await validateCouponDefinitions({ registry, clock });
+    const expectedInventory = await validateInventoryDefinitions({
+      definitions: lockedProducts.definitions,
+      registry,
+      clock,
+      threshold: lowStockThreshold,
+    });
+    const commerceMatrix = await validateHistoricalCommerceScenarioMatrix({
+      registry,
+      clock,
+      productDefinitions: lockedProducts.definitions,
+      categories: expectedCategories,
+      users: expectedUsers,
+      coupons: expectedCoupons.coupons,
+      inventoryPositions: expectedInventory.positions,
+      lowStockThreshold,
+    });
+    const historicalDefinitions =
+      await validateHistoricalPersistenceDefinitions({
+        matrix: commerceMatrix,
+        registry,
+        foundationalPositions: expectedInventory.positions,
+      });
+    const historicalResult = await resetHistoricalCommerce(
+      historicalDefinitions,
+    );
     const cartResult = await resetCarts({ registry, clock });
     const inventoryResult = await resetInventoryCatalog({
       definitions: lockedProducts.definitions,
@@ -93,7 +133,17 @@ async function runSelectiveReset() {
     console.log('Demo Seed Reset');
     console.log(`Database: ${connection.db.databaseName}`);
     console.log(
-      'Scope: deterministic Carts, InventoryAdjustments, Inventory, Products, Categories, Coupons, then Users',
+      'Scope: deterministic Historical Commerce, Carts, InventoryAdjustments, Inventory, Products, Categories, Coupons, then Users',
+    );
+    console.log(
+      `Historical Inventory restored: ${historicalResult.inventoryRestored}`,
+    );
+    console.log(
+      `Historical InventoryAdjustments deleted: ${historicalResult.adjustmentsDeleted}`,
+    );
+    console.log(`Historical Orders deleted: ${historicalResult.ordersDeleted}`);
+    console.log(
+      `Historical Payments deleted: ${historicalResult.paymentsDeleted}`,
     );
     console.log(`Carts deleted: ${cartResult.deleted}`);
     console.log(

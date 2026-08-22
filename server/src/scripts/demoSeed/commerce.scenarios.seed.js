@@ -129,8 +129,8 @@ const CUSTOMER_STATUS_BLOCKS = Object.freeze([
 const RECENT_DATE_OFFSETS = Object.freeze([1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7]);
 const THIRTY_DAY_OFFSETS = Object.freeze([8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]);
 const YEAR_DATE_OFFSETS = Object.freeze([
-  40, 47, 55, 64, 73, 82, 92, 103, 115, 127, 140, 152, 165, 178, 190,
-  202, 214, 225,
+  40, 47, 55, 64, 73, 82, 92, 103, 115, 127, 138, 145, 152, 156, 159,
+  162, 164, 165,
 ]);
 const ALL_DATE_OFFSETS = Object.freeze([
   ...RECENT_DATE_OFFSETS,
@@ -411,6 +411,7 @@ function buildOrderBackedDefinitions({
       placedAt,
       STATUS_DELAY_MILLISECONDS[scenario.status],
     );
+    const cartReconciledAt = addMilliseconds(placedAt, 10 * 60 * 1000);
     const productIndexes = productIndexesForOrder(
       ordinal,
       scenario.itemCount,
@@ -491,6 +492,7 @@ function buildOrderBackedDefinitions({
       totalAmount: checkoutSnapshot.totalAmount,
       orderStatus: scenario.status,
       placedAt,
+      cartReconciledAt,
       ...(scenario.status === ORDER_STATUSES.CANCELLED
         ? { cancelledAt: statusAt }
         : {}),
@@ -639,9 +641,7 @@ export function buildRefundEligibilityPlan(matrix) {
       order.orderStatus === ORDER_STATUSES.DELIVERED,
   );
   const cancelled = matrix.orders.filter(
-    (order) =>
-      order.customerSeedKey === 'user:refunds' &&
-      order.orderStatus === ORDER_STATUSES.CANCELLED,
+    (order) => order.orderStatus === ORDER_STATUSES.CANCELLED,
   );
   const customerRequest = delivered
     .flatMap((order) =>
@@ -860,6 +860,7 @@ function orderModelPayload(order) {
     totalAmount: order.totalAmount,
     orderStatus: order.orderStatus,
     placedAt: order.placedAt,
+    cartReconciledAt: order.cartReconciledAt,
     ...(order.cancelledAt ? { cancelledAt: order.cancelledAt } : {}),
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
@@ -1006,7 +1007,8 @@ export async function validateHistoricalCommerceScenarioMatrix(input) {
       payment &&
         payment.createdAt < payment.verifiedAt &&
         payment.verifiedAt < order.placedAt &&
-        order.placedAt <= order.updatedAt &&
+        order.placedAt < order.cartReconciledAt &&
+        order.cartReconciledAt <= order.updatedAt &&
         order.updatedAt <= anchor &&
         order.placedAt.getUTCFullYear() === anchorYear &&
         (order.orderStatus === ORDER_STATUSES.CANCELLED
@@ -1091,10 +1093,10 @@ export async function validateHistoricalCommerceScenarioMatrix(input) {
   );
   assertMatrix(
     matrix.refundEligibility.customerRequest.length === 6 &&
-      matrix.refundEligibility.orderCancellation.length === 3 &&
+      matrix.refundEligibility.orderCancellation.length === 4 &&
       matrix.refundEligibility.systemCompensation.length === 2,
     'DEMO_COMMERCE_REFUND_ELIGIBILITY_INVALID',
-    'Refund eligibility must reserve exact 6/3/2 future scopes.',
+    'Refund eligibility must reserve exact 6/4/2 future scopes.',
   );
 
   const purchases = matrix.inventoryEffectPlan.effects.filter(

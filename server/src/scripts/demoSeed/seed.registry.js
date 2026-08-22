@@ -96,6 +96,31 @@ function commerceItemKeys() {
   ];
 }
 
+function historicalInventoryAdjustmentKeys() {
+  const twoItemOrderOrdinals = new Set([15, 23, 31, 32, 33, 34, 35]);
+  const cancelledOrderOrdinals = new Set([14, 36, 37, 38]);
+  const keys = [];
+
+  for (let ordinal = 1; ordinal <= 42; ordinal += 1) {
+    const ordinalLabel = String(ordinal).padStart(2, '0');
+    const lineCount = twoItemOrderOrdinals.has(ordinal) ? 2 : 1;
+
+    for (let lineOrdinal = 1; lineOrdinal <= lineCount; lineOrdinal += 1) {
+      const lineLabel = String(lineOrdinal).padStart(2, '0');
+      const namespace =
+        `inventory-adjustment:historical:order:${ordinalLabel}`;
+
+      keys.push(`${namespace}:purchase:${lineLabel}`);
+
+      if (cancelledOrderOrdinals.has(ordinal)) {
+        keys.push(`${namespace}:cancellation:${lineLabel}`);
+      }
+    }
+  }
+
+  return keys;
+}
+
 const LOW_STOCK_ACTIVE_SIMPLE_ORDINALS = new Set([3, 7, 11, 15, 19]);
 const OUT_OF_STOCK_ACTIVE_SIMPLE_ORDINALS = new Set([4, 8, 12, 16]);
 const RESTOCK_IN_STOCK_ORDINALS = new Set([2, 8, 14, 20, 27, 34, 41, 48]);
@@ -272,6 +297,7 @@ export function createSeedRegistry(manifest) {
     inventoryAdjustments: inventoryPlan.flatMap(
       (position) => position.adjustmentKeys,
     ),
+    historicalInventoryAdjustments: historicalInventoryAdjustmentKeys(),
     coupons: DEMO_COUPON_IDENTITIES.map((identity) => identity.key),
     carts: Object.freeze([
       'cart:user:checkout',

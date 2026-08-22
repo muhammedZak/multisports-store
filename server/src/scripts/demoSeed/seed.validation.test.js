@@ -97,6 +97,13 @@ import {
   validateHistoricalCommerceScenarioMatrix,
 } from './commerce.scenarios.seed.js';
 import {
+  HISTORICAL_COMMERCE_STATES,
+  assertNoHistoricalResetDependencies,
+  classifyHistoricalCommerceSnapshot,
+  exactHistoricalIdFilter,
+  validateHistoricalPersistenceDefinitions,
+} from './commerce.persistence.seed.js';
+import {
   DEMO_USER_CLASSIFICATIONS,
   DEMO_USER_DEFINITIONS,
   buildExpectedDemoUsers,
@@ -237,7 +244,8 @@ test('the locked manifest and complete registry validate', async () => {
   assert.equal(registry.counts.commerceItems, 53);
   assert.equal(registry.counts.payments, 46);
   assert.equal(registry.counts.orders, 42);
-  assert.equal(registry.entries.length, 650);
+  assert.equal(registry.counts.historicalInventoryAdjustments, 53);
+  assert.equal(registry.entries.length, 703);
   assert.equal(new Set(ids).size, ids.length);
 });
 
@@ -2234,12 +2242,12 @@ test('review eligibility reserves two disjoint seven-Product delivered purchase 
   }
 });
 
-test('refund eligibility reserves exact six customer, three cancellation, and two compensation scopes', async () => {
+test('refund eligibility reserves exact six customer, four cancellation, and two compensation scopes', async () => {
   const { matrix } = await historicalCommerceFixture();
   const plan = matrix.refundEligibility;
 
   assert.equal(plan.customerRequest.length, 6);
-  assert.equal(plan.orderCancellation.length, 3);
+  assert.equal(plan.orderCancellation.length, 4);
   assert.equal(plan.systemCompensation.length, 2);
   assert.equal(
     new Set(
@@ -2345,4 +2353,308 @@ test('all 46 Payments and 42 Orders validate in memory and the module exposes no
     ),
     false,
   );
+});
+
+let historicalPersistenceFixturePromise;
+
+async function historicalPersistenceFixture() {
+  historicalPersistenceFixturePromise ??= (async () => {
+    const fixture = await historicalCommerceFixture();
+    const validated = await validateHistoricalPersistenceDefinitions({
+      matrix: fixture.matrix,
+      registry: fixture.registry,
+      foundationalPositions: fixture.inventory.positions,
+    });
+
+    return { ...fixture, validated };
+  })();
+
+  return historicalPersistenceFixturePromise;
+}
+
+test('matrix correction reserves four cancellations and marks all Orders reconciled', async () => {
+  const { matrix } = await historicalPersistenceFixture();
+
+  assert.equal(matrix.refundEligibility.customerRequest.length, 6);
+  assert.equal(matrix.refundEligibility.orderCancellation.length, 4);
+  assert.equal(matrix.refundEligibility.systemCompensation.length, 2);
+  assert.equal(
+    matrix.orders.filter((order) => order.cartReconciledAt).length,
+    42,
+  );
+  assert.ok(
+    matrix.orders.every(
+      (order) =>
+        order.cartReconciledAt.getTime() - order.placedAt.getTime() ===
+          10 * 60 * 1000 &&
+        order.updatedAt >= order.cartReconciledAt,
+    ),
+  );
+});
+
+test('historical adjustment registry contains exact 49 purchase and four cancellation keys', async () => {
+  const { registry } = await historicalPersistenceFixture();
+  const keys = registry.keysByEntity.historicalInventoryAdjustments;
+  const ids = keys.map((key) => registry.idFor(key).toString());
+
+  assert.equal(keys.length, 53);
+  assert.equal(keys.filter((key) => key.includes(':purchase:')).length, 49);
+  assert.equal(keys.filter((key) => key.includes(':cancellation:')).length, 4);
+  assert.equal(new Set(ids).size, 53);
+  assert.equal(registry.entries.length, 703);
+  assert.ok(
+    keys.every((key) =>
+      /^inventory-adjustment:historical:order:\d{2}:(purchase|cancellation):\d{2}$/.test(
+        key,
+      ),
+    ),
+  );
+});
+
+test('historical adjustments walk chronological Inventory arithmetic exactly', async () => {
+  const { validated } = await historicalPersistenceFixture();
+  const running = new Map(
+    validated.foundationalPositions.map((position) => [
+      position._id.toString(),
+      position.quantity,
+    ]),
+  );
+  let previousTimestamp = new Date(0);
+
+  for (const adjustment of validated.historicalAdjustments) {
+    const inventoryId = adjustment.inventoryId.toString();
+    const previousQuantity = running.get(inventoryId);
+
+    assert.ok(adjustment.createdAt >= previousTimestamp);
+    assert.equal(adjustment.updatedAt.toISOString(), adjustment.createdAt.toISOString());
+    assert.equal(adjustment.previousQuantity, previousQuantity);
+    assert.equal(
+      adjustment.newQuantity,
+      adjustment.previousQuantity + adjustment.quantityChange,
+    );
+    assert.ok(adjustment.newQuantity >= 0);
+    assert.equal(adjustment.sourceType, 'order');
+    assert.equal(Object.hasOwn(adjustment, 'performedBy'), false);
+    assert.equal(Object.hasOwn(adjustment, 'note'), false);
+    running.set(inventoryId, adjustment.newQuantity);
+    previousTimestamp = adjustment.createdAt;
+  }
+
+  assert.equal(
+    validated.historicalAdjustments.reduce(
+      (total, adjustment) => total + adjustment.quantityChange,
+      0,
+    ),
+    -45,
+  );
+});
+
+test('historical overlay locks 14 affected positions, final quantities, and last-effect timestamps', async () => {
+  const { validated } = await historicalPersistenceFixture();
+
+  assert.equal(validated.finalPositions.length, 105);
+  assert.equal(validated.affectedPositions.length, 14);
+  assert.equal(validated.netChange, -45);
+  assert.equal(
+    Math.min(...validated.affectedPositions.map((position) => position.quantity)),
+    13,
+  );
+  assert.ok(validated.finalPositions.every((position) => position.quantity >= 0));
+
+  for (const position of validated.affectedPositions) {
+    const lastEffect = position.historicalAdjustments.at(-1);
+    assert.equal(position.updatedAt.toISOString(), lastEffect.createdAt.toISOString());
+    assert.equal(position.createdAt.toISOString(),
+      validated.foundationalPositions
+        .find((candidate) => candidate._id.toString() === position._id.toString())
+        .createdAt.toISOString());
+  }
+});
+
+function exactHistoricalSnapshot(validated) {
+  return {
+    validated,
+    payments: validated.matrix.payments,
+    orders: validated.matrix.orders,
+    historicalAdjustments: validated.historicalAdjustments,
+    foundationalAdjustments: validated.foundationalAdjustments,
+    inventory: validated.finalPositions,
+  };
+}
+
+function baseHistoricalSnapshot(validated) {
+  return {
+    validated,
+    payments: [],
+    orders: [],
+    historicalAdjustments: [],
+    foundationalAdjustments: validated.foundationalAdjustments,
+    inventory: validated.foundationalPositions,
+  };
+}
+
+test('whole-layer preflight classification accepts only clean BASE and exact FINAL states', async () => {
+  const { validated } = await historicalPersistenceFixture();
+
+  assert.equal(
+    classifyHistoricalCommerceSnapshot(baseHistoricalSnapshot(validated)),
+    HISTORICAL_COMMERCE_STATES.BASE,
+  );
+  assert.equal(
+    classifyHistoricalCommerceSnapshot(exactHistoricalSnapshot(validated)),
+    HISTORICAL_COMMERCE_STATES.EXACT_FINAL,
+  );
+});
+
+test('whole-layer preflight rejects partial Payment, Order, adjustment, and Inventory states', async () => {
+  const { validated } = await historicalPersistenceFixture();
+  const partials = [
+    {
+      ...baseHistoricalSnapshot(validated),
+      payments: [validated.matrix.payments[0]],
+    },
+    {
+      ...baseHistoricalSnapshot(validated),
+      orders: [validated.matrix.orders[0]],
+    },
+    {
+      ...baseHistoricalSnapshot(validated),
+      historicalAdjustments: [validated.historicalAdjustments[0]],
+    },
+    {
+      ...baseHistoricalSnapshot(validated),
+      inventory: validated.foundationalPositions.map((position) =>
+        position._id.toString() === validated.affectedPositions[0]._id.toString()
+          ? validated.affectedPositions[0]
+          : position,
+      ),
+    },
+  ];
+
+  for (const snapshot of partials) {
+    assert.equal(
+      classifyHistoricalCommerceSnapshot(snapshot),
+      HISTORICAL_COMMERCE_STATES.PARTIAL,
+    );
+  }
+});
+
+test('whole-layer preflight detects provider, Order-number, and field drift', async () => {
+  const { validated } = await historicalPersistenceFixture();
+  const payment = validated.matrix.payments[0];
+  const order = validated.matrix.orders[0];
+  const providerConflict = {
+    ...baseHistoricalSnapshot(validated),
+    payments: [
+      {
+        ...payment,
+        _id: deterministicObjectId('conflict:historical:payment'),
+      },
+    ],
+  };
+  const orderConflict = {
+    ...baseHistoricalSnapshot(validated),
+    orders: [
+      {
+        ...order,
+        _id: deterministicObjectId('conflict:historical:order'),
+      },
+    ],
+  };
+  const drift = {
+    ...exactHistoricalSnapshot(validated),
+    payments: [
+      { ...payment, amount: payment.amount + 1 },
+      ...validated.matrix.payments.slice(1),
+    ],
+  };
+
+  assert.equal(
+    classifyHistoricalCommerceSnapshot(providerConflict),
+    HISTORICAL_COMMERCE_STATES.CONFLICT,
+  );
+  assert.equal(
+    classifyHistoricalCommerceSnapshot(orderConflict),
+    HISTORICAL_COMMERCE_STATES.CONFLICT,
+  );
+  assert.equal(
+    classifyHistoricalCommerceSnapshot(drift),
+    HISTORICAL_COMMERCE_STATES.DRIFT,
+  );
+});
+
+test('exact historical final overlay is accepted without foundational quantity fallback', async () => {
+  const { validated } = await historicalPersistenceFixture();
+  const state = classifyHistoricalCommerceSnapshot(
+    exactHistoricalSnapshot(validated),
+  );
+
+  assert.equal(state, HISTORICAL_COMMERCE_STATES.EXACT_FINAL);
+  assert.ok(
+    validated.affectedPositions.every((finalPosition) => {
+      const foundational = validated.foundationalPositions.find(
+        (position) => position._id.toString() === finalPosition._id.toString(),
+      );
+      return finalPosition.quantity !== foundational.quantity;
+    }),
+  );
+});
+
+test('persisted definition contracts lock Payment, Order, and adjustment distributions', async () => {
+  const { validated } = await historicalPersistenceFixture();
+  const payments = validated.matrix.payments;
+  const orders = validated.matrix.orders;
+  const adjustments = validated.historicalAdjustments;
+
+  assert.equal(payments.length, 46);
+  assert.equal(payments.filter((payment) => payment.status === 'succeeded').length, 44);
+  assert.equal(payments.filter((payment) => payment.status === 'created').length, 2);
+  assert.equal(
+    payments.filter((payment) => payment.commerceResolution === 'order').length,
+    42,
+  );
+  assert.equal(
+    payments.filter(
+      (payment) => payment.commerceResolution === 'system_compensation',
+    ).length,
+    2,
+  );
+  assert.equal(
+    payments.filter((payment) => !payment.commerceResolution).length,
+    2,
+  );
+  assert.equal(orders.length, 42);
+  assert.equal(orders.flatMap((order) => order.items).length, 49);
+  assert.equal(orders.filter((order) => order.cancelledAt).length, 4);
+  assert.equal(orders.filter((order) => order.cartReconciledAt).length, 42);
+  assert.equal(
+    adjustments.filter((adjustment) => adjustment.reason === 'order_purchase').length,
+    49,
+  );
+  assert.equal(
+    adjustments.filter(
+      (adjustment) => adjustment.reason === 'order_cancellation',
+    ).length,
+    4,
+  );
+});
+
+test('historical reset scope is exact and downstream Refund dependencies refuse reset', async () => {
+  const { validated } = await historicalPersistenceFixture();
+  const paymentFilter = exactHistoricalIdFilter(validated.matrix.payments);
+  const orderFilter = exactHistoricalIdFilter(validated.matrix.orders);
+  const adjustmentFilter = exactHistoricalIdFilter(
+    validated.historicalAdjustments,
+  );
+
+  assert.equal(paymentFilter._id.$in.length, 46);
+  assert.equal(orderFilter._id.$in.length, 42);
+  assert.equal(adjustmentFilter._id.$in.length, 53);
+  assert.doesNotThrow(() => assertNoHistoricalResetDependencies([]));
+  assert.throws(
+    () => assertNoHistoricalResetDependencies(['Refund']),
+    (error) => error.code === 'DEMO_HISTORICAL_RESET_DEPENDENCY',
+  );
+  assert.equal(JSON.stringify(paymentFilter).includes('status'), false);
+  assert.equal(JSON.stringify(orderFilter).includes('orderStatus'), false);
 });

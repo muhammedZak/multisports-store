@@ -15,11 +15,22 @@ import {
 } from './product.persistence.seed.js';
 import { validateProductDefinitions } from './products.seed.js';
 import { seedCoupons, validateCouponDefinitions } from './coupon.seed.js';
-import { seedCarts, validateCartDefinitions } from './cart.seed.js';
 import {
-  preflightHistoricalCommerceCollisions,
+  seedCarts,
+  validateCartDefinitions,
+  verifyCheckoutPreviews,
+  verifyPersistedCartResolutions,
+} from './cart.seed.js';
+import {
   validateHistoricalCommerceScenarioMatrix,
 } from './commerce.scenarios.seed.js';
+import {
+  HISTORICAL_COMMERCE_STATES,
+  historicalInventoryLogicalSeedResult,
+  preflightHistoricalCommerce,
+  seedHistoricalCommerce,
+  validateHistoricalPersistenceDefinitions,
+} from './commerce.persistence.seed.js';
 import {
   assertPersistedInventoryStructure,
   resolveSeedLowStockThreshold,
@@ -227,6 +238,24 @@ export async function runDemoSeed() {
       registry,
       clock,
     });
+    const commerceMatrix = await validateHistoricalCommerceScenarioMatrix({
+      registry,
+      clock,
+      productDefinitions: lockedProductResult.definitions,
+      categories: expectedCategories,
+      users: expectedUsers,
+      coupons: expectedCouponResult.coupons,
+      inventoryPositions: expectedInventoryResult.positions,
+      lowStockThreshold,
+    });
+    const historicalDefinitions =
+      await validateHistoricalPersistenceDefinitions({
+        matrix: commerceMatrix,
+        registry,
+        foundationalPositions: expectedInventoryResult.positions,
+      });
+    const initialHistoricalPreflight =
+      await preflightHistoricalCommerce(historicalDefinitions);
     const beforeCounts = await snapshotCollectionCounts(connection);
     const beforeUnrelatedUsers = await snapshotUnrelatedUsers(expectedUsers);
     const beforeUnrelatedCategories =
@@ -238,7 +267,10 @@ export async function runDemoSeed() {
     );
     const beforeUnrelatedInventoryAdjustments =
       await snapshotUnrelatedInventoryAdjustments(
-        expectedInventoryResult.adjustments,
+        [
+          ...expectedInventoryResult.adjustments,
+          ...historicalDefinitions.historicalAdjustments,
+        ],
       );
     const beforeUnrelatedCarts = await snapshotUnrelatedCarts(
       expectedCartResult.carts,
@@ -268,13 +300,17 @@ export async function runDemoSeed() {
       uploadAsset: uploadProductImageAsset,
       deleteAsset: deleteProductImageAsset,
     });
-    const inventoryResult = await seedInventoryCatalog({
-      definitions: lockedProductResult.definitions,
-      registry,
-      clock,
-      threshold: lowStockThreshold,
-      productImageFolder: PRODUCT_IMAGE_FOLDER,
-    });
+    const inventoryResult =
+      initialHistoricalPreflight.state ===
+      HISTORICAL_COMMERCE_STATES.EXACT_FINAL
+        ? historicalInventoryLogicalSeedResult(historicalDefinitions)
+        : await seedInventoryCatalog({
+            definitions: lockedProductResult.definitions,
+            registry,
+            clock,
+            threshold: lowStockThreshold,
+            productImageFolder: PRODUCT_IMAGE_FOLDER,
+          });
     const couponResult = await seedCoupons({
       registry,
       clock,
@@ -285,20 +321,16 @@ export async function runDemoSeed() {
       clock,
       threshold: lowStockThreshold,
     });
-    const commerceMatrix = await validateHistoricalCommerceScenarioMatrix({
-      registry,
-      clock,
-      productDefinitions: lockedProductResult.definitions,
-      categories: expectedCategories,
-      users: expectedUsers,
-      coupons: expectedCouponResult.coupons,
-      inventoryPositions: expectedInventoryResult.positions,
-      lowStockThreshold,
-    });
-    const commerceCollisionResult =
-      await preflightHistoricalCommerceCollisions(commerceMatrix);
+    const historicalResult = await seedHistoricalCommerce(
+      historicalDefinitions,
+    );
 
-    await assertPersistedInventoryStructure(inventoryResult.positions);
+    await verifyPersistedCartResolutions(expectedCartResult.carts);
+    await verifyCheckoutPreviews({ registry });
+
+    await assertPersistedInventoryStructure(
+      historicalDefinitions.finalPositions,
+    );
 
     const afterCounts = await snapshotCollectionCounts(connection);
     const afterUnrelatedUsers = await snapshotUnrelatedUsers(expectedUsers);
@@ -311,7 +343,10 @@ export async function runDemoSeed() {
     );
     const afterUnrelatedInventoryAdjustments =
       await snapshotUnrelatedInventoryAdjustments(
-        expectedInventoryResult.adjustments,
+        [
+          ...expectedInventoryResult.adjustments,
+          ...historicalDefinitions.historicalAdjustments,
+        ],
       );
     const afterUnrelatedCarts = await snapshotUnrelatedCarts(
       expectedCartResult.carts,
@@ -324,9 +359,13 @@ export async function runDemoSeed() {
       categories: categoryResult.created,
       products: productResult.created,
       inventories: inventoryResult.created,
-      inventoryAdjustments: inventoryResult.adjustmentsCreated,
+      inventoryAdjustments:
+        inventoryResult.adjustmentsCreated +
+        historicalResult.createdAdjustments,
       coupons: couponResult.created,
       carts: cartResult.created,
+      payments: historicalResult.createdPayments,
+      orders: historicalResult.createdOrders,
     });
 
     if (beforeUnrelatedUsers !== afterUnrelatedUsers) {
@@ -439,10 +478,18 @@ export async function runDemoSeed() {
     console.log(
       `  Compensation Payments: ${commerceMatrix.counts.compensationPayments}`,
     );
+    console.log('Historical Payments:');
+    console.log(`  Created: ${historicalResult.createdPayments}`);
+    console.log(`  Skipped: ${historicalResult.skippedPayments}`);
+    console.log('Historical Orders:');
+    console.log(`  Created: ${historicalResult.createdOrders}`);
+    console.log(`  Skipped: ${historicalResult.skippedOrders}`);
+    console.log('Historical InventoryAdjustments:');
+    console.log(`  Created: ${historicalResult.createdAdjustments}`);
+    console.log(`  Skipped: ${historicalResult.skippedAdjustments}`);
     console.log(
-      `  Persisted Payments: ${commerceCollisionResult.paymentsPresent}`,
+      `Historical Inventory affected: ${historicalResult.updatedInventory}`,
     );
-    console.log(`  Persisted Orders: ${commerceCollisionResult.ordersPresent}`);
     console.log('Authentication: Admin and Checkout Customer verified');
     console.log('AuthChallenges created: 0');
 
@@ -454,6 +501,7 @@ export async function runDemoSeed() {
       coupons: couponResult,
       carts: cartResult,
       commerceMatrix,
+      historicalCommerce: historicalResult,
     };
   } finally {
     await disconnectSeedDatabase();
