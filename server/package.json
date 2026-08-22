@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "inventory:bootstrap": "node src/scripts/bootstrapInventory.js"
+    "inventory:bootstrap": "node src/scripts/bootstrapInventory.js",
+    "seed:demo": "node src/scripts/demoSeed/seedDemoData.js",
+    "seed:demo:reset": "node src/scripts/demoSeed/resetDemoData.js",
+    "seed:demo:verify": "node --test src/scripts/demoSeed/seed.validation.test.js"
   },
   "keywords": [],
   "author": "",
