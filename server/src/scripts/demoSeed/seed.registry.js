@@ -319,7 +319,11 @@ export function createSeedRegistry(manifest) {
       ...numberedKeys('payment:system-compensation', 2),
     ],
     orders: numberedKeys('order:historical', 42),
-    refunds: numberedKeys('refund:scenario', 4),
+    refunds: Object.freeze([
+      ...numberedKeys('refund:customer-request', 6),
+      ...numberedKeys('refund:order-cancellation', 4),
+      ...numberedKeys('refund:system-compensation', 2),
+    ]),
     reviews: Object.freeze([
       ...numberedKeys('review:user:reviews', 7),
       ...numberedKeys('review:user:ratings', 7),

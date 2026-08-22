@@ -36,6 +36,10 @@ import {
   validateReviewDefinitions,
 } from './reviews.seed.js';
 import {
+  seedRefunds,
+  validateRefundDefinitions,
+} from './refunds.seed.js';
+import {
   assertPersistedInventoryStructure,
   resolveSeedLowStockThreshold,
   seedInventoryCatalog,
@@ -265,6 +269,12 @@ export async function runDemoSeed() {
       productDefinitions: lockedProductResult.definitions,
       users: expectedUsers,
     });
+    const expectedRefundResult = await validateRefundDefinitions({
+      registry,
+      clock,
+      matrix: commerceMatrix,
+      users: expectedUsers,
+    });
     const initialHistoricalPreflight =
       await preflightHistoricalCommerce(historicalDefinitions);
     const beforeCounts = await snapshotCollectionCounts(connection);
@@ -339,6 +349,11 @@ export async function runDemoSeed() {
       validated: expectedReviewResult,
       historicalDefinitions,
     });
+    const refundResult = await seedRefunds({
+      validated: expectedRefundResult,
+      historicalDefinitions,
+      validatedReviews: expectedReviewResult,
+    });
 
     await verifyPersistedCartResolutions(expectedCartResult.carts);
     await verifyCheckoutPreviews({ registry });
@@ -382,6 +397,7 @@ export async function runDemoSeed() {
       payments: historicalResult.createdPayments,
       orders: historicalResult.createdOrders,
       reviews: reviewResult.created,
+      refunds: refundResult.created,
     });
 
     if (beforeUnrelatedUsers !== afterUnrelatedUsers) {
@@ -511,6 +527,11 @@ export async function runDemoSeed() {
     console.log(`  Skipped: ${reviewResult.skipped}`);
     console.log(`  Visible: ${reviewResult.counts.visible}`);
     console.log(`  Hidden: ${reviewResult.counts.hidden}`);
+    console.log('Refunds:');
+    console.log(`  Created: ${refundResult.created}`);
+    console.log(`  Skipped: ${refundResult.skipped}`);
+    console.log('  Origins: 6 customer / 4 cancellation / 2 compensation');
+    console.log('  Provider Refund IDs: 8 synthetic');
     console.log('Authentication: Admin and Checkout Customer verified');
     console.log('AuthChallenges created: 0');
 
@@ -524,6 +545,7 @@ export async function runDemoSeed() {
       commerceMatrix,
       historicalCommerce: historicalResult,
       reviews: reviewResult,
+      refunds: refundResult,
     };
   } finally {
     await disconnectSeedDatabase();

@@ -33,6 +33,10 @@ import {
   validateReviewDefinitions,
 } from './reviews.seed.js';
 import {
+  resetRefunds,
+  validateRefundDefinitions,
+} from './refunds.seed.js';
+import {
   connectSeedDatabase,
   disconnectSeedDatabase,
   printSeedError,
@@ -114,7 +118,14 @@ async function runSelectiveReset() {
       productDefinitions: lockedProducts.definitions,
       users: expectedUsers,
     });
+    const expectedRefunds = await validateRefundDefinitions({
+      registry,
+      clock,
+      matrix: commerceMatrix,
+      users: expectedUsers,
+    });
     const reviewResult = await resetReviews(expectedReviews);
+    const refundResult = await resetRefunds(expectedRefunds);
     const historicalResult = await resetHistoricalCommerce(
       historicalDefinitions,
     );
@@ -145,9 +156,10 @@ async function runSelectiveReset() {
     console.log('Demo Seed Reset');
     console.log(`Database: ${connection.db.databaseName}`);
     console.log(
-      'Scope: deterministic Reviews, Historical Commerce, Carts, InventoryAdjustments, Inventory, Products, Categories, Coupons, then Users',
+      'Scope: deterministic Reviews, Refunds, Historical Commerce, Carts, InventoryAdjustments, Inventory, Products, Categories, Coupons, then Users',
     );
     console.log(`Reviews deleted: ${reviewResult.deleted}`);
+    console.log(`Refunds deleted: ${refundResult.deleted}`);
     console.log(
       `Historical Inventory restored: ${historicalResult.inventoryRestored}`,
     );

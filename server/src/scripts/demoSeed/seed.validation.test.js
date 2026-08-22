@@ -123,6 +123,16 @@ import {
   preflightReviews,
   validateReviewDefinitions,
 } from './reviews.seed.js';
+import {
+  LEGACY_REFUND_KEYS,
+  REFUND_CLASSIFICATIONS,
+  classifyRefundRecord,
+  exactRefundOwnershipFilter,
+  findLegacyRefundPlaceholders,
+  preflightRefunds,
+  validateRefundDefinitions,
+} from './refunds.seed.js';
+import { refundScopesConflict } from '../../modules/refund/refund.domain.js';
 
 const TEST_DATABASE = 'multisports_seed_test';
 
@@ -256,7 +266,7 @@ test('the locked manifest and complete registry validate', async () => {
   assert.equal(registry.counts.payments, 46);
   assert.equal(registry.counts.orders, 42);
   assert.equal(registry.counts.historicalInventoryAdjustments, 53);
-  assert.equal(registry.entries.length, 709);
+  assert.equal(registry.entries.length, 717);
   assert.equal(new Set(ids).size, ids.length);
 });
 
@@ -2412,7 +2422,7 @@ test('historical adjustment registry contains exact 49 purchase and four cancell
   assert.equal(keys.filter((key) => key.includes(':purchase:')).length, 49);
   assert.equal(keys.filter((key) => key.includes(':cancellation:')).length, 4);
   assert.equal(new Set(ids).size, 53);
-  assert.equal(registry.entries.length, 709);
+  assert.equal(registry.entries.length, 717);
   assert.ok(
     keys.every((key) =>
       /^inventory-adjustment:historical:order:\d{2}:(purchase|cancellation):\d{2}$/.test(
@@ -2695,7 +2705,7 @@ test('Review registry replaces eight placeholders with fourteen semantic identit
   const ids = keys.map((key) => registry.idFor(key).toString());
 
   assert.equal(keys.length, 14);
-  assert.equal(registry.entries.length, 709);
+  assert.equal(registry.entries.length, 717);
   assert.equal(new Set(ids).size, 14);
   assert.equal(keys.some((key) => key.startsWith('review:scenario:')), false);
   assert.deepEqual(keys.slice(0, 2), [
@@ -3025,4 +3035,307 @@ test('Review reset executes before historical commerce and contains no broad del
   assert.equal(reviewSource.includes('Review.deleteMany({})'), false);
   assert.equal(reviewSource.includes('deleteMany({ customerId'), false);
   assert.equal(reviewSource.includes('deleteMany({ productId'), false);
+});
+
+let refundFixturePromise;
+
+async function refundFixture() {
+  refundFixturePromise ??= (async () => {
+    const fixture = await reviewFixture();
+    const validatedRefunds = await validateRefundDefinitions({
+      registry: fixture.registry,
+      clock: fixture.clock,
+      matrix: fixture.matrix,
+      users: fixture.users,
+    });
+    return { ...fixture, validatedRefunds };
+  })();
+  return refundFixturePromise;
+}
+
+test('Refund registry replaces four placeholders with twelve semantic identities', async () => {
+  const { registry } = await refundFixture();
+  const keys = registry.keysByEntity.refunds;
+
+  assert.equal(registry.entries.length, 717);
+  assert.equal(keys.length, 12);
+  assert.equal(new Set(keys.map((key) => registry.idFor(key).toString())).size, 12);
+  assert.deepEqual(keys.slice(0, 2), [
+    'refund:customer-request:01',
+    'refund:customer-request:02',
+  ]);
+  assert.equal(keys.at(-1), 'refund:system-compensation:02');
+  assert.equal(keys.some((key) => key.startsWith('refund:scenario:')), false);
+  assert.equal(
+    findLegacyRefundPlaceholders(
+      LEGACY_REFUND_KEYS.map((key) => ({ _id: deterministicObjectId(key) })),
+    ).length,
+    4,
+  );
+});
+
+test('Refund definitions lock origin, status, provider, audit, and scope totals', async () => {
+  const { validatedRefunds } = await refundFixture();
+  const refunds = validatedRefunds.refunds;
+  const counts = (field, value) =>
+    refunds.filter((refund) => refund[field] === value).length;
+
+  assert.equal(refunds.length, 12);
+  assert.deepEqual(validatedRefunds.counts.origins, {
+    customer_request: 6,
+    order_cancellation: 4,
+    system_compensation: 2,
+  });
+  assert.deepEqual(validatedRefunds.counts.statuses, {
+    requested: 1,
+    approved: 2,
+    rejected: 1,
+    processing: 2,
+    refunded: 3,
+    failed: 3,
+  });
+  assert.equal(refunds.filter((refund) => refund.providerRefundId).length, 8);
+  assert.equal(new Set(refunds.map((refund) => refund.providerRefundId).filter(Boolean)).size, 8);
+  assert.equal(refunds.filter((refund) => refund.refundedAt).length, 3);
+  assert.equal(counts('scope', 'items'), 6);
+  assert.equal(counts('scope', 'order'), 4);
+  assert.equal(refunds.filter((refund) => !refund.scope).length, 2);
+});
+
+test('Refund eligibility locks exact Orders, Payments, Customers, and item scopes', async () => {
+  const { matrix, validatedRefunds } = await refundFixture();
+  const { customerRequests, orderCancellations, systemCompensations } =
+    validatedRefunds.groups;
+  const ordersById = new Map(
+    matrix.orders.map((order) => [order._id.toString(), order]),
+  );
+  const paymentsById = new Map(
+    matrix.payments.map((payment) => [payment._id.toString(), payment]),
+  );
+
+  assert.deepEqual(
+    customerRequests.map((refund) => ordersById.get(refund.orderId.toString()).seedKey),
+    [
+      'order:historical:31',
+      'order:historical:31',
+      'order:historical:32',
+      'order:historical:32',
+      'order:historical:33',
+      'order:historical:33',
+    ],
+  );
+  assert.deepEqual(
+    orderCancellations.map((refund) => ordersById.get(refund.orderId.toString()).seedKey),
+    [
+      'order:historical:14',
+      'order:historical:36',
+      'order:historical:37',
+      'order:historical:38',
+    ],
+  );
+  assert.deepEqual(
+    systemCompensations.map(
+      (refund) => paymentsById.get(refund.paymentId.toString()).seedKey,
+    ),
+    [
+      'payment:system-compensation:01',
+      'payment:system-compensation:02',
+    ],
+  );
+  assert.ok(customerRequests.every((refund) => refund.itemIds.length === 1));
+  assert.ok(orderCancellations.every((refund) => refund.itemIds.length === 0));
+  assert.ok(systemCompensations.every((refund) => !refund.orderId));
+});
+
+test('Customer Refund reasons, decisions, timestamps, and restock plan are exact', async () => {
+  const { validatedRefunds } = await refundFixture();
+  const refunds = validatedRefunds.groups.customerRequests;
+
+  assert.deepEqual(refunds.map((refund) => refund.status), [
+    'requested',
+    'approved',
+    'rejected',
+    'processing',
+    'refunded',
+    'failed',
+  ]);
+  assert.deepEqual(refunds.map((refund) => refund.restockOnCompletion), [
+    undefined,
+    true,
+    undefined,
+    false,
+    false,
+    true,
+  ]);
+  assert.equal(refunds.filter((refund) => refund.reviewedBy).length, 5);
+  assert.equal(
+    refunds[2].adminDecisionNote,
+    'Request does not meet the accepted return conditions.',
+  );
+  assert.equal(refunds[4].restockOnCompletion, false);
+  assert.equal(validatedRefunds.counts.refundReturnAdjustments, 0);
+  assert.ok(refunds.every((refund) => refund.createdAt === refund.requestedAt));
+});
+
+test('Refund domain amounts and scope claims have no active collisions', async () => {
+  const { validatedRefunds } = await refundFixture();
+  const refunds = validatedRefunds.refunds;
+  let collisions = 0;
+
+  for (let left = 0; left < refunds.length; left += 1) {
+    for (let right = left + 1; right < refunds.length; right += 1) {
+      collisions += refundScopesConflict(refunds[left], refunds[right]) ? 1 : 0;
+    }
+  }
+  assert.equal(collisions, 0);
+  assert.ok(refunds.every((refund) => Number.isSafeInteger(refund.amount) && refund.amount > 0));
+  assert.ok(
+    refunds
+      .filter((refund) => refund.orderId)
+      .every((refund) => refund.scopeClaimKeys.length > 0),
+  );
+  assert.ok(
+    validatedRefunds.groups.systemCompensations.every(
+      (refund) => refund.scopeOccupied === false && refund.scopeClaimKeys === undefined,
+    ),
+  );
+});
+
+test('Refund classification covers missing, exact, identity, provider, and scope conflicts', async () => {
+  const { validatedRefunds } = await refundFixture();
+  const expected = validatedRefunds.groups.customerRequests[0];
+  const providerExpected = validatedRefunds.groups.customerRequests[3];
+
+  assert.equal(
+    classifyRefundRecord({ expected }).classification,
+    REFUND_CLASSIFICATIONS.MISSING,
+  );
+  assert.equal(
+    classifyRefundRecord({ expected, recordById: expected, recordByNatural: expected }).classification,
+    REFUND_CLASSIFICATIONS.EXACT,
+  );
+  assert.equal(
+    classifyRefundRecord({
+      expected,
+      recordById: { ...expected, orderId: deterministicObjectId('refund:other:order') },
+    }).classification,
+    REFUND_CLASSIFICATIONS.ID_CONFLICT,
+  );
+  assert.equal(
+    classifyRefundRecord({
+      expected,
+      recordByNatural: { ...expected, _id: deterministicObjectId('refund:other:id') },
+    }).classification,
+    REFUND_CLASSIFICATIONS.NATURAL_KEY_CONFLICT,
+  );
+  assert.equal(
+    classifyRefundRecord({
+      expected: providerExpected,
+      recordByProviderRefundId: {
+        ...providerExpected,
+        _id: deterministicObjectId('refund:other:provider-id'),
+      },
+    }).classification,
+    REFUND_CLASSIFICATIONS.PROVIDER_REFUND_ID_CONFLICT,
+  );
+  assert.equal(
+    classifyRefundRecord({ expected, scopeConflict: true }).classification,
+    REFUND_CLASSIFICATIONS.SCOPE_CONFLICT,
+  );
+});
+
+test('Refund classification rejects status, amount, audit, and timestamp drift', async () => {
+  const { validatedRefunds } = await refundFixture();
+  const expected = validatedRefunds.groups.customerRequests[4];
+  const drifts = [
+    { ...expected, status: 'failed' },
+    { ...expected, amount: expected.amount + 1 },
+    { ...expected, reviewedBy: deterministicObjectId('refund:other:admin') },
+    { ...expected, refundedAt: new Date(expected.refundedAt.getTime() + 1) },
+    { ...expected, updatedAt: new Date(expected.updatedAt.getTime() + 1) },
+  ];
+
+  for (const record of drifts) {
+    assert.equal(
+      classifyRefundRecord({ expected, recordById: record, recordByNatural: record })
+        .classification,
+      REFUND_CLASSIFICATIONS.DRIFT,
+    );
+  }
+});
+
+test('Refund preflight permits only whole missing or whole exact layers', async () => {
+  const { validatedRefunds } = await refundFixture();
+  const expected = validatedRefunds.refunds;
+
+  assert.ok(
+    (await preflightRefunds(expected, [])).every(
+      (result) => result.classification === REFUND_CLASSIFICATIONS.MISSING,
+    ),
+  );
+  assert.ok(
+    (await preflightRefunds(expected, expected)).every(
+      (result) => result.classification === REFUND_CLASSIFICATIONS.EXACT,
+    ),
+  );
+  await assert.rejects(
+    preflightRefunds(expected, expected.slice(0, 1)),
+    (error) => error.code === 'DEMO_SEED_DRIFT',
+  );
+  await assert.rejects(
+    preflightRefunds(expected, [
+      { _id: deterministicObjectId(LEGACY_REFUND_KEYS[0]) },
+    ]),
+    (error) => error.code === 'DEMO_SEED_DRIFT',
+  );
+});
+
+test('Refund ownership/service/analytics projections match the locked scenario matrix', async () => {
+  const { users, validatedRefunds } = await refundFixture();
+  const refunds = validatedRefunds.refunds;
+  const userByKey = new Map(users.map((user) => [user.seedKey, user]));
+  const refundsCustomerId = userByKey.get('user:refunds')._id.toString();
+  const ordersCustomerId = userByKey.get('user:orders')._id.toString();
+  const recentCustomer = validatedRefunds.groups.customerRequests;
+  const providerRefunded = refunds.filter((refund) => refund.status === 'refunded');
+
+  assert.equal(refunds.filter((refund) => refund.customerId.toString() === refundsCustomerId).length, 11);
+  assert.equal(refunds.filter((refund) => refund.customerId.toString() === ordersCustomerId).length, 1);
+  assert.deepEqual(
+    ['requested', 'approved', 'rejected', 'processing', 'refunded', 'failed'].map(
+      (status) => recentCustomer.filter((refund) => refund.status === status).length,
+    ),
+    [1, 1, 1, 1, 1, 1],
+  );
+  assert.deepEqual(
+    ['customer_request', 'order_cancellation', 'system_compensation'].map(
+      (origin) => providerRefunded.filter((refund) => refund.origin === origin).length,
+    ),
+    [1, 1, 1],
+  );
+  assert.equal(
+    providerRefunded.reduce((sum, refund) => sum + refund.amount, 0),
+    validatedRefunds.groups.customerRequests[4].amount +
+      validatedRefunds.groups.orderCancellations[0].amount +
+      validatedRefunds.groups.systemCompensations[0].amount,
+  );
+});
+
+test('Refund reset is exact, follows Reviews, precedes history, and is never broad', async () => {
+  const { validatedRefunds } = await refundFixture();
+  const filter = exactRefundOwnershipFilter(validatedRefunds.refunds);
+  const resetSource = readFileSync(new URL('./resetDemoData.js', import.meta.url), 'utf8');
+  const refundSource = readFileSync(new URL('./refunds.seed.js', import.meta.url), 'utf8');
+
+  assert.equal(filter.$or.length, 12);
+  assert.ok(filter.$or.every((entry) => entry._id && entry.customerId && entry.paymentId && entry.origin));
+  assert.ok(resetSource.indexOf('await resetRefunds') > resetSource.indexOf('await resetReviews'));
+  assert.ok(resetSource.indexOf('await resetHistoricalCommerce') > resetSource.indexOf('await resetRefunds'));
+  assert.equal(refundSource.includes('Refund.deleteMany({})'), false);
+  assert.equal(refundSource.includes('deleteMany({ customerId'), false);
+  assert.equal(refundSource.includes('deleteMany({ origin'), false);
+  assert.throws(
+    () => exactRefundOwnershipFilter(validatedRefunds.refunds.slice(1)),
+    (error) => error.code === 'DEMO_REFUND_RESET_SCOPE_INVALID',
+  );
 });

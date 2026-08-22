@@ -330,7 +330,7 @@ export async function validateReviewDefinitions({
 
   assertReview(
     registry.counts.reviews === 14 &&
-      registry.entries.length === 709 &&
+      registry.entries.length === 717 &&
       reviews.length === 14 &&
       new Set(reviews.map((review) => idString(review._id))).size === 14 &&
       new Set(reviews.map(naturalKey)).size === 14,
