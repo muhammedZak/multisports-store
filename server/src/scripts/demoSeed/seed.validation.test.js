@@ -87,6 +87,15 @@ import {
   preflightCarts,
   validateCartDefinitions,
 } from './cart.seed.js';
+import * as commerceScenarioModule from './commerce.scenarios.seed.js';
+import {
+  HISTORICAL_COMMERCE_PRODUCT_KEYS,
+  HISTORICAL_CUSTOMER_ORDER_COUNTS,
+  HISTORICAL_STATUS_COUNTS,
+  buildHistoricalOrderDefinitions,
+  buildHistoricalPaymentDefinitions,
+  validateHistoricalCommerceScenarioMatrix,
+} from './commerce.scenarios.seed.js';
 import {
   DEMO_USER_CLASSIFICATIONS,
   DEMO_USER_DEFINITIONS,
@@ -225,7 +234,10 @@ test('the locked manifest and complete registry validate', async () => {
   assert.equal(registry.counts.coupons, 8);
   assert.equal(registry.counts.carts, 3);
   assert.equal(registry.counts.cartItems, 6);
-  assert.equal(registry.entries.length, 525);
+  assert.equal(registry.counts.commerceItems, 53);
+  assert.equal(registry.counts.payments, 46);
+  assert.equal(registry.counts.orders, 42);
+  assert.equal(registry.entries.length, 650);
   assert.equal(new Set(ids).size, ids.length);
 });
 
@@ -1912,4 +1924,425 @@ test('Cart selective reset filter is exact and never broad', async () => {
   );
   assert.equal(Object.hasOwn(filter, 'role'), false);
   assert.equal(JSON.stringify(filter).includes('deleteMany({})'), false);
+});
+
+let historicalCommerceFixturePromise;
+
+async function historicalCommerceFixture() {
+  historicalCommerceFixturePromise ??= (async () => {
+    const manifest = await loadAndValidateProductManifest();
+    const registry = createSeedRegistry(manifest);
+    const clock = createSeedClock({
+      anchorDate: '2026-08-22',
+      timeZone: 'Asia/Kolkata',
+    });
+    const users = await validateDemoUserDefinitions({ registry, clock });
+    const categories = await validateCategoryDefinitions({
+      registry,
+      clock,
+      manifest,
+    });
+    const products = validateProductDefinitions({
+      manifest,
+      registry,
+      categories,
+    });
+    const inventory = await validateInventoryDefinitions({
+      definitions: products.definitions,
+      registry,
+      clock,
+      threshold: 5,
+    });
+    const coupons = await validateCouponDefinitions({ registry, clock });
+    const matrix = await validateHistoricalCommerceScenarioMatrix({
+      registry,
+      clock,
+      productDefinitions: products.definitions,
+      categories,
+      users,
+      coupons: coupons.coupons,
+      inventoryPositions: inventory.positions,
+      lowStockThreshold: 5,
+    });
+
+    return {
+      manifest,
+      registry,
+      clock,
+      users,
+      categories,
+      products,
+      inventory,
+      coupons,
+      matrix,
+    };
+  })();
+
+  return historicalCommerceFixturePromise;
+}
+
+test('historical commerce registry locks 46 semantic Payments, 42 Orders, and 53 item IDs', async () => {
+  const { registry } = await historicalCommerceFixture();
+
+  assert.equal(registry.counts.payments, 46);
+  assert.equal(registry.counts.orders, 42);
+  assert.equal(registry.counts.commerceItems, 53);
+  assert.equal(registry.keysByEntity.payments[0], 'payment:order:01');
+  assert.equal(registry.keysByEntity.payments[41], 'payment:order:42');
+  assert.deepEqual(registry.keysByEntity.payments.slice(-4), [
+    'payment:abandoned:01',
+    'payment:abandoned:02',
+    'payment:system-compensation:01',
+    'payment:system-compensation:02',
+  ]);
+  assert.equal(registry.keysByEntity.orders[0], 'order:historical:01');
+  assert.equal(registry.keysByEntity.orders.at(-1), 'order:historical:42');
+  assert.equal(
+    new Set(
+      [
+        ...registry.keysByEntity.payments,
+        ...registry.keysByEntity.orders,
+        ...registry.keysByEntity.commerceItems,
+      ].map((key) => registry.idFor(key).toString()),
+    ).size,
+    141,
+  );
+});
+
+test('historical matrix corrects the provisional 45 target to exact 42/2/2 Payments', async () => {
+  const { matrix } = await historicalCommerceFixture();
+  const payments = buildHistoricalPaymentDefinitions(matrix);
+  const orders = buildHistoricalOrderDefinitions(matrix);
+
+  assert.equal(payments.length, 46);
+  assert.equal(orders.length, 42);
+  assert.deepEqual(matrix.counts, {
+    payments: 46,
+    orders: 42,
+    orderItems: 49,
+    checkoutSnapshotItems: 53,
+    orderBackedPayments: 42,
+    abandonedPayments: 2,
+    compensationPayments: 2,
+    recognizedOrders: 38,
+    modelValidatedPayments: 46,
+    modelValidatedOrders: 42,
+  });
+  assert.equal(
+    payments.filter(
+      (payment) =>
+        payment.kind === 'order' && payment.status === 'succeeded',
+    ).length,
+    42,
+  );
+  assert.equal(
+    payments.filter(
+      (payment) =>
+        payment.kind === 'abandoned' && payment.status === 'created',
+    ).length,
+    2,
+  );
+  assert.equal(
+    payments.filter(
+      (payment) =>
+        payment.kind === 'system_compensation' &&
+        payment.status === 'succeeded',
+    ).length,
+    2,
+  );
+});
+
+test('historical customer, status, and date distributions match the locked matrix', async () => {
+  const { matrix, clock } = await historicalCommerceFixture();
+
+  assert.deepEqual(
+    matrix.distributions.customerCounts,
+    HISTORICAL_CUSTOMER_ORDER_COUNTS,
+  );
+  assert.deepEqual(matrix.distributions.statusCounts, HISTORICAL_STATUS_COUNTS);
+  assert.deepEqual(matrix.distributions.dateBuckets, {
+    current_7_days: 12,
+    days_8_to_30: 12,
+    earlier_current_year: 18,
+  });
+  assert.ok(matrix.orders.every((order) => order.placedAt <= clock.anchorTime));
+  assert.ok(matrix.orders.every((order) => order.updatedAt <= clock.anchorTime));
+  assert.equal(
+    matrix.orders.filter((order) => order.cancelledAt).length,
+    4,
+  );
+  assert.ok(
+    matrix.orders
+      .filter((order) => order.cancelledAt)
+      .every((order) => order.cancelledAt > order.placedAt),
+  );
+  assert.ok(
+    matrix.orders.every((order) => {
+      const payment = matrix.payments.find(
+        (candidate) => candidate._id.toString() === order.paymentId.toString(),
+      );
+      return payment.createdAt < payment.verifiedAt && payment.verifiedAt < order.placedAt;
+    }),
+  );
+});
+
+test('commerce pool freezes two active Variant 01 Products per sport with in-stock positions', async () => {
+  const { matrix } = await historicalCommerceFixture();
+  const sportCounts = Object.fromEntries(
+    [...new Set(matrix.pool.map((entry) => entry.product.sport))].map(
+      (sport) => [
+        sport,
+        matrix.pool.filter((entry) => entry.product.sport === sport).length,
+      ],
+    ),
+  );
+
+  assert.deepEqual(
+    matrix.pool.map((entry) => entry.seedKey),
+    HISTORICAL_COMMERCE_PRODUCT_KEYS,
+  );
+  assert.equal(matrix.pool.length, 14);
+  assert.equal(Object.keys(sportCounts).length, 7);
+  assert.ok(Object.values(sportCounts).every((count) => count === 2));
+  assert.ok(matrix.pool.every((entry) => entry.product.isActive));
+  assert.ok(matrix.pool.every((entry) => entry.variant.isActive));
+  assert.ok(matrix.pool.every((entry) => entry.inventory.stockState === 'in_stock'));
+});
+
+test('49 Order item IDs are preserved by Payments and four non-Order IDs remain Payment-only', async () => {
+  const { matrix } = await historicalCommerceFixture();
+  const paymentItemIds = matrix.payments.flatMap((payment) =>
+    payment.checkoutSnapshot.items.map((item) => item._id.toString()),
+  );
+  const orderItemIds = matrix.orders.flatMap((order) =>
+    order.items.map((item) => item._id.toString()),
+  );
+
+  assert.equal(paymentItemIds.length, 53);
+  assert.equal(new Set(paymentItemIds).size, 53);
+  assert.equal(orderItemIds.length, 49);
+  assert.equal(new Set(orderItemIds).size, 49);
+  assert.ok(orderItemIds.every((id) => paymentItemIds.includes(id)));
+  assert.equal(paymentItemIds.filter((id) => !orderItemIds.includes(id)).length, 4);
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.keys(HISTORICAL_CUSTOMER_ORDER_COUNTS).map((customer) => [
+        customer,
+        matrix.orders
+          .filter((order) => order.customerSeedKey === customer)
+          .reduce((total, order) => total + order.items.length, 0),
+      ]),
+    ),
+    {
+      'user:checkout': 2,
+      'user:orders': 12,
+      'user:reviews': 9,
+      'user:ratings': 9,
+      'user:refunds': 13,
+      'user:support': 4,
+      'user:fresh': 0,
+    },
+  );
+});
+
+test('immutable snapshots preserve base price, discount, totals, shipping, and runtime Order numbers', async () => {
+  const { matrix } = await historicalCommerceFixture();
+
+  for (const payment of matrix.payments) {
+    const snapshot = payment.checkoutSnapshot;
+    assert.equal(
+      snapshot.subtotal,
+      snapshot.items.reduce((total, item) => total + item.lineTotal, 0),
+    );
+    assert.equal(snapshot.totalAmount, snapshot.subtotal - snapshot.discountAmount);
+    assert.equal(payment.amount, snapshot.totalAmount);
+    assert.ok(
+      snapshot.items.every(
+        (item) =>
+          item.lineTotal ===
+            (item.unitPrice - item.itemDiscount) * item.quantity,
+      ),
+    );
+    assert.deepEqual(Object.keys(snapshot.shippingAddress).sort(), [
+      'address',
+      'city',
+      'country',
+      'fullName',
+      'phone',
+      'postalCode',
+      'state',
+    ]);
+  }
+
+  for (const order of matrix.orders) {
+    const payment = matrix.payments.find(
+      (candidate) => candidate._id.toString() === order.paymentId.toString(),
+    );
+    assert.equal(order.orderNumber, `MS-${order._id.toString().toUpperCase()}`);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(order.items)),
+      JSON.parse(JSON.stringify(payment.checkoutSnapshot.items)),
+    );
+    assert.equal(order.totalAmount, payment.checkoutSnapshot.totalAmount);
+  }
+});
+
+test('Coupon matrix sequentially explains only USEDUP250=4 and LIMITED5=3', async () => {
+  const { matrix, coupons } = await historicalCommerceFixture();
+  const couponCodes = matrix.orders
+    .map((order) => order.coupon?.code)
+    .filter(Boolean);
+  const currentCounts = Object.fromEntries(
+    coupons.coupons.map((coupon) => [coupon.code, coupon.usedCount]),
+  );
+
+  assert.equal(couponCodes.filter((code) => code === 'USEDUP250').length, 4);
+  assert.equal(couponCodes.filter((code) => code === 'LIMITED5').length, 3);
+  assert.equal(new Set(couponCodes).size, 2);
+  assert.equal(matrix.couponCounters.get('coupon:USEDUP250'), 4);
+  assert.equal(matrix.couponCounters.get('coupon:LIMITED5'), 3);
+  assert.equal(currentCounts.USEDUP250, 4);
+  assert.equal(currentCounts.LIMITED5, 3);
+  assert.equal(currentCounts.DEMO10, 0);
+});
+
+test('review eligibility reserves two disjoint seven-Product delivered purchase sets', async () => {
+  const { matrix } = await historicalCommerceFixture();
+  const reviews = matrix.reviewEligibility.reviews;
+  const ratings = matrix.reviewEligibility.ratings;
+
+  assert.equal(reviews.length, 7);
+  assert.equal(ratings.length, 7);
+  assert.equal(new Set(reviews.map((item) => item.productId.toString())).size, 7);
+  assert.equal(new Set(ratings.map((item) => item.productId.toString())).size, 7);
+  assert.equal(
+    new Set(
+      [...reviews, ...ratings].map((item) => item.productId.toString()),
+    ).size,
+    14,
+  );
+
+  for (const eligible of [...reviews, ...ratings]) {
+    const order = matrix.orders.find(
+      (candidate) => candidate._id.toString() === eligible.orderId.toString(),
+    );
+    const payment = matrix.payments.find(
+      (candidate) => candidate._id.toString() === eligible.paymentId.toString(),
+    );
+    assert.equal(order.orderStatus, 'delivered');
+    assert.equal(payment.status, 'succeeded');
+  }
+});
+
+test('refund eligibility reserves exact six customer, three cancellation, and two compensation scopes', async () => {
+  const { matrix } = await historicalCommerceFixture();
+  const plan = matrix.refundEligibility;
+
+  assert.equal(plan.customerRequest.length, 6);
+  assert.equal(plan.orderCancellation.length, 3);
+  assert.equal(plan.systemCompensation.length, 2);
+  assert.equal(
+    new Set(
+      plan.customerRequest.flatMap((scope) =>
+        scope.itemIds.map((itemId) => itemId.toString()),
+      ),
+    ).size,
+    6,
+  );
+  assert.ok(
+    plan.orderCancellation.every((scope) =>
+      matrix.orders.some(
+        (order) =>
+          order._id.toString() === scope.orderId.toString() &&
+          order.orderStatus === 'cancelled',
+      ),
+    ),
+  );
+  assert.ok(
+    plan.systemCompensation.every((scope) =>
+      matrix.payments.some(
+        (payment) =>
+          payment._id.toString() === scope.paymentId.toString() &&
+          payment.commerceResolution === 'system_compensation',
+      ),
+    ),
+  );
+});
+
+test('Inventory plan projects 49 purchases, four restorations, safe stock, and intact live Carts', async () => {
+  const { matrix } = await historicalCommerceFixture();
+  const plan = matrix.inventoryEffectPlan;
+  const purchases = plan.effects.filter(
+    (effect) => effect.reason === 'order_purchase',
+  );
+  const cancellations = plan.effects.filter(
+    (effect) => effect.reason === 'order_cancellation',
+  );
+  const affected = plan.projection.filter((position) => position.quantityChange !== 0);
+
+  assert.equal(purchases.length, 49);
+  assert.equal(cancellations.length, 4);
+  assert.equal(plan.effects.length, 53);
+  assert.equal(104 + plan.effects.length, 157);
+  assert.equal(
+    affected.reduce((total, position) => total + position.quantityChange, 0),
+    -45,
+  );
+  assert.ok(plan.projection.every((position) => position.projectedQuantity >= 0));
+  assert.ok(affected.every((position) => position.projectedQuantity > 5));
+  assert.deepEqual(plan.liveCartSafety, {
+    validLiveLines: 5,
+    staleSupportLines: 1,
+  });
+});
+
+test('historical analytics recognize 38 paid Orders across seven sports with repeated sales', async () => {
+  const { matrix } = await historicalCommerceFixture();
+
+  assert.equal(matrix.counts.recognizedOrders, 38);
+  assert.equal(matrix.analytics.recognizedSports, 7);
+  assert.ok(matrix.analytics.recognizedRevenue > 0);
+  assert.ok(matrix.analytics.repeatedTopSellerCount > 1);
+  assert.ok(matrix.analytics.zeroSaleCatalogProducts >= 28);
+});
+
+test('all 46 Payments and 42 Orders validate in memory and the module exposes no persistence API', async () => {
+  const { matrix } = await historicalCommerceFixture();
+  const abandoned = matrix.payments.filter((payment) => payment.kind === 'abandoned');
+  const compensation = matrix.payments.filter(
+    (payment) => payment.kind === 'system_compensation',
+  );
+
+  assert.equal(matrix.counts.modelValidatedPayments, 46);
+  assert.equal(matrix.counts.modelValidatedOrders, 42);
+  assert.ok(
+    matrix.payments.every(
+      (payment) =>
+        payment.providerOrderId.startsWith('demo_rzp_order_') &&
+        (!payment.providerPaymentId ||
+          payment.providerPaymentId.startsWith('demo_rzp_payment_')),
+    ),
+  );
+  assert.ok(
+    abandoned.every(
+      (payment) =>
+        !Object.hasOwn(payment, 'providerPaymentId') &&
+        !Object.hasOwn(payment, 'verifiedAt') &&
+        !Object.hasOwn(payment, 'commerceResolution'),
+    ),
+  );
+  assert.ok(
+    compensation.every(
+      (payment) =>
+        payment.providerPaymentId &&
+        payment.verifiedAt &&
+        payment.commerceResolution === 'system_compensation',
+    ),
+  );
+  assert.equal(
+    Object.keys(commerceScenarioModule).some((name) =>
+      /^(seed|persist|reset)/i.test(name),
+    ),
+    false,
+  );
 });

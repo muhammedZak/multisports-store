@@ -78,6 +78,24 @@ function numberedKeys(namespace, count) {
   );
 }
 
+function commerceItemKeys() {
+  const twoItemOrderOrdinals = new Set([15, 23, 31, 32, 33, 34, 35]);
+  const orderItems = Array.from({ length: 42 }, (_, index) => {
+    const ordinal = index + 1;
+    const namespace = `commerce-item:order:${String(ordinal).padStart(2, '0')}`;
+
+    return numberedKeys(namespace, twoItemOrderOrdinals.has(ordinal) ? 2 : 1);
+  }).flat();
+
+  return [
+    ...orderItems,
+    'commerce-item:abandoned:01:01',
+    'commerce-item:abandoned:02:01',
+    'commerce-item:system-compensation:01:01',
+    'commerce-item:system-compensation:02:01',
+  ];
+}
+
 const LOW_STOCK_ACTIVE_SIMPLE_ORDINALS = new Set([3, 7, 11, 15, 19]);
 const OUT_OF_STOCK_ACTIVE_SIMPLE_ORDINALS = new Set([4, 8, 12, 16]);
 const RESTOCK_IN_STOCK_ORDINALS = new Set([2, 8, 14, 20, 27, 34, 41, 48]);
@@ -268,8 +286,13 @@ export function createSeedRegistry(manifest) {
       'cart-item:user:orders:02',
       'cart-item:user:support:01',
     ]),
-    payments: numberedKeys('payment:scenario', 8),
-    orders: numberedKeys('order:scenario', 8),
+    commerceItems: commerceItemKeys(),
+    payments: [
+      ...numberedKeys('payment:order', 42),
+      ...numberedKeys('payment:abandoned', 2),
+      ...numberedKeys('payment:system-compensation', 2),
+    ],
+    orders: numberedKeys('order:historical', 42),
     refunds: numberedKeys('refund:scenario', 4),
     reviews: numberedKeys('review:scenario', 8),
     notifications: numberedKeys('notification:scenario', 12),

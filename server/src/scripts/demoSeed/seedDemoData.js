@@ -17,6 +17,10 @@ import { validateProductDefinitions } from './products.seed.js';
 import { seedCoupons, validateCouponDefinitions } from './coupon.seed.js';
 import { seedCarts, validateCartDefinitions } from './cart.seed.js';
 import {
+  preflightHistoricalCommerceCollisions,
+  validateHistoricalCommerceScenarioMatrix,
+} from './commerce.scenarios.seed.js';
+import {
   assertPersistedInventoryStructure,
   resolveSeedLowStockThreshold,
   seedInventoryCatalog,
@@ -281,6 +285,18 @@ export async function runDemoSeed() {
       clock,
       threshold: lowStockThreshold,
     });
+    const commerceMatrix = await validateHistoricalCommerceScenarioMatrix({
+      registry,
+      clock,
+      productDefinitions: lockedProductResult.definitions,
+      categories: expectedCategories,
+      users: expectedUsers,
+      coupons: expectedCouponResult.coupons,
+      inventoryPositions: expectedInventoryResult.positions,
+      lowStockThreshold,
+    });
+    const commerceCollisionResult =
+      await preflightHistoricalCommerceCollisions(commerceMatrix);
 
     await assertPersistedInventoryStructure(inventoryResult.positions);
 
@@ -410,6 +426,23 @@ export async function runDemoSeed() {
     console.log(`  Skipped: ${cartResult.skipped}`);
     console.log('Cart Items:');
     console.log(`  Persisted/Exact: ${cartResult.itemsPersisted}`);
+    console.log('Historical Commerce Matrix:');
+    console.log(`  Payments Defined: ${commerceMatrix.counts.payments}`);
+    console.log(`  Orders Defined: ${commerceMatrix.counts.orders}`);
+    console.log(`  Order Items: ${commerceMatrix.counts.orderItems}`);
+    console.log(
+      `  Order-Backed Payments: ${commerceMatrix.counts.orderBackedPayments}`,
+    );
+    console.log(
+      `  Abandoned Payments: ${commerceMatrix.counts.abandonedPayments}`,
+    );
+    console.log(
+      `  Compensation Payments: ${commerceMatrix.counts.compensationPayments}`,
+    );
+    console.log(
+      `  Persisted Payments: ${commerceCollisionResult.paymentsPresent}`,
+    );
+    console.log(`  Persisted Orders: ${commerceCollisionResult.ordersPresent}`);
     console.log('Authentication: Admin and Checkout Customer verified');
     console.log('AuthChallenges created: 0');
 
@@ -420,6 +453,7 @@ export async function runDemoSeed() {
       inventory: inventoryResult,
       coupons: couponResult,
       carts: cartResult,
+      commerceMatrix,
     };
   } finally {
     await disconnectSeedDatabase();
