@@ -1,296 +1,164 @@
-import { useEffect, useState } from 'react';
-
 import { Link, useLocation, useNavigate } from 'react-router';
 
-import { useDispatch, useSelector } from 'react-redux';
+import { Alert } from '../../components/ui/Alert.jsx';
+import { Button } from '../../components/ui/Button.jsx';
+import { Input } from '../../components/ui/Input.jsx';
 
-import {
-  clearAuthError,
-  requestOtpLogin,
-  verifyOtpLogin,
-} from '../../features/auth/authSlice.js';
+import { AuthFooterLink } from '../../features/auth/components/AuthFooterLink.jsx';
+import { AuthPageHeader } from '../../features/auth/components/AuthPageHeader.jsx';
 
-const OTP_RESEND_COOLDOWN_SECONDS = 60;
+import { useOtpLogin } from '../../features/auth/hooks/useOtpLogin.js';
+
+import { getCustomerAuthDestination } from '../../features/auth/auth.utils.js';
 
 function OtpLoginPage() {
-  const dispatch = useDispatch();
   const navigate = useNavigate();
+
   const location = useLocation();
 
-  const { actionStatus, error, googleLinkPending } = useSelector(
-    (state) => state.auth,
-  );
-  const [step, setStep] = useState('request');
+  const otpLogin = useOtpLogin({
+    initialEmail: location.state?.email || '',
 
-  const [email, setEmail] = useState(location.state?.email || '');
+    onAuthenticated() {
+      navigate(
+        getCustomerAuthDestination(location.state?.from),
 
-  const [otp, setOtp] = useState('');
-  const [message, setMessage] = useState('');
-  const [resendSeconds, setResendSeconds] = useState(0);
-  const [resending, setResending] = useState(false);
-  const loading = actionStatus === 'loading';
-
-  useEffect(() => {
-    dispatch(clearAuthError());
-  }, [dispatch]);
-
-  useEffect(() => {
-    if (resendSeconds <= 0) {
-      return undefined;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setResendSeconds((current) => Math.max(current - 1, 0));
-    }, 1000);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [resendSeconds]);
-
-  function handleEmailChange(event) {
-    setEmail(event.target.value);
-
-    if (error) {
-      dispatch(clearAuthError());
-    }
-  }
-
-  function handleOtpChange(event) {
-    setOtp(event.target.value);
-
-    if (error) {
-      dispatch(clearAuthError());
-    }
-  }
-
-  async function handleRequestOtp(event) {
-    event.preventDefault();
-
-    const result = await dispatch(
-      requestOtpLogin({
-        email,
-      }),
-    );
-
-    if (requestOtpLogin.fulfilled.match(result)) {
-      setMessage(result.payload.message);
-      setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
-      setStep('verify');
-    }
-  }
-
-  async function handleVerifyOtp(event) {
-    event.preventDefault();
-
-    const result = await dispatch(
-      verifyOtpLogin({
-        email,
-        otp,
-      }),
-    );
-
-    if (verifyOtpLogin.fulfilled.match(result)) {
-      const destination = location.state?.from || '/account';
-
-      navigate(destination, {
-        replace: true,
-      });
-    }
-  }
-
-  async function handleResendOtp() {
-    if (loading || resendSeconds > 0) {
-      return;
-    }
-
-    dispatch(clearAuthError());
-    setResending(true);
-
-    try {
-      const result = await dispatch(
-        requestOtpLogin({
-          email,
-        }),
+        {
+          replace: true,
+        },
       );
-
-      if (requestOtpLogin.fulfilled.match(result)) {
-        setMessage(result.payload.message);
-        setOtp('');
-        setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
-      }
-    } finally {
-      setResending(false);
-    }
-  }
-
-  function handleChangeEmail() {
-    setStep('request');
-    setOtp('');
-    setMessage('');
-    setResendSeconds(0);
-    dispatch(clearAuthError());
-  }
+    },
+  });
 
   return (
     <div>
-      <p className='text-sm font-medium uppercase tracking-[0.2em] text-neutral-500'>
-        Passwordless login
-      </p>
+      <AuthPageHeader
+        eyebrow='Passwordless login'
+        title='Login with email code'
+        description="Enter your account email and we'll send you a one-time login code."
+      />
 
-      <h1 className='mt-3 text-3xl font-semibold'>Login with email code</h1>
-
-      <p className='mt-3 text-sm leading-6 text-neutral-600'>
-        Enter your account email and we'll send you a one-time login code.
-      </p>
-
-      {googleLinkPending && (
-        <div
-          role='status'
-          className='mt-6 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900'>
+      {otpLogin.googleLinkPending ? (
+        <Alert variant='warning' className='mt-6'>
           After verifying your login code, you will finish linking your Google
           account.
-        </div>
-      )}
+        </Alert>
+      ) : null}
 
-      {step === 'request' && (
-        <form onSubmit={handleRequestOtp} className='mt-8 space-y-5'>
-          <div>
-            <label htmlFor='email' className='mb-2 block text-sm font-medium'>
-              Email
-            </label>
+      {otpLogin.step === 'request' ? (
+        <form onSubmit={otpLogin.requestOtp} className='mt-8 space-y-5'>
+          <Input
+            id='otp-login-email'
+            name='email'
+            label='Email'
+            type='email'
+            autoComplete='email'
+            required
+            value={otpLogin.email}
+            disabled={otpLogin.loading}
+            placeholder='you@example.com'
+            error={otpLogin.error?.fields?.email}
+            onChange={otpLogin.handleEmailChange}
+          />
 
-            <input
-              id='email'
-              name='email'
-              type='email'
-              autoComplete='email'
-              required
-              value={email}
-              disabled={loading}
-              onChange={handleEmailChange}
-              placeholder='you@example.com'
-              className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
-            />
+          {otpLogin.error ? (
+            <Alert variant='danger'>{otpLogin.error.message}</Alert>
+          ) : null}
 
-            {error?.fields?.email && (
-              <p className='mt-2 text-sm text-red-600'>{error.fields.email}</p>
-            )}
-          </div>
-
-          {error && (
-            <div
-              role='alert'
-              className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-              {error.message}
-            </div>
-          )}
-
-          <button
+          <Button
             type='submit'
-            disabled={loading}
-            className='w-full bg-black px-4 py-3 font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
-            {loading ? 'Sending code...' : 'Send login code'}
-          </button>
+            size='lg'
+            disabled={otpLogin.loading}
+            className='w-full'>
+            {otpLogin.loading ? 'Sending code...' : 'Send login code'}
+          </Button>
         </form>
-      )}
+      ) : null}
 
-      {step === 'verify' && (
-        <form onSubmit={handleVerifyOtp} className='mt-8 space-y-5'>
-          {message && (
-            <div
-              role='status'
-              className='border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'>
-              {message}
-            </div>
-          )}
+      {otpLogin.step === 'verify' ? (
+        <form onSubmit={otpLogin.verifyOtp} className='mt-8 space-y-5'>
+          {otpLogin.message ? (
+            <Alert variant='success'>{otpLogin.message}</Alert>
+          ) : null}
 
-          <div>
-            <p className='text-sm text-neutral-600'>Login email</p>
+          <section className='border-y border-[var(--color-border)] py-5'>
+            <p className='mb-1 text-xs font-bold uppercase tracking-[0.12em] text-[var(--color-muted)]'>
+              Login email
+            </p>
 
-            <p className='mt-1 font-medium'>{email}</p>
+            <p className='mb-0 break-all font-bold'>{otpLogin.email}</p>
 
-            <button
+            <Button
               type='button'
-              disabled={loading}
-              onClick={handleChangeEmail}
-              className='mt-2 text-sm font-medium underline underline-offset-4'>
+              variant='quiet'
+              size='sm'
+              disabled={otpLogin.loading}
+              onClick={otpLogin.changeEmail}
+              className='mt-2'>
               Use a different email
-            </button>
-          </div>
+            </Button>
+          </section>
 
-          <div>
-            <label htmlFor='otp' className='mb-2 block text-sm font-medium'>
-              Login code
-            </label>
+          <Input
+            id='otp-login-code'
+            name='otp'
+            label='Login code'
+            type='text'
+            inputMode='numeric'
+            autoComplete='one-time-code'
+            required
+            maxLength={6}
+            value={otpLogin.otp}
+            disabled={otpLogin.loading}
+            placeholder='123456'
+            error={otpLogin.error?.fields?.otp}
+            onChange={otpLogin.handleOtpChange}
+            className='tracking-[0.3em]'
+          />
 
-            <input
-              id='otp'
-              name='otp'
-              type='text'
-              inputMode='numeric'
-              autoComplete='one-time-code'
-              required
-              maxLength={6}
-              value={otp}
-              disabled={loading}
-              onChange={handleOtpChange}
-              placeholder='123456'
-              className='w-full border border-neutral-300 px-4 py-3 tracking-[0.3em] outline-none transition focus:border-black disabled:bg-neutral-100'
-            />
-
-            {error?.fields?.otp && (
-              <p className='mt-2 text-sm text-red-600'>{error.fields.otp}</p>
+          <div className='text-sm'>
+            {otpLogin.resendSeconds > 0 ? (
+              <p className='mb-0 text-[var(--color-muted)]'>
+                Didn't receive the code? Resend in {otpLogin.resendSeconds}s
+              </p>
+            ) : (
+              <Button
+                type='button'
+                variant='quiet'
+                size='sm'
+                disabled={otpLogin.loading || otpLogin.resending}
+                onClick={otpLogin.resendOtp}>
+                {otpLogin.resending ? 'Sending...' : 'Resend code'}
+              </Button>
             )}
-
-            <div className='text-sm'>
-              {resendSeconds > 0 ? (
-                <p className='text-neutral-500'>
-                  Didn't receive the code? Resend in {resendSeconds}s
-                </p>
-              ) : (
-                <button
-                  type='button'
-                  disabled={loading}
-                  onClick={handleResendOtp}
-                  className='font-medium text-black underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-50'>
-                  {resending ? 'Sending...' : 'Resend code'}
-                </button>
-              )}
-            </div>
           </div>
 
-          {error && (
-            <div
-              role='alert'
-              className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-              {error.message}
-            </div>
-          )}
+          {otpLogin.error ? (
+            <Alert variant='danger'>{otpLogin.error.message}</Alert>
+          ) : null}
 
-          <button
+          <Button
             type='submit'
-            disabled={loading}
-            className='w-full bg-black px-4 py-3 font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
-            {loading && !resending ? 'Verifying...' : 'Verify and login'}
-          </button>
+            size='lg'
+            disabled={otpLogin.loading}
+            className='w-full'>
+            {otpLogin.loading && !otpLogin.resending
+              ? 'Verifying...'
+              : 'Verify and login'}
+          </Button>
         </form>
-      )}
+      ) : null}
 
-      <div className='mt-8 border-t border-neutral-200 pt-6 text-center'>
-        <p className='text-sm text-neutral-600'>
-          Prefer your password?{' '}
-          <Link
-            to='/auth/login'
-            state={{
-              email,
-              from: location.state?.from,
-            }}
-            className='font-medium text-black underline underline-offset-4'>
-            Login with password
-          </Link>
-        </p>
-      </div>
+      <AuthFooterLink
+        to='/auth/login'
+        state={{
+          email: otpLogin.email,
+
+          from: location.state?.from,
+        }}
+        linkLabel='Login with password'>
+        Prefer your password?
+      </AuthFooterLink>
     </div>
   );
 }

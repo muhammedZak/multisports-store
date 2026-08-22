@@ -1,12 +1,25 @@
 import { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router';
+
+import { useLocation, useNavigate } from 'react-router';
 
 import { resendVerification, verifyEmail } from '../../api/authApi.js';
 
 import { normalizeApiError } from '../../api/errors.js';
 
+import { Alert } from '../../components/ui/Alert.jsx';
+import { Button } from '../../components/ui/Button.jsx';
+import { Input } from '../../components/ui/Input.jsx';
+
+import { AuthFooterLink } from '../../features/auth/components/AuthFooterLink.jsx';
+import { AuthPageHeader } from '../../features/auth/components/AuthPageHeader.jsx';
+
+import { AUTH_OTP_LENGTH } from '../../features/auth/auth.constants.js';
+
+import { normalizeNumericOtp } from '../../features/auth/auth.utils.js';
+
 function VerifyEmailPage() {
   const location = useLocation();
+
   const navigate = useNavigate();
 
   const [email, setEmail] = useState(location.state?.email || '');
@@ -25,7 +38,9 @@ function VerifyEmailPage() {
     event.preventDefault();
 
     setLoading(true);
+
     setError('');
+
     setMessage('');
 
     try {
@@ -34,16 +49,23 @@ function VerifyEmailPage() {
         otp,
       });
 
-      navigate('/auth/login', {
-        replace: true,
-        state: {
-          email,
-          verified: true,
+      navigate(
+        '/auth/login',
+
+        {
+          replace: true,
+
+          state: {
+            email,
+
+            verified: true,
+          },
         },
-      });
+      );
     } catch (requestError) {
       const apiError = normalizeApiError(
         requestError,
+
         'Email verification failed.',
       );
 
@@ -56,11 +78,14 @@ function VerifyEmailPage() {
   async function handleResend() {
     if (!email.trim()) {
       setError('Enter your email address before requesting a new code.');
+
       return;
     }
 
     setResending(true);
+
     setError('');
+
     setMessage('');
 
     try {
@@ -74,6 +99,7 @@ function VerifyEmailPage() {
     } catch (requestError) {
       const apiError = normalizeApiError(
         requestError,
+
         'Unable to resend the verification code.',
       );
 
@@ -83,108 +109,88 @@ function VerifyEmailPage() {
     }
   }
 
+  const busy = loading || resending;
+
   return (
     <div>
-      <p className='text-sm font-medium uppercase tracking-[0.2em] text-neutral-500'>
-        Email verification
-      </p>
-
-      <h1 className='mt-3 text-3xl font-semibold'>Verify your email</h1>
-
-      <p className='mt-3 text-sm leading-6 text-neutral-600'>
-        Enter the verification code sent to your email address.
-      </p>
+      <AuthPageHeader
+        eyebrow='Email verification'
+        title='Verify your email'
+        description='Enter the verification code sent to your email address.'
+      />
 
       <form onSubmit={handleVerify} className='mt-8 space-y-5'>
-        <div>
-          <label htmlFor='email' className='mb-2 block text-sm font-medium'>
-            Email
-          </label>
+        <Input
+          id='verify-email'
+          name='email'
+          label='Email'
+          type='email'
+          autoComplete='email'
+          value={email}
+          disabled={busy}
+          placeholder='you@example.com'
+          onChange={(event) => {
+            setEmail(event.target.value);
 
-          <input
-            id='email'
-            name='email'
-            type='email'
-            autoComplete='email'
-            value={email}
-            disabled={loading || resending}
-            onChange={(event) => {
-              setEmail(event.target.value);
-              setError('');
-            }}
-            className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
-            placeholder='you@example.com'
-          />
-        </div>
+            setError('');
+          }}
+        />
 
-        <div>
-          <label htmlFor='otp' className='mb-2 block text-sm font-medium'>
-            Verification code
-          </label>
+        <Input
+          id='verify-email-code'
+          name='otp'
+          label='Verification code'
+          type='text'
+          inputMode='numeric'
+          autoComplete='one-time-code'
+          maxLength={AUTH_OTP_LENGTH}
+          value={otp}
+          disabled={busy}
+          placeholder='000000'
+          onChange={(event) => {
+            setOtp(normalizeNumericOtp(event.target.value));
 
-          <input
-            id='otp'
-            name='otp'
-            type='text'
-            inputMode='numeric'
-            autoComplete='one-time-code'
-            maxLength={6}
-            value={otp}
-            disabled={loading || resending}
-            onChange={(event) => {
-              const value = event.target.value.replace(/\D/g, '');
+            setError('');
+          }}
+          className='tracking-[0.35em]'
+        />
 
-              setOtp(value);
-              setError('');
-            }}
-            className='w-full border border-neutral-300 px-4 py-3 tracking-[0.35em] outline-none transition focus:border-black disabled:bg-neutral-100'
-            placeholder='000000'
-          />
-        </div>
+        {error ? <Alert variant='danger'>{error}</Alert> : null}
 
-        {error && (
-          <div
-            role='alert'
-            className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-            {error}
-          </div>
-        )}
+        {message ? <Alert variant='neutral'>{message}</Alert> : null}
 
-        {message && (
-          <div
-            role='status'
-            className='border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-700'>
-            {message}
-          </div>
-        )}
-
-        <button
+        <Button
           type='submit'
-          disabled={loading || resending || !email.trim() || otp.length !== 6}
-          className='w-full bg-black px-4 py-3 font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
+          size='lg'
+          disabled={busy || !email.trim() || otp.length !== AUTH_OTP_LENGTH}
+          className='w-full'>
           {loading ? 'Verifying...' : 'Verify email'}
-        </button>
+        </Button>
       </form>
 
-      <div className='mt-5 text-center'>
-        <p className='text-sm text-neutral-600'>Didn't receive the code?</p>
+      <section className='mt-6 text-center'>
+        <p className='mb-2 text-sm text-[var(--color-muted)]'>
+          Didn't receive the code?
+        </p>
 
-        <button
+        <Button
           type='button'
-          disabled={loading || resending || !email.trim()}
-          onClick={handleResend}
-          className='mt-2 text-sm font-medium underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-50'>
+          variant='quiet'
+          size='sm'
+          disabled={busy || !email.trim()}
+          onClick={handleResend}>
           {resending ? 'Sending...' : 'Resend verification code'}
-        </button>
-      </div>
+        </Button>
+      </section>
 
-      <div className='mt-8 border-t border-neutral-200 pt-6 text-center'>
-        <Link
-          to='/auth/login'
-          className='text-sm font-medium underline underline-offset-4'>
-          Back to login
-        </Link>
-      </div>
+      <AuthFooterLink
+        to='/auth/login'
+        state={{
+          email,
+        }}
+        linkLabel='Back to login'>
+        Already verified?
+      </AuthFooterLink>
     </div>
   );
 }

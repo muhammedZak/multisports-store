@@ -4,17 +4,33 @@ import { Link, useLocation, useNavigate } from 'react-router';
 
 import { useDispatch, useSelector } from 'react-redux';
 
+import { Alert } from '../../components/ui/Alert.jsx';
+import { Button } from '../../components/ui/Button.jsx';
+import { Input } from '../../components/ui/Input.jsx';
+
+import { AuthDivider } from '../../features/auth/components/AuthDivider.jsx';
+import { AuthFooterLink } from '../../features/auth/components/AuthFooterLink.jsx';
+import { AuthPageHeader } from '../../features/auth/components/AuthPageHeader.jsx';
+
+import GoogleSignInButton from '../../features/auth/GoogleSignInButton.jsx';
+
 import {
   clearAuthError,
+  clearGoogleLinkPending,
   login,
   signInWithGoogle,
 } from '../../features/auth/authSlice.js';
 
-import GoogleSignInButton from '../../features/auth/GoogleSignInButton.jsx';
+import {
+  getCustomerAuthDestination,
+  getPasswordLoginDestination,
+} from '../../features/auth/auth.utils.js';
 
 function LoginPage() {
   const dispatch = useDispatch();
+
   const navigate = useNavigate();
+
   const location = useLocation();
 
   const { actionStatus, error, googleLinkPending } = useSelector(
@@ -23,6 +39,7 @@ function LoginPage() {
 
   const [form, setForm] = useState({
     email: location.state?.email || '',
+
     password: '',
   });
 
@@ -37,6 +54,7 @@ function LoginPage() {
 
     setForm((current) => ({
       ...current,
+
       [name]: value,
     }));
 
@@ -51,17 +69,23 @@ function LoginPage() {
     const result = await dispatch(
       login({
         email: form.email,
+
         password: form.password,
       }),
     );
 
     if (login.fulfilled.match(result)) {
-      const defaultDestination =
-        result.payload.role === 'admin' ? '/admin/categories' : '/account';
-      const destination = location.state?.from || defaultDestination;
-      navigate(destination, {
-        replace: true,
-      });
+      navigate(
+        getPasswordLoginDestination(
+          result.payload,
+
+          location.state?.from,
+        ),
+
+        {
+          replace: true,
+        },
+      );
     }
   }
 
@@ -73,41 +97,42 @@ function LoginPage() {
     );
 
     if (signInWithGoogle.fulfilled.match(result)) {
-      const destination = location.state?.from || '/account';
+      navigate(
+        getCustomerAuthDestination(location.state?.from),
 
-      navigate(destination, {
-        replace: true,
-      });
+        {
+          replace: true,
+        },
+      );
     }
   }
 
   return (
     <div>
-      <p className='text-sm font-medium uppercase tracking-[0.2em] text-neutral-500'>
-        Welcome back
-      </p>
+      <AuthPageHeader
+        eyebrow='Welcome back'
+        title='Login'
+        description='Sign in to your MultiSports Store account.'
+      />
 
-      <h1 className='mt-3 text-3xl font-semibold'>Login</h1>
-
-      <p className='mt-3 text-sm leading-6 text-neutral-600'>
-        Sign in to your MultiSports Store account.
-      </p>
-
-      {location.state?.reauthRequired && (
-        <div
-          role='status'
-          className='mt-6 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900'>
+      {location.state?.reauthRequired ? (
+        <Alert variant='warning' className='mt-6'>
           Sign in again to continue changing your authentication email.
-        </div>
-      )}
+        </Alert>
+      ) : null}
 
-      {location.state?.verified && (
-        <div
-          role='status'
-          className='mt-6 border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'>
+      {location.state?.verified ? (
+        <Alert variant='success' className='mt-6'>
           Your email has been verified. You can now log in.
-        </div>
-      )}
+        </Alert>
+      ) : null}
+
+      {location.state?.passwordReset ? (
+        <Alert variant='success' className='mt-6'>
+          Your password has been reset successfully. You can now log in with
+          your new password.
+        </Alert>
+      ) : null}
 
       <div className='mt-8'>
         <GoogleSignInButton
@@ -116,142 +141,101 @@ function LoginPage() {
         />
       </div>
 
-      <div className='my-6 flex items-center gap-4'>
-        <div className='h-px flex-1 bg-neutral-200' />
+      <AuthDivider />
 
-        <span className='text-sm text-neutral-500'>or</span>
-
-        <div className='h-px flex-1 bg-neutral-200' />
-      </div>
-
-      {googleLinkPending && (
-        <div
-          role='status'
-          className='mb-6 border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900'>
-          <p className='font-medium'>
+      {googleLinkPending ? (
+        <Alert
+          variant='warning'
+          title='Existing account found'
+          className='mb-6'
+          actions={
+            <Button
+              type='button'
+              variant='quiet'
+              size='sm'
+              disabled={loading}
+              onClick={() => dispatch(clearGoogleLinkPending())}>
+              Cancel linking
+            </Button>
+          }>
+          <p className='mb-2'>
             This email already has a MultiSports Store account.
           </p>
 
-          <p className='mt-2 leading-6'>
-            Sign in with your password or email login code to prove that you own
-            the existing account. After login, you can finish linking Google.
+          <p className='mb-0'>
+            Sign in with your password or email login code to prove ownership.
+            After login, you can finish linking Google from your account.
           </p>
-
-          <button
-            type='button'
-            disabled={loading}
-            onClick={() => dispatch(clearGoogleLinkPending())}
-            className='mt-3 font-medium underline underline-offset-4 disabled:opacity-50'>
-            Cancel Google linking
-          </button>
-        </div>
-      )}
+        </Alert>
+      ) : null}
 
       <form onSubmit={handleSubmit} className='space-y-5'>
-        <div>
-          <label htmlFor='email' className='mb-2 block text-sm font-medium'>
-            Email
-          </label>
-
-          <input
-            id='email'
-            name='email'
-            type='email'
-            autoComplete='email'
-            required
-            value={form.email}
-            disabled={loading}
-            onChange={handleChange}
-            placeholder='you@example.com'
-            className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
-          />
-
-          {error?.fields?.email && (
-            <p className='mt-2 text-sm text-red-600'>{error.fields.email}</p>
-          )}
-        </div>
+        <Input
+          id='login-email'
+          name='email'
+          label='Email'
+          type='email'
+          autoComplete='email'
+          required
+          value={form.email}
+          disabled={loading}
+          placeholder='you@example.com'
+          error={error?.fields?.email}
+          onChange={handleChange}
+        />
 
         <div>
-          <div className='mb-2 flex items-center justify-between'>
-            <label htmlFor='password' className='block text-sm font-medium'>
-              Password
-            </label>
-
-            <Link
-              to='/auth/forgot-password'
-              state={{
-                email: form.email,
-              }}
-              className='text-sm font-medium underline underline-offset-4'>
-              Forgot password?
-            </Link>
-          </div>
-
-          {location.state?.passwordReset && (
-            <div
-              role='status'
-              className='mt-6 border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'>
-              Your password has been reset successfully. You can now log in with
-              your new password.
-            </div>
-          )}
-
-          <input
-            id='password'
+          <Input
+            id='login-password'
             name='password'
+            label='Password'
             type='password'
             autoComplete='current-password'
             required
             value={form.password}
             disabled={loading}
-            onChange={handleChange}
             placeholder='Enter your password'
-            className='w-full border border-neutral-300 px-4 py-3 outline-none transition focus:border-black disabled:bg-neutral-100'
+            error={error?.fields?.password}
+            onChange={handleChange}
           />
 
-          {error?.fields?.password && (
-            <p className='mt-2 text-sm text-red-600'>{error.fields.password}</p>
-          )}
+          <div className='mt-2 text-right'>
+            <Link
+              to='/auth/forgot-password'
+              state={{
+                email: form.email,
+              }}
+              className='text-sm font-semibold underline decoration-[var(--color-border-strong)] underline-offset-4'>
+              Forgot password?
+            </Link>
+          </div>
         </div>
 
-        {error && error.code !== 'ACCOUNT_LINK_REQUIRED' && (
-          <div
-            role='alert'
-            className='border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
-            {error.message}
-          </div>
-        )}
+        {error && error.code !== 'ACCOUNT_LINK_REQUIRED' ? (
+          <Alert variant='danger'>{error.message}</Alert>
+        ) : null}
 
-        <button
-          type='submit'
-          disabled={loading}
-          className='w-full bg-black px-4 py-3 font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50'>
+        <Button type='submit' size='lg' disabled={loading} className='w-full'>
           {loading ? 'Logging in...' : 'Login'}
-        </button>
+        </Button>
 
         <div className='text-center'>
           <Link
             to='/auth/login-otp'
             state={{
               email: form.email,
+
               from: location.state?.from,
             }}
-            className='text-sm font-medium text-black underline underline-offset-4'>
+            className='text-sm font-semibold underline decoration-[var(--color-border-strong)] underline-offset-4'>
             Login with email code
           </Link>
         </div>
       </form>
 
-      <div className='mt-8 border-t border-neutral-200 pt-6 text-center'>
-        <p className='text-sm text-neutral-600'>
-          Don't have an account?{' '}
-          <Link
-            to='/auth/register'
-            className='font-medium text-black underline underline-offset-4'>
-            Create account
-          </Link>
-        </p>
-      </div>
+      <AuthFooterLink to='/auth/register' linkLabel='Create account'>
+        Don't have an account?
+      </AuthFooterLink>
     </div>
   );
 }
